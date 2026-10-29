@@ -277,7 +277,7 @@ impl NodeExecutor for Kv3OpenNode {
         if target_addr.is_empty() {
             return Ok(self.err(&msg, "kv3-open: ziel-adresse fehlt (kv3-adresse zuerst)"));
         }
-        let base = msg
+        let _base = msg
             .payload
             .pointer(&format!("/{}", self.base_path.replace(".", "/")))
             .and_then(|v| v.as_str())

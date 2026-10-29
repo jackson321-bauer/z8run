@@ -4,7 +4,6 @@
 //! Produktion (smart-frontend/src/kette.rs). Dieses Modul enthält nur
 //! Verkabelung: Argon2IDHashDatei/3-Format, Salt-/Adressableitung und
 //! dünne Wrapper um Öffnen/Siegeln.
-
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde_json::{json, Value};
@@ -106,8 +105,11 @@ pub fn hashdatei_bauen(addrs: &[(String, String)], chiffren: &[(String, String)]
     )
 }
 
+pub type HashEintraege = Vec<(String, String)>;
+pub type ParsedHashdatei = (HashEintraege, HashEintraege);
+
 /// Parst eine Hashdatei in (Adressen, Blöcke) — Format wie seed_welt2.
-pub fn hashdatei_parsen(text: &str) -> (Vec<(String, String)>, Vec<(String, String)>) {
+pub fn hashdatei_parsen(text: &str) -> ParsedHashdatei {
     let mut addrs = Vec::new();
     let mut blocks = Vec::new();
     let mut section = 0u8;

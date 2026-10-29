@@ -165,3 +165,12 @@ pub fn datei_bytes(entry: &Value) -> Result<Vec<u8>, String> {
     }
     Err("Datei-Eintrag ohne text/content_b64".into())
 }
+
+/// Einheitlicher Fehlerausgang der Setup-Nodes.
+pub fn fehler(msg: &crate::message::FlowMessage, text: impl Into<String>) -> Vec<crate::message::FlowMessage> {
+    vec![msg.derive(
+        msg.source_node,
+        "error",
+        serde_json::json!({ "status": 400, "error": text.into() }),
+    )]
+}

@@ -3,31 +3,22 @@
 use serde_json::{json, Value};
 
 use super::setup_crypto as sc;
-use super::setup_io::{body, datei_bytes, datei_eintrag, text};
+use super::setup_io::{body, datei_bytes, datei_eintrag, fehler, text};
 use super::setup_registry as reg;
 use super::setup_world_build::bau_user;
 use crate::configure_fields;
 use crate::engine::NodeExecutor;
 use crate::error::Z8Result;
 use crate::message::FlowMessage;
-use crate::node_factory;
 use crate::utils::node_helpers::require_non_empty;
 
-fn fehler(msg: &FlowMessage, text: impl Into<String>) -> Vec<FlowMessage> {
-    vec![msg.derive(
-        msg.source_node,
-        "error",
-        json!({ "status": 400, "error": text.into() }),
-    )]
-}
-
 pub struct SetupWorldNode {
-    name: String,
-    s3_config: String,
-    out_dir: String,
-    vec0_path: String,
-    hw_keys: usize,
-    registry_key: String,
+    pub(crate) name: String,
+    pub(crate) s3_config: String,
+    pub(crate) out_dir: String,
+    pub(crate) vec0_path: String,
+    pub(crate) hw_keys: usize,
+    pub(crate) registry_key: String,
 }
 
 #[async_trait::async_trait]
@@ -87,6 +78,15 @@ impl NodeExecutor for SetupWorldNode {
             .unwrap_or_default();
         let mut users_out = Vec::new();
         let mut reg_users = Vec::new();
+        let db_oeffentlich = |db: &Value| {
+            let mut d = db.clone();
+            for name in ["demo", "meta"] {
+                if let Some(o) = d.get_mut(name).and_then(|v| v.as_object_mut()) {
+                    o.remove("key_hex");
+                }
+            }
+            d
+        };
         for u in users {
             let b = match bau_user(
                 &cfg.prefix, &space, u, &key_dir, &db_dir, &vec0, hw, master_hex,
@@ -110,7 +110,7 @@ impl NodeExecutor for SetupWorldNode {
                 "user_master_sha256": b.master_sha256,
                 "workspace_bucket": b.block["workspace_bucket"],
                 "engines": b.block["engines"],
-                "db": b.db,
+                "db": db_oeffentlich(&b.db),
                 "pubkeys": pubkeys,
                 "pems": b.pems,
             });
@@ -122,7 +122,7 @@ impl NodeExecutor for SetupWorldNode {
                 "workspace_bucket": b.block["workspace_bucket"],
                 "engines": b.block["engines"],
                 "pubkeys": pubkeys,
-                "db": b.db,
+                "db": db_oeffentlich(&b.db),
             }));
         }
 
@@ -197,11 +197,3 @@ impl NodeExecutor for SetupWorldNode {
     }
 }
 
-node_factory!(SetupWorldNodeFactory, SetupWorldNode, "setup-world", {
-    name: "setup-world".to_string(),
-    s3_config: "/etc/z8run/kv3-s3.json".to_string(),
-    out_dir: "/data/z8run/setup-keys".to_string(),
-    vec0_path: "/tmp/vecprobe/vec0.so".to_string(),
-    hw_keys: 2_usize,
-    registry_key: reg::REGISTRY_KEY.to_string(),
-});
