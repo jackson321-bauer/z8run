@@ -211,9 +211,22 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
     })
 }
 
+fn cargo_bin() -> String {
+    if let Ok(cargo) = std::env::var("CARGO") {
+        return cargo;
+    }
+    // MCP/service processes often run with a minimal PATH.
+    let home_cargo = Path::new("/root/.cargo/bin/cargo");
+    if home_cargo.is_file() {
+        return home_cargo.display().to_string();
+    }
+    "cargo".to_string()
+}
+
 fn build(dir: &Path, bin: &str, readable: bool) -> Result<PathBuf> {
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let mut cmd = Command::new(cargo);
+    let mut cmd = Command::new(cargo_bin());
+    let path = std::env::var("PATH").unwrap_or_default();
+    cmd.env("PATH", format!("/root/.cargo/bin:{path}"));
     cmd.current_dir(dir).arg("build");
     if !readable {
         cmd.arg("--release");
