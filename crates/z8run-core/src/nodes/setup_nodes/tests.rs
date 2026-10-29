@@ -45,8 +45,14 @@ fn echte_welt2_datei_wird_geparst() {
 async fn pem_seal_und_kette_oeffnen_rundlauf() {
     let gen = PemGenNodeFactory.create(json!({"count": 2, "prefix": "t"})).await.unwrap();
     let out = gen.process(nachricht(json!({}))).await.unwrap();
-    let pems = out[0].payload["pems"].as_array().unwrap().clone();
+    let mut pems = out[0].payload["pems"].as_array().unwrap().clone();
     assert_eq!(pems.len(), 2);
+    let mut kem = Vec::new();
+    for p in pems.iter_mut() {
+        let paar = super::setup_pqc::gen_pqc().unwrap();
+        p["pqc_pub_b64"] = json!(paar.ek_b64);
+        kem.push(paar.dk);
+    }
 
     let seal = HwboxSealNodeFactory.create(json!({"pemsPath": "pems", "blockPath": "block"})).await.unwrap();
     let out = seal
@@ -60,12 +66,12 @@ async fn pem_seal_und_kette_oeffnen_rundlauf() {
     assert_eq!(boxes.len(), 2);
     for (i, b) in boxes.iter().enumerate() {
         let box_val = sc::box_aus_b64(b["box_b64"].as_str().unwrap()).unwrap();
-        let plain = sc::kette::hwbox_oeffne(
+        let block = super::setup_pqc::hwbox_oeffne_v3(
             &box_val,
             pems[i]["pem"].as_str().unwrap(),
+            &kem[i],
         )
         .unwrap();
-        let block: serde_json::Value = serde_json::from_slice(&plain).unwrap();
         assert_eq!(block["shamir_hw"]["x"], 2);
     }
 }

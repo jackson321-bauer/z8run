@@ -150,7 +150,14 @@ impl NodeExecutor for HwboxSealNode {
             if pub_b64.is_empty() {
                 return Ok(error_output(&msg, "hwbox-seal: pub_b64 fehlt"));
             }
-            let box_val = match sc::hwbox(pub_b64, &block, &self.aad) {
+            let pqc_pub = p["pqc_pub_b64"].as_str().unwrap_or_default();
+            if pqc_pub.is_empty() {
+                return Ok(error_output(
+                    &msg,
+                    "hwbox-seal: pqc_pub_b64 fehlt (ML-KEM-1024 Pflicht)",
+                ));
+            }
+            let box_val = match sc::hwbox(pub_b64, pqc_pub, &block, &self.aad) {
                 Ok(b) => b,
                 Err(e) => return Ok(error_output(&msg, &format!("hwbox-seal: {e}"))),
             };

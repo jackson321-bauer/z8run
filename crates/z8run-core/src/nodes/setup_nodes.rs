@@ -10,6 +10,7 @@ pub mod setup_pqc;
 pub mod setup_crypto;
 pub mod setup_db;
 pub mod setup_hashdatei;
+pub mod setup_hashfmt;
 pub mod setup_io;
 pub mod setup_keygen;
 pub mod setup_plugin;

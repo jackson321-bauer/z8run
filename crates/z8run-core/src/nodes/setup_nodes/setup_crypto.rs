@@ -92,61 +92,7 @@ pub fn pruefe_signatur(pub_b64: &str, nachricht: &[u8], sig_b64: &str) -> bool {
     ok.is_ok()
 }
 
-pub fn hashdatei_bauen(addrs: &[(String, String)], chiffren: &[(String, String)]) -> String {
-    let sb: Vec<String> = addrs.iter().map(|(a, b)| format!("{a} = {b}")).collect();
-    let en: Vec<String> = chiffren.iter().map(|(b, c)| format!("{b}\n{c}")).collect();
-    format!(
-        "{HASH_DATEI_KOPF}\nwirt_min = 1.4.0\nnr = 1\n\nSecretboxes\nAnfang\n{}\nEnde\n\nEncrypted\nAnfang\n{}\nEnde\n",
-        sb.join("\n"),
-        en.join("\n\n")
-    )
-}
-
-pub type HashEintraege = Vec<(String, String)>;
-pub type ParsedHashdatei = (HashEintraege, HashEintraege);
-
-/// Parst eine Hashdatei in (Adressen, Blöcke) — Format wie seed_welt2.
-pub fn hashdatei_parsen(text: &str) -> ParsedHashdatei {
-    let mut addrs = Vec::new();
-    let mut blocks = Vec::new();
-    let mut section = 0u8;
-    let mut cur = String::new();
-    let mut buf = String::new();
-    for line in text.lines() {
-        let t = line.trim();
-        match t {
-            "Secretboxes" => section = 1,
-            "Encrypted" => section = 2,
-            "Ende" => {
-                if section == 2 && !cur.is_empty() {
-                    blocks.push((cur.clone(), buf.trim().to_string()));
-                    cur.clear();
-                    buf.clear();
-                }
-            }
-            "Anfang" => {}
-            _ if section == 1 => {
-                if let Some((a, b)) = t.split_once(" = ") {
-                    addrs.push((a.to_string(), b.trim().to_string()));
-                }
-            }
-            _ if section == 2 => {
-                if t.starts_with("Block-") {
-                    if !cur.is_empty() {
-                        blocks.push((cur.clone(), buf.trim().to_string()));
-                        buf.clear();
-                    }
-                    cur = t.to_string();
-                } else if !t.is_empty() {
-                    buf.push_str(line);
-                    buf.push('\n');
-                }
-            }
-            _ => {}
-        }
-    }
-    (addrs, blocks)
-}
+pub use super::setup_hashfmt::{hashdatei_bauen, hashdatei_parsen, HashEintraege, ParsedHashdatei};
 
 pub fn box_b64(wert: &Value) -> Result<String, String> {
     let bytes = serde_json::to_vec(wert).map_err(|e| e.to_string())?;
@@ -169,14 +115,20 @@ pub fn passbox_oeffne(box_val: &Value, passwort: &str, salt: &str) -> Result<Val
     serde_json::from_slice(&plain).map_err(|e| e.to_string())
 }
 
-pub fn hwbox(pub_b64: &str, block: &Value, aad: &str) -> Result<Value, String> {
+/// Z8-STAHLGITTER: JEDE neue Hardware-Box ist hybrid v3 (ECC+ML-KEM-1024).
+pub fn hwbox(
+    pub_b64: &str,
+    pqc_pub_b64: &str,
+    block: &Value,
+    aad: &str,
+) -> Result<Value, String> {
+    let raw = B64.decode(pub_b64).map_err(|e| format!("Publickey Base64: {e}"))?;
+    let ziel = kette::umschlag::p256_pub(&raw)?;
+    let ek = B64
+        .decode(pqc_pub_b64)
+        .map_err(|e| format!("ML-KEM ek Base64: {e}"))?;
     let bytes = serde_json::to_vec(block).map_err(|e| e.to_string())?;
-    kette::hwbox_siegel(pub_b64, &bytes, aad)
-}
-
-pub fn hwbox_oeffne(box_val: &Value, pem: &str) -> Result<Value, String> {
-    let plain = kette::hwbox_oeffne(box_val, pem)?;
-    serde_json::from_slice(&plain).map_err(|e| e.to_string())
+    kette::umschlag::siegeln_v3(&mut rand::rngs::OsRng, &ziel, &ek, &bytes, aad)
 }
 
 /// Verschlüsselte Setup-Registry: symmetrisch mit dem Setup-Master.

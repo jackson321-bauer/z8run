@@ -53,6 +53,7 @@ kv-login = { path = "/data/kronvault/kv-login" }
 # sqlx SQLite driver use the same SQLCipher build; plain files still open
 # without a key, encrypted files require PRAGMA key.
 libsqlite3-sys = { version = "0.30.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+ml-dsa = "0.1.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # tokio's net/process features do not build for WASI; the engine only needs

@@ -92,8 +92,15 @@ impl NodeExecutor for SetupAuthNode {
         }
         let signed = text(req, &self.signed_path).unwrap_or_default();
         let signature = text(req, &self.signature_path).unwrap_or_default();
+        let mldsa_sig = text(req, "setup_mldsa_signature").unwrap_or_default();
         if signed.is_empty() || signature.is_empty() {
-            return Ok(verweigert(&msg, "Setup-Auth: signed/signature fehlt"));
+            return Ok(verweigert(&msg, "Setup-Auth: signed/ECDSA-signature fehlt"));
+        }
+        if mldsa_sig.is_empty() {
+            return Ok(verweigert(
+                &msg,
+                "Setup-Auth: setup_mldsa_signature fehlt (Hybrid ECDSA+ML-DSA-87 Pflicht)",
+            ));
         }
         let space = registry["space"].as_str().unwrap_or_default().to_string();
         let prefix = format!("{}:{}:", self.op, space);
@@ -108,7 +115,24 @@ impl NodeExecutor for SetupAuthNode {
             Err(e) => return Ok(verweigert(&msg, format!("Setup-Auth: {e}"))),
         };
         if !sc::pruefe_signatur(&signer_pub, signed.as_bytes(), signature) {
-            return Ok(verweigert(&msg, "Setup-Auth: Signatur ungültig"));
+            return Ok(verweigert(&msg, "Setup-Auth: ECDSA-Signatur ungültig"));
+        }
+        let mldsa_pub = registry["setup_keys"]
+            .as_array()
+            .and_then(|a| {
+                a.iter()
+                    .find(|k| k["pub_b64"].as_str() == Some(signer_pub.as_str()))
+                    .and_then(|k| k["mldsa_pub_b64"].as_str())
+            })
+            .map(str::to_string);
+        let Some(mldsa_pub) = mldsa_pub else {
+            return Ok(verweigert(
+                &msg,
+                "Setup-Auth: kein ML-DSA-87-Pubkey registriert (Alt-Schlüssel)",
+            ));
+        };
+        if !pqc::mldsa_pruefe(&mldsa_pub, signed.as_bytes(), mldsa_sig) {
+            return Ok(verweigert(&msg, "Setup-Auth: ML-DSA-87-Signatur ungültig"));
         }
         let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
@@ -126,6 +150,7 @@ impl NodeExecutor for SetupAuthNode {
             );
             o.remove("setup_pems");
             o.remove("setup_signature");
+            o.remove("setup_mldsa_signature");
             o.remove("setup_signed");
         }
         Ok(vec![msg.derive(msg.source_node, "output", out)])

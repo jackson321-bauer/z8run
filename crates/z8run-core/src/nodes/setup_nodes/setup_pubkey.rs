@@ -84,12 +84,19 @@ impl NodeExecutor for PubkeyAddNode {
         if ha.iter().any(|(a, _)| a == &pub_b64) {
             return Ok(fehler(&msg, 409, "user-pubkey-add: Pubkey bereits registriert"));
         }
+        let Some(pqc_pub) = req.get("pqc_pub_b64").and_then(|v| v.as_str()) else {
+            return Ok(fehler(
+                &msg,
+                400,
+                "user-pubkey-add: pqc_pub_b64 fehlt (ML-KEM-1024 Pflicht)",
+            ));
+        };
         let block = json!({
             "shamir_hw": escrow["shamir_hw"],
             "hash_datei": format!("b2b/{addr}.txt"),
             "added_by": "setup-key",
         });
-        let hbox = match sc::hwbox(&pub_b64, &block, "kv3-hw") {
+        let hbox = match sc::hwbox(&pub_b64, pqc_pub, &block, "kv3-hw") {
             Ok(b) => b,
             Err(e) => return Ok(fehler(&msg, 400, format!("user-pubkey-add: {e}"))),
         };
@@ -116,6 +123,7 @@ impl NodeExecutor for PubkeyAddNode {
                     u["pubkeys"].as_array_mut().unwrap().push(json!({
                         "name": req.get("name").and_then(|v| v.as_str()).unwrap_or("added"),
                         "pub_b64": pub_b64,
+                        "pqc_pub_b64": pqc_pub,
                         "added_at": chrono::Utc::now().to_rfc3339(),
                     }));
                 }

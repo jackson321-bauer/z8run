@@ -123,14 +123,14 @@ pub fn pems_aus(req: &Value, path: &str) -> Vec<String> {
 pub fn shards_bauen(
     master: &[u8],
     n: usize,
-    pems: &[(sc::PemPaar, String)],
+    pems: &[(sc::PemPaar, String, String)],
 ) -> Result<(String, Vec<Value>), String> {
     let xs: Vec<u8> = (1..=n as u8).collect();
     let shares = sc::kette::shamir::split2(master, &xs)?;
     let mut addrs = Vec::new();
     let mut chiffren = Vec::new();
     let mut pubs = Vec::new();
-    for (i, (paar, pqc_pub)) in pems.iter().enumerate() {
+    for (i, (paar, pqc_pub, mldsa_pub)) in pems.iter().enumerate() {
         let share = json!({ "x": shares[i].x, "y_b64": B64.encode(&shares[i].y) });
         let box_val = pqc::hwbox_v3(&paar.pub_b64, pqc_pub, &share, "kv3-setup")?;
         addrs.push((paar.pub_b64.clone(), format!("Block-{}", i + 1)));
@@ -139,6 +139,7 @@ pub fn shards_bauen(
             "name": format!("setup-hw{}", i + 1),
             "pub_b64": paar.pub_b64,
             "pqc_pub_b64": pqc_pub,
+            "mldsa_pub_b64": mldsa_pub,
             "x": shares[i].x,
         }));
     }

@@ -5,15 +5,21 @@ use serde_json::Value;
 use super::{fail, hole};
 use z8run_core::nodes::setup_nodes::setup_crypto as sc;
 use z8run_core::nodes::setup_nodes::setup_io::S3Cfg;
+use z8run_core::nodes::setup_nodes::setup_pqc as pqc;
 use z8run_core::nodes::setup_nodes::setup_registry as reg;
 
 pub async fn registry(cfg: &S3Cfg, resp: &Value, space: &str) {
     if let Ok(pems_env) = std::env::var("SETUP_PEMS") {
-        let pems: Vec<String> = pems_env
-            .split(':')
+        let pem_paths: Vec<&str> = pems_env.split(':').collect();
+        let pems: Vec<String> = pem_paths
+            .iter()
             .map(|p| std::fs::read_to_string(p).unwrap())
             .collect();
-        let master = reg::master_aus_pems(&cfg, reg::SHARDS_KEY, &pems)
+        let kem_dks: Vec<Vec<u8>> = pem_paths
+            .iter()
+            .map(|p| pqc::lese_kem_dk(&p.replace(".pem", ".kem")).unwrap())
+            .collect();
+        let master = reg::master_aus_pems(&cfg, reg::SHARDS_KEY, &pems, &kem_dks)
             .await
             .unwrap_or_else(|e| fail(format!("Setup-Master: {e}")));
         let registry = reg::lade_registry(&cfg, reg::REGISTRY_KEY, &hex::encode(&master))
@@ -53,9 +59,12 @@ pub async fn registry(cfg: &S3Cfg, resp: &Value, space: &str) {
             if let Some((_, blk)) = ha.iter().find(|(a, _)| a == &pub_b64) {
                 let chiffre = hb.iter().find(|(b, _)| b == blk).map(|(_, c)| c.clone()).unwrap();
                 let hbox = sc::box_aus_b64(&chiffre).unwrap();
-                let hplain = sc::kette::hwbox_oeffne(&hbox, &pem)
+                let dk_path = std::env::var("SETUP_EXTRA_PQC_DK")
+                    .unwrap_or_else(|_| extra.replace(".pem", ".kem"));
+                let dk = pqc::lese_kem_dk(&dk_path)
+                    .unwrap_or_else(|e| fail(format!("Extra-PQC-DK: {e}")));
+                let hblock = pqc::hwbox_oeffne_v3(&hbox, &pem, &dk)
                     .unwrap_or_else(|e| fail(format!("Extra-PEM öffnet Box nicht: {e}")));
-                let hblock: Value = serde_json::from_slice(&hplain).unwrap();
                 if hblock["shamir_hw"]["x"].as_u64().is_none() {
                     fail("Extra-Pubkey-Box ohne shamir_hw");
                 }

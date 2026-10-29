@@ -97,15 +97,30 @@ impl NodeExecutor for SetupKeygenNode {
                 Ok(v) => v,
                 Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen pqc: {e}"))),
             };
+            let mldsa = match pqc::gen_mldsa() {
+                Ok(v) => v,
+                Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen mldsa: {e}"))),
+            };
+            let mldsa_path = format!("{out_dir}/{label}-mldsa.pem");
+            if let Err(e) = std::fs::write(&mldsa_path, &mldsa.sk_pem) {
+                return Ok(fehler(&msg, 500, format!("setup-keygen mldsa write: {e}")));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&mldsa_path, std::fs::Permissions::from_mode(0o600));
+            }
             pem_out.push(json!({
                 "name": label,
                 "pem": p.pem,
                 "pub_b64": p.pub_b64,
                 "pqc_pub_b64": pqc_pub.clone(),
+                "mldsa_pub_b64": mldsa.pub_b64.clone(),
                 "path": path.clone(),
                 "pqc_dk_path": pqc_dk_path,
+                "mldsa_sk_path": mldsa_path,
             }));
-            pems.push((p, pqc_pub));
+            pems.push((p, pqc_pub, mldsa.pub_b64));
         }
         let master: Vec<u8> = (0u8..32).map(|_| rand::random::<u8>()).collect();
         let master_hex = hex::encode(&master);

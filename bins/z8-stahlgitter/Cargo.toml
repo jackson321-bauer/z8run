@@ -1,0 +1,17 @@
+[package]
+name = "z8-stahlgitter"
+description = "Z8-STAHLGITTER: Big-Bang-Migration aller Dev-Welten auf hybride v3-Boxen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+z8run-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+rand = { workspace = true }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "arithmetic"] }
+tokio = { workspace = true }

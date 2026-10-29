@@ -123,6 +123,23 @@ mod tests {
     }
 
     #[test]
+    fn s3_mldsa87_signatur_hybrid() {
+        let p = gen_mldsa().unwrap();
+        let msg = b"rotate:gamma:deadbeef";
+        let sig = mldsa_sign(&p.sk_pem, msg).unwrap();
+        assert!(mldsa_pruefe(&p.pub_b64, msg, &sig));
+        // falsche Nachricht → ungültig
+        assert!(!mldsa_pruefe(&p.pub_b64, b"plugin:gamma:deadbeef", &sig));
+        // fremder Pubkey → ungültig
+        let fremd = gen_mldsa().unwrap();
+        assert!(!mldsa_pruefe(&fremd.pub_b64, msg, &sig));
+        // manipulierte Signatur → ungültig
+        let mut raw = B64.decode(&sig).unwrap();
+        raw[0] ^= 1;
+        assert!(!mldsa_pruefe(&p.pub_b64, msg, &B64.encode(raw)));
+    }
+
+    #[test]
     fn s1_v1_und_v2_werden_vom_z8_pfad_abgewiesen() {
         let (pem, _) = identitaet();
         let v1 = json!({"algo": "ECIES-P256-HKDF-SHA256-AES256GCM",
@@ -133,4 +150,75 @@ mod tests {
                         "nonce": "AAAA", "box": "AAAA", "aad": "x"});
         assert!(hwbox_oeffne_v3(&v2, &pem, &[0u8; 3168]).is_err());
     }
+}
+
+// ---------------------------------------------------------------------------
+// ML-DSA-87 (FIPS 204) — Setup-Signaturen hybrid (ECDSA UND ML-DSA)
+// ---------------------------------------------------------------------------
+
+pub struct MldsaPaar {
+    pub sk_pem: String,
+    pub pub_b64: String,
+}
+
+pub fn gen_mldsa() -> Result<MldsaPaar, String> {
+    use ml_dsa::pkcs8::EncodePrivateKey;
+    use ml_dsa::{Generate, Keypair, KeyExport, MlDsa87, SigningKey};
+    let sk = SigningKey::<MlDsa87>::generate();
+    let der = sk.to_pkcs8_der().map_err(|e| format!("ML-DSA-87 DER: {e}"))?;
+    let b64 = B64.encode(der.as_bytes());
+    let mut pem = String::from("-----BEGIN PRIVATE KEY-----\n");
+    for chunk in b64.as_bytes().chunks(64) {
+        pem.push_str(std::str::from_utf8(chunk).unwrap());
+        pem.push('\n');
+    }
+    pem.push_str("-----END PRIVATE KEY-----\n");
+    let pub_b64 = B64.encode(sk.verifying_key().to_bytes().as_slice());
+    Ok(MldsaPaar { sk_pem: pem, pub_b64 })
+}
+
+fn pem_der(text: &str) -> Result<Vec<u8>, String> {
+    let body: String = text
+        .lines()
+        .filter(|l| !l.starts_with("-----"))
+        .collect::<Vec<_>>()
+        .join("");
+    B64.decode(body.trim()).map_err(|e| format!("PEM Base64: {e}"))
+}
+
+pub fn mldsa_pub(sk_pem: &str) -> Result<String, String> {
+    use ml_dsa::pkcs8::DecodePrivateKey;
+    use ml_dsa::{KeyExport, Keypair, MlDsa87, SigningKey};
+    let der = pem_der(sk_pem)?;
+    let sk = SigningKey::<MlDsa87>::from_pkcs8_der(&der)
+        .map_err(|e| format!("ML-DSA-87 PEM: {e}"))?;
+    Ok(B64.encode(sk.verifying_key().to_bytes().as_slice()))
+}
+
+pub fn mldsa_sign(sk_pem: &str, nachricht: &[u8]) -> Result<String, String> {
+    use ml_dsa::pkcs8::DecodePrivateKey;
+    use ml_dsa::{MlDsa87, Signer, SigningKey};
+    let der = pem_der(sk_pem)?;
+    let sk = SigningKey::<MlDsa87>::from_pkcs8_der(&der)
+        .map_err(|e| format!("ML-DSA-87 PEM: {e}"))?;
+    let sig = sk.sign(nachricht);
+    Ok(B64.encode(sig.encode().as_slice()))
+}
+
+pub fn mldsa_pruefe(pub_b64: &str, nachricht: &[u8], sig_b64: &str) -> bool {
+    use ml_dsa::{EncodedVerifyingKey, MlDsa87, Signature, Verifier, VerifyingKey};
+    (|| -> Result<(), String> {
+        let raw = B64.decode(pub_b64).map_err(|e| e.to_string())?;
+        let enc = EncodedVerifyingKey::<MlDsa87>::try_from(raw.as_slice())
+            .map_err(|_| "ML-DSA-87 Pubkey-Länge falsch".to_string())?;
+        let vk = VerifyingKey::<MlDsa87>::decode(&enc);
+        let sraw = B64.decode(sig_b64).map_err(|e| e.to_string())?;
+        let sig = Signature::<MlDsa87>::try_from(sraw.as_slice()).map_err(|e| e.to_string())?;
+        vk.verify(nachricht, &sig).map_err(|e| e.to_string())
+    })()
+    .is_ok()
+}
+
+pub fn lese_mldsa_sk(path: &str) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| format!("ML-DSA-Key {path}: {e}"))
 }

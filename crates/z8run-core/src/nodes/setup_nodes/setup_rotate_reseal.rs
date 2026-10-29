@@ -27,6 +27,19 @@ pub async fn reseal(
         .as_array()
         .ok_or("registry.users fehlt")?
         .clone();
+    let mut pqc_map = std::collections::HashMap::new();
+    for u in &users {
+        if let Some(pubkeys) = u["pubkeys"].as_array() {
+            for p in pubkeys {
+                if let (Some(pub_b64), Some(pqc)) = (
+                    p["pub_b64"].as_str(),
+                    p["pqc_pub_b64"].as_str(),
+                ) {
+                    pqc_map.insert(pub_b64.to_string(), pqc.to_string());
+                }
+            }
+        }
+    }
     let mut out = Vec::new();
     for u in &users {
         let name = u["name"].as_str().ok_or("user.name fehlt")?;
@@ -76,7 +89,10 @@ pub async fn reseal(
         let (ha, _hb) = sc::hashdatei_parsen(&String::from_utf8_lossy(&hw_before));
         let mut hw_chiffren = Vec::new();
         for (pub_b64, block) in &ha {
-            let neu = sc::hwbox(pub_b64, &hw_block, "kv3-hw")?;
+            let pqc = pqc_map
+                .get(pub_b64)
+                .ok_or_else(|| format!("rotateBoxes: kein ML-KEM-Pubkey für {pub_b64}"))?;
+            let neu = sc::hwbox(pub_b64, pqc, &hw_block, "kv3-hw")?;
             hw_chiffren.push((block.clone(), sc::box_b64(&neu)?));
         }
         let hw_text = sc::hashdatei_bauen(&ha, &hw_chiffren);

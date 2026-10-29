@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 SOCK = os.environ.get("Z8_UDS_PATH", "/data/z8run/z8run.sock")
 SETUP_DIRS = [Path("/etc/z8run/setup-keys").resolve(), Path("/data/z8run/setup-keys").resolve()]
+MLDSA_BIN = os.environ.get("Z8_MLDSA_BIN", "/data/z8run-test/src/target/release/z8-stahlgitter")
 FLOW_INITIAL = os.environ.get("Z8_SETUP_FLOW_ID", "")
 FLOW_OPERATION = os.environ.get("Z8_SETUP_OPERATION_FLOW_ID", "")
 
@@ -47,10 +49,15 @@ def _auth(op: str, space: str, pems: list[str]) -> dict[str, Any]:
     signed = f"{op}:{space}:{os.urandom(8).hex()}"
     key = serialization.load_pem_private_key(pems[0].encode(), password=None)
     sig = key.sign(signed.encode(), ec.ECDSA(hashes.SHA256()))
+    ml_path = str(Path(pems[0]).with_name(Path(pems[0]).stem + "-mldsa.pem"))
+    ml = subprocess.check_output(
+        [MLDSA_BIN, "mldsa-sign", "--key", ml_path, "--msg", signed]).decode().strip()
     return {
         "setup_pems": pems,
+        "setup_pqc_keys": [str(Path(p).with_suffix(".kem")) for p in pems],
         "setup_signed": signed,
         "setup_signature": base64.b64encode(sig).decode(),
+        "setup_mldsa_signature": ml,
     }
 
 

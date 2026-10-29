@@ -13,6 +13,7 @@ import http.cookiejar
 import json
 import os
 import socket
+import subprocess
 import sys
 import urllib.request
 
@@ -24,6 +25,7 @@ SOCK = os.environ.get("Z8_UDS", "/data/z8run/z8run.sock")
 EMAIL = os.environ.get("Z8_EMAIL", "")
 PASSWORD = os.environ.get("Z8_PASSWORD", "")
 PREFIX = os.environ.get("SETUP_PREFIX", "sim2/welt2/z8setup/run2/")
+MLDSA_BIN = os.environ.get("Z8_MLDSA_BIN", "/data/z8run-test/src/target/release/z8-stahlgitter")
 KEYS = os.environ.get("SETUP_KEYS", "/data/z8run-test/verify-logs/z8-setup/s2-world/keys")
 RESP = os.environ.get("SETUP_RESP", "/data/z8run-test/verify-logs/z8-setup/s2-world/response.json")
 
@@ -89,10 +91,14 @@ def signierte_auth(op: str, space: str, nonce: str) -> dict:
     signed = f"{op}:{space}:{nonce}"
     key = serialization.load_pem_private_key(a.encode(), password=None)
     sig = key.sign(signed.encode(), ec.ECDSA(hashes.SHA256()))
+    ml = subprocess.check_output([MLDSA_BIN, "mldsa-sign", "--key",
+                                  f"{KEYS}/setup-hw1-mldsa.pem", "--msg", signed]).decode().strip()
     return {
         "setup_pems": [a, b],
+        "setup_pqc_keys": [f"{KEYS}/setup-hw1.kem", f"{KEYS}/setup-hw2.kem"],
         "setup_signed": signed,
         "setup_signature": base64.b64encode(sig).decode(),
+        "setup_mldsa_signature": ml,
         "s3": {"prefix": PREFIX},
     }
 
@@ -180,7 +186,8 @@ def main():
     a, b = setup_pems()
     body = {"user": "anna", "challenge": ch["webauthn_challenge"], "rpId": ch["rp_id"],
             "origin": ch["origin"], "attestationObject": "", "clientDataJSON": "",
-            "setup_pems": [a, b], "setup_signed": f"webauthn-register:{space}:x",
+            "setup_pems": [a, b],
+        "setup_pqc_keys": [f"{KEYS}/setup-hw1.kem", f"{KEYS}/setup-hw2.kem"], "setup_signed": f"webauthn-register:{space}:x",
             "setup_signature": base64.b64encode(b"falsch").decode(), "s3": {"prefix": PREFIX}}
     st, out = unix_post(f"/hook/{uid}/webauthn/register", body)
     assert st == 403, (st, out)

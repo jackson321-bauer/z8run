@@ -9,6 +9,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde_json::Value;
 use z8run_core::nodes::setup_nodes::setup_crypto as sc;
+use z8run_core::nodes::setup_nodes::setup_pqc as pqc;
 use z8run_core::nodes::setup_nodes::setup_io::S3Cfg;
 
 mod checks;
@@ -100,9 +101,20 @@ async fn main() {
             .unwrap_or_else(|| fail(format!("{name}: PEM-Pubkey nicht in hw-shards")));
         let hchiffre = hb.iter().find(|(b, _)| b == &hblk).map(|(_, c)| c.clone()).unwrap();
         let hbox = sc::box_aus_b64(&hchiffre).unwrap();
-        let hplain = sc::kette::hwbox_oeffne(&hbox, &pem)
+        if hbox["v"].as_u64() != Some(3) {
+            fail(format!("{name}: HW-Box ist nicht v3/hybrid"));
+        }
+        let kem_path = if let Some(p) = user["pems"][0]["pqc_dk_path"].as_str() {
+            p.to_string()
+        } else {
+            let dir = std::env::var("SETUP_KEYS_DIR").expect("SETUP_KEYS_DIR für PQC-DK");
+            let name = user["pems"][0]["name"].as_str().expect("pem name");
+            format!("{dir}/{name}.kem")
+        };
+        let kem_dk = pqc::lese_kem_dk(&kem_path)
+            .unwrap_or_else(|e| fail(format!("{name}: PQC-DK: {e}")));
+        let hblock = pqc::hwbox_oeffne_v3(&hbox, &pem, &kem_dk)
             .unwrap_or_else(|e| fail(format!("{name}: HW-Box: {e}")));
-        let hblock: Value = serde_json::from_slice(&hplain).unwrap();
         let h = &hblock["shamir_hw"];
         let hw = sc::kette::shamir::Share {
             x: h["x"].as_u64().unwrap() as u8,
