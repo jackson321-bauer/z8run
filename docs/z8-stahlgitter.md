@@ -131,7 +131,7 @@ hybrid.
 |-------|-----|
 | S0 | `verify-logs/z8-stahlgitter/s0-s3-inventory.txt` |
 | S1 | `s1-unit.log` (v3-Roundtrip, Hybrid-Zwang, v2-Felder) |
-| S2 | `s2-migration.log`, `s2-verify.log`, `s2-world2-login.log`, `s2-quarantaene.log` |
+| S2 | `s2-migration.log`, `s2-migration-report-final.{json,md}`, `s2-verify.log`, `s2-world2-login.log`, `s2-quarantaene.log` |
 | S3 | `s3-operation.log` (positiv + alle Negativfälle) |
 | S4 | `s4-export-*.log`, `s4-verify-world.log`, `s4-fresh-verify.log`, `s4-verify-rotated.log` |
 | S5 | `s5-cargo-test-{1,2,3}.log`, `s5-mcp.log` |
