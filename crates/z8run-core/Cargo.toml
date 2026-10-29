@@ -26,6 +26,7 @@ base64 = { workspace = true }
 urlencoding = { workspace = true }
 sha2 = { workspace = true }
 hex = "0.4"
+rand = { workspace = true }
 data-encoding = "2"
 
 # Native-only dependencies: network, database, crypto envelopes and the
@@ -44,8 +45,10 @@ rumqttc = { workspace = true }
 argon2 = "0.5"
 aes-gcm = "0.10"
 hkdf = "0.12"
-p256 = { version = "0.13", features = ["ecdh", "pem", "arithmetic"] }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "arithmetic"] }
 kv-store = { path = "/data/kronvault/kv-store" }
+# EINE Krypto-Quelle: dieselbe kette.rs wie Produktion (smart-frontend).
+kv-login = { path = "/data/kronvault/kv-login" }
 # SQLCipher for the encrypted database files. Feature unification makes the
 # sqlx SQLite driver use the same SQLCipher build; plain files still open
 # without a key, encrypted files require PRAGMA key.
