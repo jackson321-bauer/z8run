@@ -55,6 +55,8 @@ pub mod kv_auth;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod setup_nodes;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod webauthn_login_nodes;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod llm;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mqtt;
@@ -172,6 +174,11 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         )
         .await;
     setup_nodes::registrieren(engine).await;
+    engine
+        .register_node_type(
+            Arc::new(webauthn_login_nodes::WebauthnVerifyNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
     engine
         .register_node_type(Arc::new(llm::LlmNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;
