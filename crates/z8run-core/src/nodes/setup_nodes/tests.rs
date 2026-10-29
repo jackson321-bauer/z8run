@@ -115,3 +115,178 @@ async fn shamir_mehrere_shares_und_adresse_wie_kette() {
     assert_eq!(addr.len(), 32);
     assert!(addr.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
 }
+
+#[tokio::test]
+async fn setup_world_baut_zwei_userspaces_ohne_shared() {
+    use super::setup_io as io;
+    use super::setup_registry as reg;
+    use super::setup_world::SetupWorldNodeFactory;
+
+    let base = std::env::temp_dir().join(format!("z8setup-world-{}", Uuid::new_v4()));
+    let master_hex = hex::encode([7u8; 32]);
+    let mut registry = sc::leeres_registry("gamma");
+    registry["setup_keys"] = json!([{"name": "setup-hw1", "pub_b64": "x", "x": 1}]);
+    let node = SetupWorldNodeFactory
+        .create(json!({
+            "vec0Path": "/tmp/vecprobe/vec0.so",
+            "registryKey": reg::REGISTRY_KEY,
+        }))
+        .await
+        .unwrap();
+    let req = json!({
+        "s3": {"prefix": "z8setup/unit/"},
+        "setup_master_hex": master_hex,
+        "setup_registry": registry,
+        "space": "gamma",
+        "keyOutDir": base.to_string_lossy(),
+        "users": [
+            {"name": "anna", "password": "anna-pass-123", "engines": ["demo"]},
+            {"name": "bernd", "password": "bernd-pass-123", "engines": ["demo", "fts5"]}
+        ],
+        "files": [],
+    });
+    let out = node.process(nachricht(req)).await.unwrap();
+    assert_eq!(out[0].source_port, "output");
+    let payload = &out[0].payload;
+    let world = &payload["world"];
+    assert_eq!(world["users"].as_array().unwrap().len(), 2);
+    assert_eq!(world["shared"], false);
+    assert!(payload.get("setup_master_hex").is_some());
+
+    let files = payload["files"].as_array().unwrap();
+    let find = |key: &str| files.iter().find(|f| f["key"] == key).cloned();
+    let salt_space = sc::salt_space("gamma");
+    for user in world["users"].as_array().unwrap() {
+        let name = user["name"].as_str().unwrap();
+        let addr = user["addr_user"].as_str().unwrap();
+        let salt_u = sc::salt_user(&salt_space, name);
+        let text = String::from_utf8(io::datei_bytes(&find(&format!("b2b/{addr}.txt")).unwrap()).unwrap()).unwrap();
+        let (addrs, blocks) = sc::hashdatei_parsen(&text);
+        assert_eq!(addrs[0].0, addr);
+        let box_val = sc::box_aus_b64(&blocks[0].1).unwrap();
+        let block = sc::kette::passbox_oeffne(&box_val, &format!("{name}-pass-123"), &salt_u).unwrap();
+        let block: serde_json::Value = serde_json::from_slice(&block).unwrap();
+        let provider = &block["shamir_provider"];
+        let p = sc::kette::shamir::Share {
+            x: provider["x"].as_u64().unwrap() as u8,
+            y: base64::Engine::decode(&base64::engine::general_purpose::STANDARD, provider["y_b64"].as_str().unwrap()).unwrap(),
+        };
+        let pems = user["pems"].as_array().unwrap();
+        assert_eq!(pems.len(), 2);
+        let hw_text = String::from_utf8(io::datei_bytes(&find(&format!("workspaces/{addr}/hw-shards.txt")).unwrap()).unwrap()).unwrap();
+        let (ha, hb) = sc::hashdatei_parsen(&hw_text);
+        let pub_b64 = sc::pem_pub_b64(pems[0]["pem"].as_str().unwrap()).unwrap();
+        let blk = ha.iter().find(|(a, _)| a == &pub_b64).unwrap().1.clone();
+        let hbox = sc::box_aus_b64(&hb.iter().find(|(b, _)| b == &blk).unwrap().1).unwrap();
+        let hplain = sc::kette::hwbox_oeffne(&hbox, pems[0]["pem"].as_str().unwrap()).unwrap();
+        let hblock: serde_json::Value = serde_json::from_slice(&hplain).unwrap();
+        let h = &hblock["shamir_hw"];
+        let hw = sc::kette::shamir::Share {
+            x: h["x"].as_u64().unwrap() as u8,
+            y: base64::Engine::decode(&base64::engine::general_purpose::STANDARD, h["y_b64"].as_str().unwrap()).unwrap(),
+        };
+        let master = sc::kette::shamir::combine2(&p, &hw).unwrap();
+        assert_eq!(sc::sha_hex(&master), user["user_master_sha256"].as_str().unwrap());
+        assert!(block["db"]["demo"]["key_hex"].as_str().unwrap().len() == 64);
+        assert_eq!(block["db"]["demo"]["vec0"], true);
+        let db = io::datei_bytes(&find(&format!("workspaces/{addr}/db/demo.db")).unwrap()).unwrap();
+        assert!(db.len() > 4096);
+        // DB ist verschlüsselt: Klartext-Marker darf nicht im Kopf stehen.
+        assert!(!db.windows(6).any(|w| w == b"SQLite"));
+    }
+    let reg_text = String::from_utf8(io::datei_bytes(&find(reg::REGISTRY_KEY).unwrap()).unwrap()).unwrap();
+    let regbox = sc::box_aus_b64(&reg_text).unwrap();
+    let plain = sc::registry_oeffne(&master_hex, &regbox).unwrap();
+    assert_eq!(plain["users"].as_array().unwrap().len(), 2);
+    assert_eq!(plain["shared"], false);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+fn cb_head(major: u8, n: usize) -> Vec<u8> {
+    if n < 24 {
+        vec![(major << 5) | n as u8]
+    } else if n < 256 {
+        vec![(major << 5) | 24, n as u8]
+    } else {
+        let mut v = vec![(major << 5) | 25];
+        v.extend_from_slice(&(n as u16).to_be_bytes());
+        v
+    }
+}
+fn cb_bytes(b: &[u8]) -> Vec<u8> {
+    let mut v = cb_head(2, b.len());
+    v.extend_from_slice(b);
+    v
+}
+fn cb_text(s: &str) -> Vec<u8> {
+    let mut v = cb_head(3, s.len());
+    v.extend_from_slice(s.as_bytes());
+    v
+}
+fn cb_int(i: i64) -> Vec<u8> {
+    if i >= 0 { cb_head(0, i as usize) } else { cb_head(1, (-1 - i) as usize) }
+}
+
+#[test]
+fn webauthn_registrierung_und_assertion_mit_software_authenticator() {
+    use super::setup_webauthn::{b64url, verarbeite_registrierung};
+    use super::setup_webauthn_assert::pruefe_assertion;
+    use p256::ecdsa::signature::Signer;
+    use sha2::Digest;
+
+    let secret = p256::SecretKey::random(&mut rand::rngs::OsRng);
+    let pub_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        p256::PublicKey::from(secret.public_key()).to_sec1_bytes(),
+    );
+    let rp = "localhost";
+    let origin = "http://localhost:7700";
+    let challenge = b64url(b"challenge-123");
+    let cred_id = vec![9u8; 16];
+    let sec1 = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD, &pub_b64).unwrap();
+    let mut cose = vec![0xa5];
+    cose.extend(cb_int(1)); cose.extend(cb_int(2));
+    cose.extend(cb_int(3)); cose.extend(cb_int(-7));
+    cose.extend(cb_int(-1)); cose.extend(cb_int(1));
+    cose.extend(cb_int(-2)); cose.extend(cb_bytes(&sec1[1..33]));
+    cose.extend(cb_int(-3)); cose.extend(cb_bytes(&sec1[33..65]));
+    let rp_hash = sha2::Sha256::digest(rp.as_bytes());
+    let mut auth = rp_hash.to_vec();
+    auth.push(0x41);
+    auth.extend_from_slice(&1u32.to_be_bytes());
+    auth.extend_from_slice(&[0u8; 16]);
+    auth.extend_from_slice(&(cred_id.len() as u16).to_be_bytes());
+    auth.extend_from_slice(&cred_id);
+    auth.extend_from_slice(&cose);
+    let mut att = vec![0xa3];
+    att.extend(cb_text("fmt")); att.extend(cb_text("none"));
+    att.extend(cb_text("attStmt")); att.push(0xa0);
+    att.extend(cb_text("authData")); att.extend(cb_bytes(&auth));
+    let cd = format!(r#"{{"type":"webauthn.create","challenge":"{challenge}","origin":"{origin}"}}"#);
+    let cred = verarbeite_registrierung(
+        &b64url(cd.as_bytes()), &b64url(&att), &challenge, origin, rp, "anna",
+    ).unwrap();
+    assert_eq!(cred["credential_id"], b64url(&cred_id));
+    assert_eq!(cred["pub_b64"], pub_b64);
+
+    let challenge2 = b64url(b"challenge-456");
+    let mut auth2 = sha2::Sha256::digest(rp.as_bytes()).to_vec();
+    auth2.push(0x01);
+    auth2.extend_from_slice(&2u32.to_be_bytes());
+    let cd2 = format!(r#"{{"type":"webauthn.get","challenge":"{challenge2}","origin":"{origin}"}}"#);
+    let mut signed = auth2.clone();
+    signed.extend_from_slice(&sha2::Sha256::digest(cd2.as_bytes()));
+    let key = p256::ecdsa::SigningKey::from(&secret);
+    let sig: p256::ecdsa::Signature = key.sign(&signed);
+    let sig_b64 = b64url(sig.to_der().as_bytes());
+    let count = pruefe_assertion(
+        &pub_b64, 1, &b64url(&auth2), &b64url(cd2.as_bytes()), &sig_b64,
+        &challenge2, origin, rp,
+    ).unwrap();
+    assert_eq!(count, 2);
+    assert!(pruefe_assertion(
+        &pub_b64, 2, &b64url(&auth2), &b64url(cd2.as_bytes()), &sig_b64,
+        &challenge2, origin, rp,
+    ).is_err());
+}

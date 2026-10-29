@@ -92,7 +92,7 @@ impl NodeExecutor for HashdateiWriteNode {
             std::fs::write(&out_path, &text_out)
                 .map_err(|e| Z8Error::Internal(format!("hashdatei-write {out_path}: {e}")))?;
         }
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             o.insert("hashdatei".into(), json!(text_out));
             o.insert("hashdatei_sha256".into(), json!(sha));
@@ -153,11 +153,13 @@ pub struct S3PutNode {
 impl NodeExecutor for S3PutNode {
     async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
         let req = body(&msg.payload);
+        tracing::info!(node="s3-put", keys=?req.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()), "setup node start");
         let cfg = match S3Cfg::aus_datei(&self.s3_config) {
             Ok(c) => c,
             Err(e) => return Ok(fehler(&msg, &format!("s3-put: {e}"))),
         };
-        let mut cfg = match cfg.mit_override(req) {
+        let ov = req.get("s3").unwrap_or(req);
+        let mut cfg = match cfg.mit_override(ov) {
             Ok(c) => c,
             Err(e) => return Ok(fehler(&msg, &format!("s3-put: {e}"))),
         };
@@ -215,7 +217,7 @@ impl NodeExecutor for S3PutNode {
                 Err(e) => return Ok(fehler(&msg, &format!("s3-put: {e}"))),
             }
         }
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             o.insert("s3_put".into(), json!(results));
         }
@@ -270,7 +272,8 @@ impl NodeExecutor for S3ListNode {
             Ok(c) => c,
             Err(e) => return Ok(fehler(&msg, &format!("s3-list: {e}"))),
         };
-        let mut cfg = match cfg.mit_override(req) {
+        let ov = req.get("s3").unwrap_or(req);
+        let mut cfg = match cfg.mit_override(ov) {
             Ok(c) => c,
             Err(e) => return Ok(fehler(&msg, &format!("s3-list: {e}"))),
         };
@@ -292,7 +295,7 @@ impl NodeExecutor for S3ListNode {
             .into_iter()
             .map(|(key, size)| json!({ "key": key, "size": size }))
             .collect();
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             o.insert("objects".into(), json!(liste));
         }

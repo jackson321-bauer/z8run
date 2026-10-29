@@ -35,13 +35,33 @@ pub struct PemPaar {
     pub pub_b64: String,
 }
 
-/// Erzeugt ein ECDSA-P256-PEM-Paar (SEC1, LF) wie seed_welt2.
+/// Erzeugt ein ECDSA-P256-PEM-Paar (SEC1) wie seed_welt2.
+///
+/// p256 laesst in SEC1 die benannte Kurve weg; OpenSSL/Python koennen solche
+/// PEMs nicht laden. Wir setzen `parameters [0] prime256v1` explizit ein —
+/// kette/p256 und OpenSSL verstehen das identisch.
 pub fn gen_pem() -> Result<PemPaar, String> {
     let secret = p256::SecretKey::random(&mut rand::rngs::OsRng);
-    let pem = secret
-        .to_sec1_pem(p256::pkcs8::LineEnding::LF)
-        .map_err(|e| format!("PEM: {e}"))?
-        .to_string();
+    let der = secret.to_sec1_der().map_err(|e| format!("SEC1: {e}"))?;
+    // 0x30 len | 02 01 01 | 04 20 <32> | [1] BIT STRING
+    let params: [u8; 12] = [0xa0, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
+    let content_len = der.len() - 2 + params.len();
+    if content_len >= 0x80 {
+        return Err("SEC1: unerwartete Länge".into());
+    }
+    let mut voll = Vec::with_capacity(content_len + 2);
+    voll.push(0x30);
+    voll.push(content_len as u8);
+    voll.extend_from_slice(&der[2..39]);
+    voll.extend_from_slice(&params);
+    voll.extend_from_slice(&der[39..]);
+    let b64 = B64.encode(&voll);
+    let mut pem = String::from("-----BEGIN EC PRIVATE KEY-----\n");
+    for chunk in b64.as_bytes().chunks(64) {
+        pem.push_str(std::str::from_utf8(chunk).unwrap());
+        pem.push('\n');
+    }
+    pem.push_str("-----END EC PRIVATE KEY-----\n");
     let pub_b64 = B64.encode(p256::PublicKey::from(secret.public_key()).to_sec1_bytes());
     Ok(PemPaar { pem, pub_b64 })
 }

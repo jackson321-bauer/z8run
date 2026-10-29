@@ -75,7 +75,7 @@ impl NodeExecutor for PemGenNode {
             }
             pems.push(eintrag);
         }
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             if pems.len() == 1 {
                 o.insert("pem".into(), pems[0]["pem"].clone());
@@ -152,7 +152,7 @@ impl NodeExecutor for ShamirSplit2Node {
             .iter()
             .map(|s| json!({ "x": s.x, "y_b64": B64.encode(&s.y) }))
             .collect();
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             o.insert("shares".into(), json!(liste));
             o.insert("master_sha256".into(), json!(sc::sha_hex(&master)));
@@ -238,7 +238,7 @@ impl NodeExecutor for PassboxSealNode {
             Err(e) => return Ok(error_output(&msg, &format!("passbox-seal: {e}"))),
         };
         let addr = text(req, &self.addr_path).unwrap_or_default().to_string();
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             o.remove("password");
             o.remove("passwort");
@@ -338,7 +338,7 @@ impl NodeExecutor for HwboxSealNode {
                 "name": p["name"].clone(),
             }));
         }
-        let mut out = msg.payload.clone();
+        let mut out = body(&msg.payload).clone();
         if let Some(o) = out.as_object_mut() {
             o.insert("secretboxes".into(), json!(boxes));
         }
