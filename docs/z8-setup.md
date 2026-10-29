@@ -181,8 +181,9 @@ dieselben Helfer, die auch die S1-Nodes verwenden.
 
 Die S1-Nodes (`pem-gen`, `shamir-split2`, `passbox-seal`, `hwbox-seal`,
 `hashdatei-write`, `s3-put`, `s3-list`, `setup-keygen`, `setup-auth`) sind
-implementiert, registriert und einzeln getestet; sie stehen für
-Einzel-User-Flows/Erweiterungen bereit. Die S2-Abnahme wird über das
+implementiert und registriert. Die Krypto-/Format-Nodes sind unit-getestet;
+die S3-/Keygen-/Auth-Nodes werden zusätzlich per E2E (Hook/Export) geprüft.
+Sie stehen für Einzel-User-Flows/Erweiterungen bereit. Die S2-Abnahme wird über das
 Endprodukt (Welt + Verify) bewiesen, nicht über die Canvas-Optik.
 
 ## Grenzen

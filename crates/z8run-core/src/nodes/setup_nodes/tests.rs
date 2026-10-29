@@ -1,6 +1,8 @@
 //! S1-Gegenproben: Format und Krypto müssen zu seed_welt2/kette passen.
 
 use super::setup_crypto as sc;
+use super::setup_hashdatei::HashdateiWriteNodeFactory;
+use super::setup_auth::SetupAuthNodeFactory;
 use super::setup_seal_boxes::*;
 use super::setup_seal_keys::*;
 use crate::engine::NodeExecutorFactory;
@@ -118,3 +120,36 @@ async fn shamir_mehrere_shares_und_adresse_wie_kette() {
     assert!(addr.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
 }
 
+
+#[tokio::test]
+async fn hashdatei_write_baut_parsebares_format() {
+    let node = HashdateiWriteNodeFactory
+        .create(json!({"entriesPath": "secretboxes", "key": "b2b/x.txt"}))
+        .await
+        .unwrap();
+    let out = node
+        .process(nachricht(json!({
+            "secretboxes": [
+                {"addr": "a1", "block": "Block-1", "box_b64": "Qk9Y"},
+                {"addr": "a2", "block": "Block-2", "box_b64": "Qk9YMg=="}
+            ]
+        })))
+        .await
+        .unwrap();
+    let text = out[0].payload["hashdatei"].as_str().unwrap();
+    let (addrs, blocks) = sc::hashdatei_parsen(text);
+    assert_eq!(addrs.len(), 2);
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(out[0].payload["files"][0]["key"], "b2b/x.txt");
+}
+
+#[tokio::test]
+async fn setup_auth_ohne_pems_ist_403() {
+    let node = SetupAuthNodeFactory
+        .create(json!({"s3Config": "/etc/z8run/kv3-s3.json", "op": "plugin"}))
+        .await
+        .unwrap();
+    let out = node.process(nachricht(json!({"s3": {"prefix": "x/"}}))).await.unwrap();
+    assert_eq!(out[0].source_port, "error");
+    assert_eq!(out[0].payload["status"], 403);
+}
