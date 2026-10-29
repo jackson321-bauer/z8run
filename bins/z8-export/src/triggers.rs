@@ -68,3 +68,19 @@ pub fn collect_triggers(stored: &Flow) -> Result<Vec<TriggerSpec>> {
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_trigger_from_canvas_fixture() {
+        let stored: Flow =
+            serde_json::from_str(include_str!("../tests/fixtures/echo-join.flow.json")).unwrap();
+        let triggers = collect_triggers(&stored).unwrap();
+        assert_eq!(triggers.len(), 1);
+        assert_eq!(triggers[0].canvas_id, "in");
+        assert_eq!(triggers[0].method, "POST");
+        assert_eq!(triggers[0].path, "/echo");
+    }
+}
