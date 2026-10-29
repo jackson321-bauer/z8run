@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from z8_export_run import register_export_tool
 from z8_setup_run import register_setup_tool
 from z8_stahlgitter_run import register_stahlgitter_tool
+from z8_login_run import register_login_tool
 
 ENV_FILE = Path("/etc/z8run/mcp.env")
 
@@ -43,6 +44,7 @@ mcp = FastMCP("z8run")
 register_export_tool(mcp)
 register_setup_tool(mcp)
 register_stahlgitter_tool(mcp)
+register_login_tool(mcp)
 _client: httpx.Client | None = None
 
 

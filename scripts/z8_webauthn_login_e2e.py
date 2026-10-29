@@ -129,7 +129,7 @@ def start_proxy():
         def handle_error(self, request, client_address):
             pass
     srv = S(PROXY_SOCK, _Proxy)
-    os.chmod(PROXY_SOCK, 0o600)
+    os.chmod(PROXY_SOCK, 0o666)  # Test-Stuntman; produktiv: gleicher User/Gruppe
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
