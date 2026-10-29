@@ -18,10 +18,79 @@ pub enum Mode {
     Server,
 }
 
+/// Build target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    Native,
+    Wasm,
+}
+
+/// Node types that the logic-only WASM build can execute.
+pub const WASM_NODE_TYPES: &[&str] = &[
+    "aggregator",
+    "batch",
+    "conversation-memory",
+    "cron-trigger",
+    "csv",
+    "debug",
+    "delay",
+    "filter",
+    "function",
+    "http-in",
+    "http-out",
+    "if-else",
+    "join",
+    "json",
+    "loop",
+    "mapper",
+    "prompt-template",
+    "sanitize",
+    "switch",
+    "text-splitter",
+    "timer",
+    "unix-in",
+    "vector-store",
+    "webhook",
+    "webhook-trigger",
+];
+
+/// Rejects flows containing network/DB/crypto nodes for the WASM target.
+pub fn check_wasm_supported(stored: &Flow) -> Result<()> {
+    let mut rejected: Vec<String> = Vec::new();
+    if let Some(nodes) = stored
+        .metadata
+        .positions
+        .get("canvas_nodes")
+        .and_then(|v| v.as_array())
+    {
+        for node in nodes {
+            let data = &node["data"];
+            let ty = data["type"]
+                .as_str()
+                .or_else(|| data["nodeType"].as_str())
+                .unwrap_or("?");
+            if !WASM_NODE_TYPES.contains(&ty) {
+                let id = node["id"].as_str().unwrap_or("?");
+                let label = data["label"].as_str().unwrap_or("Node");
+                rejected.push(format!("'{id}' ({label}): {ty}"));
+            }
+        }
+    }
+    if rejected.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "target wasm: folgende Nodes werden nicht unterstützt (Netz/DB/Crypto):\n  - {}",
+            rejected.join("\n  - ")
+        )
+    }
+}
+
 /// What to generate and where.
 pub struct Options {
     pub out_dir: PathBuf,
     pub mode: Mode,
+    pub target: Target,
     pub readable: bool,
     pub build: bool,
     pub core_path: Option<PathBuf>,
@@ -76,10 +145,16 @@ fn write_cargo(
     core: &Path,
     server: bool,
     readable: bool,
+    wasm: bool,
 ) -> Result<()> {
+    let tokio_features = if wasm {
+        "[\"rt\", \"sync\", \"time\", \"macros\"]"
+    } else {
+        "[\"full\"]"
+    };
     let mut deps = format!(
         "z8run-core = {{ path = {:?} }}\n\
-         tokio = {{ version = \"1\", features = [\"full\"] }}\n\
+         tokio = {{ version = \"1\", features = {tokio_features} }}\n\
          serde_json = \"1\"\n\
          uuid = {{ version = \"1\", features = [\"v4\", \"v5\", \"v7\", \"serde\"] }}\n",
         core.display().to_string()
@@ -106,6 +181,12 @@ fn write_cargo(
 /// Generates the project and optionally builds it.
 pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Result<Generated> {
     secrets::assert_clean(stored)?;
+    if opts.target == Target::Wasm {
+        if opts.mode != Mode::Cli {
+            bail!("target wasm unterstützt nur --mode cli");
+        }
+        check_wasm_supported(stored)?;
+    }
 
     let (compiled, id_map) = canvas_to_flow(stored).context("compile canvas")?;
     let core = match &opts.core_path {
@@ -151,7 +232,13 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
     let main_rs = match opts.mode {
         Mode::Cli => {
             let t = &triggers[0];
-            templates::cli_main(&config_entries, &t.canvas_id, &t.method, &t.path)
+            templates::cli_main(
+                &config_entries,
+                &t.canvas_id,
+                &t.method,
+                &t.path,
+                opts.target == Target::Wasm,
+            )
         }
         Mode::Server => {
             let mut routes = String::new();
@@ -195,11 +282,12 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
         &core,
         opts.mode == Mode::Server,
         opts.readable,
+        opts.target == Target::Wasm,
     )?;
 
     let binary = if opts.build {
         Some(
-            build(dir, &bin, opts.readable)
+            build(dir, &bin, opts.readable, opts.target == Target::Wasm)
                 .with_context(|| format!("build in {}", dir.display()))?,
         )
     } else {
@@ -223,11 +311,14 @@ fn cargo_bin() -> String {
     "cargo".to_string()
 }
 
-fn build(dir: &Path, bin: &str, readable: bool) -> Result<PathBuf> {
+fn build(dir: &Path, bin: &str, readable: bool, wasm: bool) -> Result<PathBuf> {
     let mut cmd = Command::new(cargo_bin());
     let path = std::env::var("PATH").unwrap_or_default();
     cmd.env("PATH", format!("/root/.cargo/bin:{path}"));
     cmd.current_dir(dir).arg("build");
+    if wasm {
+        cmd.args(["--target", "wasm32-wasip1"]);
+    }
     if !readable {
         cmd.arg("--release");
     }
@@ -240,5 +331,14 @@ fn build(dir: &Path, bin: &str, readable: bool) -> Result<PathBuf> {
         );
     }
     let profile = if readable { "debug" } else { "release" };
-    Ok(dir.join("target").join(profile).join(bin))
+    let name = if wasm {
+        format!("{bin}.wasm")
+    } else {
+        bin.to_string()
+    };
+    let mut out = dir.join("target");
+    if wasm {
+        out = out.join("wasm32-wasip1");
+    }
+    Ok(out.join(profile).join(name))
 }

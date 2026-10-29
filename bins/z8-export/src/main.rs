@@ -7,7 +7,7 @@ mod secrets;
 mod templates;
 mod triggers;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::{ArgGroup, Parser, ValueEnum};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -83,10 +83,6 @@ async fn load(args: &Args) -> Result<Flow> {
 }
 
 fn run(args: Args) -> Result<()> {
-    if matches!(args.target, TargetArg::Wasm) {
-        bail!("wasm target is not available in this build");
-    }
-
     let rt = tokio::runtime::Runtime::new()?;
     let flow = rt.block_on(load(&args))?;
     let triggers = triggers::collect_triggers(&flow)?;
@@ -96,6 +92,10 @@ fn run(args: Args) -> Result<()> {
         mode: match args.mode {
             ModeArg::Cli => codegen::Mode::Cli,
             ModeArg::Server => codegen::Mode::Server,
+        },
+        target: match args.target {
+            TargetArg::Native => codegen::Target::Native,
+            TargetArg::Wasm => codegen::Target::Wasm,
         },
         readable: args.readable,
         build: args.build,
@@ -107,6 +107,7 @@ fn run(args: Args) -> Result<()> {
         "flow_id": flow.id,
         "flow_name": flow.name,
         "mode": match args.mode { ModeArg::Cli => "cli", ModeArg::Server => "server" },
+        "target": match args.target { TargetArg::Native => "native", TargetArg::Wasm => "wasm" },
         "project": generated.dir,
         "binary": generated.binary,
         "triggers": triggers,

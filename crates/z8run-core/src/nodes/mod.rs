@@ -3,57 +3,83 @@
 //! These are the native nodes shipped with z8run.
 //! Each implements `NodeExecutor` and has a corresponding factory.
 
+// Logic-only nodes: available natively and in the WASM build.
 pub mod aggregator;
-pub mod ai_agent;
 pub mod batch;
-pub mod classifier;
 pub mod conversation_memory;
-pub mod crm;
 pub mod cron_trigger;
 pub mod csv_node;
-pub mod database;
 pub mod debug;
 pub mod delay;
-pub mod embeddings;
 pub mod filter;
 pub mod function;
 pub mod http_in;
 pub mod http_out;
-pub mod http_request;
-pub mod human_handoff;
 pub mod if_else;
-pub mod image_gen;
 pub mod join_node;
 pub mod json_transform;
-pub mod kv3_nodes;
-pub mod kv_auth;
-pub mod llm;
 pub mod loop_node;
 pub mod mapper;
-pub mod mqtt;
 pub mod prompt_template;
-pub mod s3_db_fetch;
 pub mod sanitize;
-pub mod sqlite_exec;
-pub mod structured_output;
-pub mod stt;
-pub mod summarizer;
 pub mod switch;
 pub mod text_splitter;
 pub mod timer;
-pub mod tts;
-pub mod twilio;
 pub mod unix_in;
-pub mod unix_out;
 pub mod vector_store;
 pub mod webhook;
 pub mod webhook_trigger;
+
+// Network/database/crypto nodes: native only. The WASM exporter rejects
+// flows that use them, so they must never enter a WASM build.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ai_agent;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod classifier;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod crm;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod database;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod embeddings;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http_request;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod human_handoff;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod image_gen;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod kv3_nodes;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod kv_auth;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod llm;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mqtt;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod s3_db_fetch;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sqlite_exec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod structured_output;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod stt;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod summarizer;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod tts;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod twilio;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod unix_out;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod whatsapp;
 
 use crate::engine::{FlowEngine, NodeExecutorFactory};
 use std::sync::Arc;
 
 /// Registers all built-in node types with the engine.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn register_builtin_nodes(engine: &FlowEngine) {
     engine
         .register_node_type(Arc::new(debug::DebugNodeFactory) as Arc<dyn NodeExecutorFactory>)
@@ -257,5 +283,104 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
     // Data shaping nodes
     engine
         .register_node_type(Arc::new(mapper::MapperNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+}
+
+/// Registers the logic-only node set for the WASM build.
+///
+/// Network, database and crypto nodes are intentionally absent: the WASM
+/// exporter rejects any flow that uses them with a per-node error, so a
+/// missing registration can never be reached silently.
+#[cfg(target_arch = "wasm32")]
+pub async fn register_builtin_nodes(engine: &FlowEngine) {
+    engine
+        .register_node_type(Arc::new(debug::DebugNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(function::FunctionNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(http_in::HttpInNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(unix_in::UnixInNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(http_out::HttpOutNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(delay::DelayNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(switch::SwitchNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(filter::FilterNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(json_transform::JsonTransformNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(Arc::new(timer::TimerNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(join_node::JoinNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(if_else::IfElseNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(loop_node::LoopNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(mapper::MapperNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(sanitize::SanitizeNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(batch::BatchNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(aggregator::AggregatorNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(Arc::new(csv_node::CsvNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(webhook::WebhookNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(webhook_trigger::WebhookTriggerNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(cron_trigger::CronTriggerNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(Arc::new(conversation_memory::ConversationMemoryNodeFactory)
+            as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(text_splitter::TextSplitterNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(prompt_template::PromptTemplateNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(vector_store::VectorStoreNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
         .await;
 }

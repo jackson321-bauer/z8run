@@ -103,7 +103,7 @@ fn read_stdin_body() -> Result<Value, BoxErr> {
     Ok(serde_json::from_str(t).unwrap_or_else(|_| Value::String(t.to_string())))
 }
 
-#[tokio::main]
+__TOKIO_MAIN__
 async fn main() {
     if let Err(e) = run().await {
         eprintln!("z8-export: {e}");
@@ -289,11 +289,17 @@ __ROUTE_REGISTRATION__
 }
 "#;
 
-pub fn cli_main(configs: &str, canvas_id: &str, method: &str, path: &str) -> String {
+pub fn cli_main(configs: &str, canvas_id: &str, method: &str, path: &str, wasm: bool) -> String {
     let body = PRELUDE.replace("__CONFIGS__", configs) + CLI_MAIN;
+    let main_attr = if wasm {
+        "#[tokio::main(flavor = \"current_thread\")]"
+    } else {
+        "#[tokio::main]"
+    };
     body.replace("__TRIGGER_CANVAS_ID__", canvas_id)
         .replace("__TRIGGER_METHOD__", method)
         .replace("__TRIGGER_PATH__", path)
+        .replace("__TOKIO_MAIN__", main_attr)
 }
 
 pub fn server_main(

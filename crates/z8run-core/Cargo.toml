@@ -11,7 +11,6 @@ keywords = ["flow-engine", "dag", "automation", "workflow", "nodes"]
 categories = ["development-tools", "asynchronous"]
 
 [dependencies]
-tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
@@ -21,6 +20,18 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 regex = { workspace = true }
+futures-util = { workspace = true }
+csv = { workspace = true }
+base64 = { workspace = true }
+urlencoding = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+data-encoding = "2"
+
+# Native-only dependencies: network, database, crypto envelopes and the
+# MQTT client. The WASM build of the engine is logic-only (see S5).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
 reqwest = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
@@ -30,22 +41,20 @@ ipnet = { workspace = true }
 url = { workspace = true }
 sqlx = { workspace = true }
 rumqttc = { workspace = true }
-futures-util = { workspace = true }
-csv = { workspace = true }
-base64 = { workspace = true }
-urlencoding = { workspace = true }
-sha2 = { workspace = true }
 argon2 = "0.5"
 aes-gcm = "0.10"
 hkdf = "0.12"
-hex = "0.4"
-data-encoding = "2"
 p256 = { version = "0.13", features = ["ecdh", "pem", "arithmetic"] }
 kv-store = { path = "/data/kronvault/kv-store" }
 # SQLCipher for the encrypted database files. Feature unification makes the
 # sqlx SQLite driver use the same SQLCipher build; plain files still open
 # without a key, encrypted files require PRAGMA key.
 libsqlite3-sys = { version = "0.30.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# tokio's net/process features do not build for WASI; the engine only needs
+# scheduling, sync primitives and timeouts in a logic-only flow.
+tokio = { version = "1.50", features = ["rt", "sync", "time", "macros"] }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
