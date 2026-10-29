@@ -105,9 +105,10 @@ Referenzen).
 
 ## Obfuscation
 
-Standard: verstümmelte Config-Dateinamen, generierte Funktionssymbole,
-Binary-/Package-Namen sowie `release` + LTO + `strip`. `--readable` erzeugt
-lesbare Namen und einen Debug-Build — nur für Entwicklung.
+Standard: verstümmelte Config-Dateinamen, generierte Funktionssymbole und
+gehashte Package-Namen sowie `release` + LTO + `strip`. Der Binary-Name
+bleibt lesbar (`z8_<FlowName>`), damit Endnutzer ihn starten können.
+`--readable` erzeugt lesbare Namen und einen Debug-Build — nur Entwicklung.
 
 Der `z8run-core`-Anteil bleibt unverändert (er ist Teil der
 path-Dependency, nicht des generierten Teils).
@@ -116,9 +117,11 @@ path-Dependency, nicht des generierten Teils).
 
 `--target wasm` baut dieselbe Verkabelung für `wasm32-wasip1`. Erlaubt
 sind nur Logik-Nodes (Function, Join, Switch, Mapper, JSON, Filter,
-Delay, …). Netz- und DB-Nodes sowie die KV3-Crypto-Nodes werden **je Node**
-mit klarer Fehlermeldung abgelehnt, nie still übergangen. Reine
-Hash-/HMAC-Logik (`sanitize`, `webhook`) bleibt erlaubt.
+Delay, …). Trigger- und Terminal-Nodes (`http-in`, `unix-in`, `http-out`)
+bleiben erlaubt: sie bilden nur Request-Format und Antwort ab, keinen
+Netz-Transport. Echte Netz-/DB-Nodes sowie die KV3-Crypto-Nodes werden
+**je Node** mit klarer Fehlermeldung abgelehnt, nie still übergangen.
+Reine Hash-/HMAC-Logik (`sanitize`, `webhook`) bleibt erlaubt.
 
 ```bash
 z8-export --flow-file logic.json --out ./logic --target wasm --build
@@ -146,6 +149,19 @@ flow.json          Canvas ohne Node-Configs (Graph + Metadaten)
 config/<name>.json je Node eine Config (verstümmelter Name)
 src/main.rs        Trigger-Adapter → canvas_to_flow → echte FlowEngine
 Cargo.toml         path-Dependency auf z8run-core
+```
+
+## Referenz-Beweis (Login-Kette)
+
+`bins/z8-export/scripts/kette_ref.py` rechnet die Login-Kette unabhängig
+nach (Argon2id, AES-GCM, ECIES-P256, Shamir 2-of-2) und vergleicht mit der
+Fixture. Es bestätigt: `sha256(master)` == Flow-Ausgabe, `hex(master)` ==
+Fixture-Feld.
+
+```bash
+/root/hermes-venv/bin/python3 bins/z8-export/scripts/kette_ref.py \
+  space-alpha anna anna-test-1 \
+  /data/kronvault/kronvault-bucket-konzept/welt2/keys/anna-hw1.pem
 ```
 
 ## Grenzen

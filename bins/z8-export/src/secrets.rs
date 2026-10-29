@@ -74,19 +74,15 @@ fn walk(value: &serde_json::Value, location: &str, out: &mut Vec<Finding>) {
             for (k, v) in map {
                 let loc = format!("{location}.{k}");
                 if is_secret_key(k) {
-                    // FlowConfig.credentials is a list of vault key NAMES, not values.
-                    let names_only = normalize(k) == "credentials" && v.is_array();
-                    let inline = if names_only {
-                        false
-                    } else {
-                        match v {
-                            serde_json::Value::String(s) => !is_reference(s),
-                            serde_json::Value::Null => false,
-                            serde_json::Value::Array(a) => a
-                                .iter()
-                                .any(|e| e.as_str().map(|s| !is_reference(s)).unwrap_or(true)),
-                            _ => true,
-                        }
+                    // Arrays (including flow.config.credentials) must contain
+                    // references only; a plain string is an inline secret.
+                    let inline = match v {
+                        serde_json::Value::String(s) => !is_reference(s),
+                        serde_json::Value::Null => false,
+                        serde_json::Value::Array(a) => a
+                            .iter()
+                            .any(|e| e.as_str().map(|s| !is_reference(s)).unwrap_or(true)),
+                        _ => true,
                     };
                     if inline {
                         out.push(Finding {

@@ -1,4 +1,3 @@
-
 use super::*;
 use z8run_core::flow::Flow;
 
@@ -70,11 +69,15 @@ fn max_tokens_is_not_a_secret() {
 }
 
 #[test]
-fn credentials_string_is_caught_but_name_list_is_allowed() {
-    let flow = flow_with("credentials", serde_json::json!("plain-secret"));
+fn credentials_arrays_require_references() {
+    let flow = flow_with("credentials", serde_json::json!(["plain-secret"]));
     assert!(!scan(&flow).is_empty());
+    let flow = flow_with("credentials", serde_json::json!(["vault:openai_api_key"]));
+    assert!(scan(&flow).is_empty());
 
     let mut flow = Flow::new("t");
-    flow.config.credentials.push("openai_api_key".to_string());
+    flow.config
+        .credentials
+        .push("vault:openai_api_key".to_string());
     assert!(scan(&flow).is_empty());
 }
