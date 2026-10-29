@@ -563,6 +563,12 @@ impl FlowEngine {
             }
         }
 
+        // Nodes whose step has completed. A target channel may only be closed
+        // once ALL its producers ran — otherwise a later error/conditional
+        // branch would find no channel and leak its message into the next
+        // node's output edge.
+        let mut completed: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+
         // Execute each step of the plan
         for step in &plan.steps {
             // FUNC-004: stop scheduling further nodes once cancellation is
@@ -744,9 +750,21 @@ impl FlowEngine {
             // This is critical for conditional routing (switch/filter) where
             // only one branch receives a message.
             for &node_id in &step.node_ids {
-                let outgoing = flow.outgoing_edges(node_id);
-                for edge in &outgoing {
-                    channels.remove(&edge.to_node);
+                completed.insert(node_id);
+            }
+            let mut kandidaten: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+            for &node_id in &step.node_ids {
+                for edge in flow.outgoing_edges(node_id) {
+                    kandidaten.insert(edge.to_node);
+                }
+            }
+            for ziel in kandidaten {
+                let alle_fertig = flow
+                    .incoming_edges(ziel)
+                    .iter()
+                    .all(|e| completed.contains(&e.from_node));
+                if alle_fertig {
+                    channels.remove(&ziel);
                 }
             }
         }

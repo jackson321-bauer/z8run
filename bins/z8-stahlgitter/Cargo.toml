@@ -15,3 +15,4 @@ hex = "0.4"
 rand = { workspace = true }
 p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "arithmetic"] }
 tokio = { workspace = true }
+qrcodegen = "1.8"

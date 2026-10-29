@@ -30,6 +30,9 @@ struct Args {
     report: Option<PathBuf>,
     dir: Option<PathBuf>,
     key: Option<PathBuf>,
+    kem: Option<PathBuf>,
+    addr: Option<String>,
+    out: Option<PathBuf>,
     msg: Option<String>,
     label: Option<String>,
 }
@@ -44,13 +47,16 @@ fn parse_args() -> Result<Args, String> {
         report: None,
         dir: None,
         key: None,
+        kem: None,
+        addr: None,
+        out: None,
         msg: None,
         label: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         match x.as_str() {
-            "migrate" | "verify" | "world2" | "mldsa-sign" | "mldsa-pub" | "pqc-gen" => a.cmd = x,
+            "migrate" | "verify" | "world2" | "mldsa-sign" | "mldsa-pub" | "pqc-gen" | "shard-open" | "qr-svg" => a.cmd = x,
             "--s3-config" => a.s3_config = it.next(),
             "--prefix" => a.prefix = it.next(),
             "--keys" => a.keys.push(PathBuf::from(it.next().ok_or("--keys ohne Wert")?)),
@@ -58,6 +64,9 @@ fn parse_args() -> Result<Args, String> {
             "--report" => a.report = it.next().map(PathBuf::from),
             "--dir" => a.dir = it.next().map(PathBuf::from),
             "--key" => a.key = it.next().map(PathBuf::from),
+            "--kem" => a.kem = it.next().map(PathBuf::from),
+            "--addr" => a.addr = it.next(),
+            "--out" => a.out = it.next().map(PathBuf::from),
             "--msg" => a.msg = it.next(),
             "--label" => a.label = it.next(),
             "-h" | "--help" => {
@@ -101,6 +110,60 @@ async fn run() -> Result<(), String> {
         println!("{}", serde_json::json!({
             "pqc_pub_b64": pub_b64, "pqc_dk_path": dk_path
         }));
+        return Ok(());
+    }
+    if a.cmd == "qr-svg" {
+        let msg = a.msg.ok_or("--msg fehlt")?;
+        let qr = qrcodegen::QrCode::encode_text(&msg, qrcodegen::QrCodeEcc::Medium)
+            .map_err(|e| format!("QR: {e}"))?;
+        let border = 4i32;
+        let size = qr.size();
+        let dim = size + border * 2;
+        let mut d = String::new();
+        for y in 0..size {
+            for x in 0..size {
+                if qr.get_module(x, y) {
+                    d.push_str(&format!("M{},{}h1v1h-1z", x + border, y + border));
+                }
+            }
+        }
+        let svg = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {dim} {dim}\" shape-rendering=\"crispEdges\"><rect width=\"{dim}\" height=\"{dim}\" fill=\"#ffffff\"/><path fill=\"#000000\" d=\"{d}\"/></svg>\n"
+        );
+        match a.out {
+            Some(p) => std::fs::write(&p, svg).map_err(|e| format!("qr write: {e}"))?,
+            None => print!("{svg}"),
+        }
+        return Ok(());
+    }
+    if a.cmd == "shard-open" {
+        let cfg = s3cfg(&a)?.ok_or("--s3-config fehlt")?;
+        let pem_path = a.key.ok_or("--key <pem> fehlt")?;
+        let kem_path = a.kem.ok_or("--kem <dk> fehlt")?;
+        let addr = a.addr.ok_or("--addr fehlt")?;
+        let pem = std::fs::read_to_string(&pem_path).map_err(|e| e.to_string())?;
+        let kem_dk = z8run_core::nodes::setup_nodes::setup_pqc::lese_kem_dk(
+            &kem_path.to_string_lossy(),
+        )?;
+        let key = format!("workspaces/{addr}/hw-shards.txt");
+        let raw = cfg.get(&key).await?;
+        let (addrs, blocks) = sc::hashdatei_parsen(&String::from_utf8_lossy(&raw));
+        let pub_b64 = sc::pem_pub_b64(&pem)?;
+        let blk = addrs
+            .iter()
+            .find(|(a, _)| a == &pub_b64)
+            .map(|(_, b)| b.clone())
+            .ok_or("PEM-Pubkey nicht in hw-shards")?;
+        let chiffre = blocks
+            .iter()
+            .find(|(b, _)| b == &blk)
+            .map(|(_, c)| c.clone())
+            .ok_or("HW-Block fehlt")?;
+        let box_val = sc::box_aus_b64(&chiffre)?;
+        let out = z8run_core::nodes::setup_nodes::setup_pqc::hwbox_oeffne_v3(
+            &box_val, &pem, &kem_dk,
+        )?;
+        println!("{}", serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?);
         return Ok(());
     }
     if a.cmd == "mldsa-sign" || a.cmd == "mldsa-pub" {

@@ -52,6 +52,8 @@ pub struct UnixOutNode {
     body_path: String,
     timeout_ms: u64,
     max_response_bytes: u64,
+    preserve_input: bool,
+    strip_fields: String,
 }
 
 impl UnixOutNode {
@@ -206,13 +208,25 @@ impl NodeExecutor for UnixOutNode {
             Ok(Err(error)) => Ok(vec![self.error_output(&msg, &error, false)]),
             Ok(Ok((status, headers, body))) => {
                 info!(node = %self.name, status = status, "Unix Out completed");
-                let payload = serde_json::json!({
+                let uds = serde_json::json!({
                     "status": status,
                     "headers": headers,
                     "body": body,
                     "socketPath": self.socket_path,
                     "path": resolved_path,
                 });
+                if !self.preserve_input {
+                    return Ok(vec![msg.derive(msg.source_node, "output", uds)]);
+                }
+                // Session-Passthrough: Eingabe bleibt erhalten (Login-Response),
+                // nur der UDS-Body wird NICHT nach aussen gespiegelt.
+                let mut payload = msg.payload.clone();
+                if let Some(o) = payload.as_object_mut() {
+                    for feld in self.strip_fields.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                        o.remove(feld);
+                    }
+                    o.insert("uds_response".into(), uds);
+                }
                 Ok(vec![msg.derive(msg.source_node, "output", payload)])
             }
         }
@@ -229,6 +243,12 @@ impl NodeExecutor for UnixOutNode {
             "maxResponseBytes" => max_response_bytes: u64,
             "headers" => headers: value,
         );
+        if let Some(v) = config.get("preserveInput").and_then(|v| v.as_bool()) {
+            self.preserve_input = v;
+        }
+        if let Some(v) = config.get("stripFields").and_then(|v| v.as_str()) {
+            self.strip_fields = v.to_string();
+        }
         Ok(())
     }
 
@@ -270,7 +290,9 @@ node_factory!(UnixOutNodeFactory, UnixOutNode, "unix-out", {
     headers: serde_json::json!({}),
     body_path: "payload".to_string(),
     timeout_ms: 5000,
-    max_response_bytes: 10_485_760
+    max_response_bytes: 10_485_760,
+    preserve_input: false,
+    strip_fields: String::new()
 });
 
 #[cfg(test)]
@@ -294,6 +316,8 @@ mod tests {
             body_path: String::new(),
             timeout_ms,
             max_response_bytes: 10_485_760,
+            preserve_input: false,
+            strip_fields: String::new(),
         }
     }
 

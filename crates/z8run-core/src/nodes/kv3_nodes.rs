@@ -38,6 +38,7 @@ use crate::error::{Z8Error, Z8Result};
 use crate::message::FlowMessage;
 use crate::node_factory;
 use crate::utils::node_helpers::{error_output, require_non_empty};
+use super::setup_nodes::setup_pqc;
 
 fn sha_hex(data: &[u8]) -> String {
     hex::encode(sha2::Sha256::digest(data))
@@ -452,6 +453,11 @@ pub struct Kv3HwshardNode {
 #[async_trait::async_trait]
 impl NodeExecutor for Kv3HwshardNode {
     async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
+        let req = msg
+            .payload
+            .get("req")
+            .and_then(|r| r.get("body"))
+            .unwrap_or(&msg.payload);
         let pem = msg
             .payload
             .pointer(&format!("/{}", self.pem_path.replace(".", "/")))
@@ -514,16 +520,34 @@ impl NodeExecutor for Kv3HwshardNode {
                 .map_err(|e| Z8Error::Internal(e.to_string()))?,
         )
         .map_err(|e| Z8Error::Internal(format!("HW-Box: {e}")))?;
-        // ECIES öffnen — Umschlag-Logik wie kette: p256 ECDH + HKDF + GCM
-        let plain = match umschlag_oeffnen(&box_val, &secret) {
-            Ok(p) => p,
-            Err(e) => return Ok(error_output(&msg, &format!("HW-Box öffnen: {e}"))),
+        // Stahlgitter: v3-Boxen brauchen ECC-PEM UND ML-KEM-1024-dk.
+        // v1/v2 bleiben nur für Alt-Welten lesbar (kein stiller Fallback).
+        let plain = if box_val["v"].as_u64() == Some(3) {
+            let dk = match kem_dk_aus(req) {
+                Ok(d) => d,
+                Err(e) => return Ok(error_output(&msg, &format!("HW-Box öffnen: {e}"))),
+            };
+            match setup_pqc::hwbox_oeffne_v3(&box_val, &pem, &dk) {
+                Ok(v) => match serde_json::to_vec(&v) {
+                    Ok(b) => b,
+                    Err(e) => return Ok(error_output(&msg, &format!("HW-Block-JSON: {e}"))),
+                },
+                Err(e) => return Ok(error_output(&msg, &format!("HW-Box öffnen: {e}"))),
+            }
+        } else {
+            // ECIES öffnen — Umschlag-Logik wie kette: p256 ECDH + HKDF + GCM
+            match umschlag_oeffnen(&box_val, &secret) {
+                Ok(p) => p,
+                Err(e) => return Ok(error_output(&msg, &format!("HW-Box öffnen: {e}"))),
+            }
         };
         let hw_block: Value = serde_json::from_slice(&plain)
             .map_err(|e| Z8Error::Internal(format!("HW-Block-JSON: {e}")))?;
         let mut out = msg.payload.clone();
         if let Some(o) = out.as_object_mut() {
             o.remove("key_pem");
+            o.remove("pqc_dk_path");
+            o.remove("pqc_dk");
             o.insert("hw_block".into(), hw_block);
         }
         Ok(vec![msg.derive(msg.source_node, "output", out)])
@@ -559,6 +583,18 @@ node_factory!(Kv3HwshardNodeFactory, Kv3HwshardNode, "kv3-hwshard", {
     pem_path: "req.body.key_pem".to_string(),
     workspace_addr_path: "addr_user".to_string(),
 });
+
+fn kem_dk_aus(req: &Value) -> Result<Vec<u8>, String> {
+    if let Some(p) = req.get("pqc_dk_path").and_then(|v| v.as_str()) {
+        if !p.is_empty() {
+            return setup_pqc::lese_kem_dk(p);
+        }
+    }
+    if let Some(b) = req.get("pqc_dk").and_then(|v| v.as_str()) {
+        return B64.decode(b).map_err(|e| e.to_string());
+    }
+    Err("v3-HW-Box: pqc_dk_path/pqc_dk fehlt (ML-KEM-1024-Privatekey)".into())
+}
 
 /// ECIES-Öffnen (v1): ECDH(p256) + HKDF-SHA256 + AES-256-GCM — wie kette/umschlag.
 fn umschlag_oeffnen(box_val: &Value, secret: &p256::SecretKey) -> Result<Vec<u8>, String> {
@@ -618,13 +654,20 @@ impl NodeExecutor for Kv3MasterNode {
                 "kv3-master: beide Shards nötig (kv3-open + kv3-hwshard zuerst)",
             ));
         };
+        let y_von = |v: &Value| -> String {
+            v["y_b64"]
+                .as_str()
+                .or_else(|| v["y"].as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let px = p["x"].as_u64().unwrap_or(0) as u8;
         let py = B64
-            .decode(p["y"].as_str().unwrap_or_default())
+            .decode(y_von(&p))
             .map_err(|e| Z8Error::Internal(e.to_string()))?;
         let hx = h["x"].as_u64().unwrap_or(0) as u8;
         let hy = B64
-            .decode(h["y"].as_str().unwrap_or_default())
+            .decode(y_von(&h))
             .map_err(|e| Z8Error::Internal(e.to_string()))?;
         if px == hx {
             return Ok(error_output(
@@ -635,8 +678,27 @@ impl NodeExecutor for Kv3MasterNode {
         let master = shamir2(px, &py, hx, &hy);
         let fp = sha_hex(&master);
         let mut out = msg.payload.clone();
+        let session_id = uuid::Uuid::now_v7().to_string();
+        let qr_code_uri = format!("z8passkey://login/{session_id}");
         if let Some(o) = out.as_object_mut() {
-            o.insert("master_sha256".into(), json!(fp));
+            o.insert("master_sha256".into(), json!(fp.clone()));
+            // Proxy-Session nur UDS-intern (unix-out bodyPath=proxy_session).
+            o.insert(
+                "proxy_session".into(),
+                json!({
+                    "event": "kv3-session",
+                    "trace_id": msg.trace_id.to_string(),
+                    "addr_space": o.get("addr_space").cloned().unwrap_or(Value::Null),
+                    "addr_user": o.get("addr_user").cloned().unwrap_or(Value::Null),
+                    "master_sha256": fp,
+                    "workspace_bucket": o.get("workspace_bucket").cloned().unwrap_or(Value::Null),
+                    "engines": o.get("engines").cloned().unwrap_or(Value::Null),
+                }),
+            );
+            o.insert(
+                "session_view".into(),
+                json!({"qr_code_uri": qr_code_uri, "passkey_session_id": session_id}),
+            );
             o.remove("opened_block");
             o.remove("hw_block");
         }
@@ -680,15 +742,6 @@ fn shamir2(xa: u8, ya: &[u8], xb: u8, yb: &[u8]) -> Vec<u8> {
         }
         p as u8
     }
-    fn gf_inv(a: u8) -> u8 {
-        // a^254
-        let mut r = 1u8;
-        for _ in 0..7 {
-            r = gf_mul(r, r);
-            r = gf_mul(r, a);
-        }
-        gf_mul(r, r) // fix: a^254 = (a^127)^2 … wir nutzen Potenz-Kette unten
-    }
     fn gf_pow(mut base: u8, mut exp: u32) -> u8 {
         let mut acc = 1u8;
         while exp > 0 {
@@ -700,12 +753,9 @@ fn shamir2(xa: u8, ya: &[u8], xb: u8, yb: &[u8]) -> Vec<u8> {
         }
         acc
     }
-    let _ = gf_inv;
     fn inv(a: u8) -> u8 {
         gf_pow(a, 254)
     }
-    let la = gf_mul(ya[0], inv(xa)); // Anteil a: y_a * (0-x_b)/(x_a-x_b) = y_a * x_b/(x_b^x_a)
-    let _ = la;
     // identisch kette::shamir::combine2:
     // la = y_a * x_b/(x_a^x_b), lb = y_b * x_a/(x_a^x_b)
     let la = gf_mul(xb, inv(xa ^ xb));
