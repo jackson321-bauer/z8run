@@ -105,10 +105,12 @@ ML-KEM-1024-dk und schickt nur `{x, y_b64}`. Test-/Agent-Helfer:
 
 ## MCP
 
-`z8_login(space, user, password, assertion, shamir_hw)` oder
-`z8_login(space, user, password, pem_path, pqc_dk_path)`.
-PEMs werden nur als Pfad unter den Setup-Key-Verzeichnissen gelesen; das
-Tool gibt keine Privatekeys zurück.
+`z8_login_challenge(user, space)` holt die Einmal-Challenge **vor** dem
+Signieren. Danach `z8_login(space, user, password, assertion, shamir_hw)`
+oder `z8_login(space, user, password, pem_path, pqc_dk_path)`.
+`assertion` muss die zuvor geholte `challenge` enthalten (sonst klarer
+Fehler statt stiller Neu-Challenge). PEM/KEM werden nur als Pfad unter den
+Setup-Key-Verzeichnissen gelesen; das Tool gibt keine Privatekeys zurück.
 
 ## Beweise / Tests
 
@@ -130,8 +132,10 @@ Ceremony-Paare in den Tests sind vollständige ES256-WebAuthn-Paare
 ## Antwort-Allowlist (kein Secret im HTTP-Out)
 
 Der Login-Payload wird vor `http-out` bereinigt: `req` (enthält Passwort,
-`key_pem`, `pqc_dk`, `shamir_hw`) und `opened_datei` werden entfernt;
-`uds_response` bleibt UDS-intern. Zusätzlich entfernen die Nodes die
+`key_pem`, `pqc_dk`, `shamir_hw`), `opened_datei` und `uds_response` werden
+entfernt. `proxy_session` (inkl. `master_key_b64`) verlässt den Prozess
+**nur** über `unix-out` an den Proxy-Socket; Event-Previews redachten
+`master_key_b64`. Zusätzlich entfernen die Nodes die
 verbrauchten Secret-Felder sofort aus `req.body` (`kv3-open`: Passwort,
 `kv3-hwshard`: PEM/KEM, `webauthn-verify`: `shamir_hw`). Die Antwort
 enthält nur Adressen, Salts, `master_sha256`-Fingerprint, `session_view`

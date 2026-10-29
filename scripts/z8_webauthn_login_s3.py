@@ -81,8 +81,15 @@ def main():
         assert e2e._proxy_body.get("session", {}).get("master_sha256") == expected
         for feld in ("req", "opened_datei", "opened_block", "hw_block"):
             assert feld not in out, f"Leak im CLI-Login: {feld}"
+        import base64 as _b64, hashlib as _sha
+        uds = e2e._proxy_body.get("session", {})
+        assert "master_key_b64" in uds, "UDS-Body ohne Masterkey-Feld"
+        uds_master = _sha.sha256(_b64.b64decode(uds["master_key_b64"])).hexdigest()
+        assert uds_master == expected, (uds_master, expected)
         log("cli-ok", {"exit": rc, "seconds": dur, "master_sha256": out["master_sha256"],
                        "expected_master_sha256": expected,
+                       "uds_master_sha256": uds_master,
+                       "master_key_logged": False,
                        "session_view": out.get("session_view"),
                        "proxy_fields": sorted(e2e._proxy_body["session"].keys())})
         print(f"[S3] CLI ASSERTION OK exit={rc} master={out['master_sha256'][:16]}")
@@ -130,6 +137,7 @@ def main():
                 p.wait(timeout=5)
             except Exception:
                 p.kill()
+        e2e.shutil.rmtree(e2e.KEYS, ignore_errors=True)
         subprocess.run(["systemctl", "start", "z8run"], capture_output=True, text=True)
         print("[S3] z8run wieder gestartet")
 

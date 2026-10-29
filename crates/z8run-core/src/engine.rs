@@ -247,6 +247,13 @@ const SENSITIVE_PREVIEW_KEYS: &[&str] = &[
     "x_signature",
     "x_hub_signature",
     "x_hub_signature_256",
+    "master_key",
+    "master_key_b64",
+    "key_pem",
+    "pqc_dk",
+    "pqc_dk_path",
+    "shamir_hw",
+    "key_hex",
 ];
 
 fn is_sensitive_key(key: &str) -> bool {

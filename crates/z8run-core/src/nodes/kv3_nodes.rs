@@ -708,6 +708,10 @@ impl NodeExecutor for Kv3MasterNode {
                     "addr_space": o.get("addr_space").cloned().unwrap_or(Value::Null),
                     "addr_user": o.get("addr_user").cloned().unwrap_or(Value::Null),
                     "master_sha256": fp,
+                    // ECHTER Master NUR im UDS-Body (Proxy braucht ihn für
+                    // die DB-Key-Ableitung); http-out strippt proxy_session,
+                    // Event-Previews redachten master_key_b64.
+                    "master_key_b64": B64.encode(&master),
                     "workspace_bucket": o.get("workspace_bucket").cloned().unwrap_or(Value::Null),
                     "engines": o.get("engines").cloned().unwrap_or(Value::Null),
                 }),
@@ -838,6 +842,8 @@ impl NodeExecutor for Kv3SocketNode {
             o.remove("key_pem");
             o.remove("pqc_dk");
             o.remove("pqc_dk_path");
+            // Nur UDS-intern: der echte Master darf nie im HTTP-Out landen.
+            o.remove("proxy_session");
         }
         // Erfolgreiche Übergabe = output; Fehler = error-Port (Proxy-Start kann
         // später auch ohne Socket getestet werden).

@@ -45,6 +45,23 @@ def _post(flow_id: str, path: str, body: dict) -> tuple[int, Any]:
         return r.status_code, data
 
 
+def perform_login_challenge(
+    space: str,
+    user: str,
+    s3_prefix: str = "",
+    flow_id: str = "",
+) -> dict[str, Any]:
+    """Holt die Einmal-Challenge VOR dem Signieren (Client-Flow)."""
+    try:
+        body: dict[str, Any] = {"user": user}
+        if s3_prefix:
+            body["s3"] = {"prefix": s3_prefix}
+        st, data = _post(flow_id or FLOW_LOGIN, "/challenge", body)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": st < 400, "status": st, "body": data}
+
+
 def perform_login(
     space: str,
     user: str,
@@ -61,24 +78,14 @@ def perform_login(
         s3 = {"prefix": s3_prefix} if s3_prefix else None
         if assertion:
             fid = flow_id or FLOW_LOGIN
-            if assertion.get("challenge"):
-                body: dict[str, Any] = {
-                    "space": space, "user": user, "password": password, **assertion,
+            if not assertion.get("challenge"):
+                return {
+                    "ok": False,
+                    "error": "assertion.challenge fehlt — zuerst z8_login_challenge aufrufen, dann signieren",
                 }
-            else:
-                ch_body: dict[str, Any] = {"user": user}
-                if s3:
-                    ch_body["s3"] = s3
-                st, ch = _post(fid, "/challenge", ch_body)
-                if st >= 400:
-                    return {"ok": False, "status": st, "body": ch}
-                body = {
-                    "space": space, "user": user, "password": password,
-                    **assertion,
-                    "challenge": ch.get("webauthn_challenge"),
-                    "rpId": ch.get("rp_id"),
-                    "origin": ch.get("origin"),
-                }
+            body: dict[str, Any] = {
+                "space": space, "user": user, "password": password, **assertion,
+            }
             if shamir_hw:
                 body["shamir_hw"] = shamir_hw
             if s3:
@@ -107,6 +114,16 @@ def perform_login(
 
 
 def register_login_tool(mcp) -> None:
+    @mcp.tool()
+    def z8_login_challenge(
+        user: str,
+        space: str = "",
+        s3_prefix: str = "",
+    ) -> dict[str, Any]:
+        """Einmal-Challenge für den Login holen (vor der Assertion signieren)."""
+        return perform_login_challenge(
+            space=space, user=user, s3_prefix=s3_prefix)
+
     @mcp.tool()
     def z8_login(
         space: str,

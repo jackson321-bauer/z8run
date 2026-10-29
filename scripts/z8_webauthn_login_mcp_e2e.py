@@ -97,9 +97,9 @@ def upsert(op, flow_file: str) -> str:
     return fid
 
 
-def mcp_call(**kwargs):
+def mcp_call(name="z8_login", **kwargs):
     """Echter MCP-Endpunkt: registriertes Tool über FastMCP.call_tool."""
-    res = asyncio.run(MCP.call_tool("z8_login", kwargs))
+    res = asyncio.run(MCP.call_tool(name, kwargs))
     # FastMCP liefert (content_blocks, structured_result).
     if isinstance(res, tuple) and len(res) == 2 and isinstance(res[1], dict):
         return res[1]
@@ -148,11 +148,11 @@ def main():
 
         # Challenge-Dir muss dem z8run-User gehören (frischer Testlauf)
         e2e.shutil.rmtree("/data/z8run/login-challenges", ignore_errors=True)
-        # Challenge über den laufenden z8run-Hook des Login-Canvas
-        st, ch = z8_login_run._post(
-            fid_wa, "/challenge", {"user": "anna", "s3": {"prefix": e2e.PREFIX}})
-        if st != 200:
-            raise SystemExit(f"challenge: {st} {ch}")
+        # Challenge über das MCP-Tool (VOR dem Signieren)
+        ch = mcp_call("z8_login_challenge", user="anna", s3_prefix=e2e.PREFIX)
+        if not ch.get("ok"):
+            raise SystemExit(f"challenge: {ch}")
+        ch = ch["body"]
         shard = json.loads(e2e.subprocess.check_output([
             e2e.SG, "shard-open", "--s3-config", e2e.S3, "--prefix", e2e.PREFIX,
             "--addr", user["addr_user"], "--key", pem_path, "--kem", kem,
@@ -167,15 +167,22 @@ def main():
         assert isinstance(r, dict) and r.get("ok") and r.get("body", {}).get("master_sha256") == expected, r
         for feld in ("req", "opened_datei", "opened_block", "hw_block"):
             assert feld not in r["body"], f"Leak in MCP-Antwort: {feld}"
+        uds = e2e._proxy_body.get("session", {})
+        assert "master_key_b64" in uds, "UDS-Body ohne Masterkey-Feld"
+        import base64 as _b64, hashlib as _sha
+        uds_master = _sha.sha256(_b64.b64decode(uds["master_key_b64"])).hexdigest()
+        assert uds_master == expected, (uds_master, expected)
         log("mcp-assertion", {"status": r["status"], "master_sha256": r["body"]["master_sha256"],
                               "expected_master_sha256": expected,
+                              "uds_master_sha256": uds_master,
+                              "uds_master_key_logged": False,
                               "session_view": r["body"].get("session_view")})
         print(f"[S4] MCP z8_login ASSERTION OK master={expected[:16]}")
 
-        # Replay: gleicher Counter unter neuer Challenge
-        st, ch2 = z8_login_run._post(
-            fid_wa, "/challenge", {"user": "anna", "s3": {"prefix": e2e.PREFIX}})
-        replay_assertion = e2e.assertion(key, cred_id, ch2["webauthn_challenge"], 2)
+        # Replay: gleicher Counter unter neuer Challenge (MCP-Tool)
+        ch2 = mcp_call("z8_login_challenge", user="anna", s3_prefix=e2e.PREFIX)
+        assert ch2.get("ok"), ch2
+        replay_assertion = e2e.assertion(key, cred_id, ch2["body"]["webauthn_challenge"], 2)
         r = mcp_call(
             space=e2e.SPACE, user="anna", password=password,
             assertion=replay_assertion, shamir_hw=shard["shamir_hw"],
@@ -211,6 +218,7 @@ def main():
                 p.wait(timeout=5)
             except Exception:
                 p.kill()
+        e2e.shutil.rmtree(e2e.KEYS, ignore_errors=True)
 
 
 if __name__ == "__main__":

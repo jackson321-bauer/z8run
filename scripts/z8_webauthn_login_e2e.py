@@ -307,7 +307,6 @@ def main():
             **a, "shamir_hw": shard["shamir_hw"], "s3": {"prefix": PREFIX},
         }
         st, out = unix_post(SOCK_LOGIN, "/login", body)
-        log("proxy", _proxy_body)
         log("login-raw", {"status": st, "keys": sorted(out.keys()), "out": out})
         assert st == 200, (st, out)
         assert out["master_sha256"] == expected_master, (out.get("master_sha256"), expected_master)
@@ -322,11 +321,19 @@ def main():
         for feld in ("req", "opened_datei", "opened_block", "hw_block"):
             assert feld not in out, f"Secret-/Interna-Leak in Login-Antwort: {feld}"
         assert "password" not in json.dumps(out) and "key_pem" not in json.dumps(out)
+        uds = _proxy_body.get("session", {})
+        assert "master_key_b64" in uds, "UDS-Body ohne Masterkey-Feld"
+        uds_master = hashlib.sha256(base64.b64decode(uds["master_key_b64"])).hexdigest()
+        assert uds_master == expected_master, (uds_master, expected_master)
+        log("proxy", {"fields": sorted(uds.keys()), "master_key_present": True,
+                      "uds_master_sha256": uds_master, "master_key_logged": False,
+                      "body_redacted": True})
         log("login-ok", {"status": st, "master_sha256": out["master_sha256"],
                          "expected_master_sha256": expected_master,
+                         "uds_master_sha256": uds_master,
                          "response_fields": sorted(out.keys()),
                          "session_view": out["session_view"],
-                         "proxy_session_fields": sorted(_proxy_body["session"].keys())})
+                         "proxy_session_fields": sorted(uds.keys())})
         print(f"[a] LOGIN OK master={out['master_sha256'][:16]} qr={out['session_view']['qr_code_uri']}")
 
         # (c) PEM-Parallelweg bleibt intakt
@@ -339,6 +346,9 @@ def main():
         assert st == 200 and out_pem.get("master_sha256") == expected_master, (st, out_pem)
         for feld in ("req", "key_pem", "pqc_dk"):
             assert feld not in out_pem, f"Secret-Leak im PEM-Login: {feld}"
+        assert "proxy_session" not in out_pem and "master_key_b64" not in json.dumps(out_pem), \
+            "PEM-Antwort enthält die UDS-Session/Masterkey"
+        log("login-pem-raw", {"status": st, "keys": sorted(out_pem.keys()), "out": out_pem})
         log("login-pem", {"status": st, "master_sha256": out_pem["master_sha256"],
                           "expected_master_sha256": expected_master})
         print(f"[c] PEM-LOGIN OK master={out_pem['master_sha256'][:16]}")
@@ -405,6 +415,7 @@ def main():
                 p.wait(timeout=5)
             except Exception:
                 p.kill()
+        shutil.rmtree(KEYS, ignore_errors=True)
 
 
 if __name__ == "__main__":
