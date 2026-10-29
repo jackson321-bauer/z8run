@@ -12,6 +12,8 @@ pub mod crm;
 pub mod cron_trigger;
 pub mod csv_node;
 pub mod database;
+pub mod s3_db_fetch;
+pub mod sqlite_exec;
 pub mod debug;
 pub mod delay;
 pub mod embeddings;
@@ -20,10 +22,15 @@ pub mod function;
 pub mod http_in;
 pub mod http_out;
 pub mod http_request;
+pub mod unix_in;
+pub mod unix_out;
 pub mod human_handoff;
 pub mod if_else;
 pub mod image_gen;
+pub mod join_node;
 pub mod json_transform;
+pub mod kv3_nodes;
+pub mod kv_auth;
 pub mod llm;
 pub mod loop_node;
 pub mod mapper;
@@ -58,6 +65,12 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         .register_node_type(Arc::new(http_in::HttpInNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;
     engine
+        .register_node_type(Arc::new(unix_in::UnixInNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(unix_out::UnixOutNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
         .register_node_type(Arc::new(http_out::HttpOutNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;
     engine
@@ -87,6 +100,40 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         .await;
     engine
         .register_node_type(Arc::new(database::DatabaseNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(s3_db_fetch::S3DbFetchNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        )
+        .await;
+    engine
+        .register_node_type(
+            Arc::new(sqlite_exec::SqliteExecNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        )
+        .await;
+    engine
+        .register_node_type(Arc::new(kv_auth::KvLoginNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(kv_auth::KvDeriveNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(kv3_nodes::Kv3AdresseNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(join_node::JoinNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(kv3_nodes::Kv3OpenNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(kv3_nodes::Kv3HwshardNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(kv3_nodes::Kv3MasterNodeFactory) as Arc<dyn NodeExecutorFactory>)
+        .await;
+    engine
+        .register_node_type(Arc::new(kv3_nodes::Kv3SocketNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;
     engine
         .register_node_type(Arc::new(llm::LlmNodeFactory) as Arc<dyn NodeExecutorFactory>)

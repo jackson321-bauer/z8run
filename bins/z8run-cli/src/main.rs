@@ -8,6 +8,8 @@ mod init;
 mod secrets;
 
 use clap::{Parser, Subcommand};
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -454,6 +456,81 @@ async fn cmd_serve(
 
     // Build router
     let app = z8run_api::build_router(state);
+    let uds_app = app.clone();
+
+    // Optional Unix-domain-socket listener. It serves the exact same router as
+    // the TCP listener, so /api, /hook and /ws behave identically on both
+    // transports. Access is controlled by the socket file permissions (0600).
+    if let Ok(uds_path) = std::env::var("Z8_UDS_PATH") {
+        if !uds_path.is_empty() {
+            let path = std::path::PathBuf::from(&uds_path);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::remove_file(&path);
+            match tokio::net::UnixListener::bind(&path) {
+                Ok(uds) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(
+                            &path,
+                            std::fs::Permissions::from_mode(0o600),
+                        );
+                    }
+                    tracing::info!(path = %uds_path, "UDS listener ready");
+                    tokio::spawn(async move {
+                        loop {
+                            match uds.accept().await {
+                                Ok((stream, _)) => {
+                                    let app = uds_app.clone();
+                                    tokio::spawn(async move {
+                                        let io = TokioIo::new(stream);
+                                        let service = service_fn(
+                                            move |req: hyper::Request<hyper::body::Incoming>| {
+                                                let app = app.clone();
+                                                async move {
+                                                    let (mut parts, body) = req.into_parts();
+                                                    parts.extensions.insert(
+                                                        axum::extract::ConnectInfo(
+                                                            std::net::SocketAddr::from((
+                                                                [127, 0, 0, 1],
+                                                                0,
+                                                            )),
+                                                        ),
+                                                    );
+                                                    let req = hyper::Request::from_parts(
+                                                        parts,
+                                                        axum::body::Body::new(body),
+                                                    );
+                                                    match tower::ServiceExt::oneshot(app, req).await {
+                                                        Ok(resp) => {
+                                                            Ok::<_, std::convert::Infallible>(resp)
+                                                        }
+                                                        Err(e) => match e {},
+                                                    }
+                                                }
+                                            },
+                                        );
+                                        if let Err(e) = hyper::server::conn::http1::Builder::new()
+                                            .serve_connection(io, service)
+                                            .await
+                                        {
+                                            tracing::warn!(error = %e, "UDS connection error");
+                                        }
+                                    });
+                                }
+                                Err(e) => tracing::warn!(error = %e, "UDS accept error"),
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %uds_path, "UDS listener failed; TCP only")
+                }
+            }
+        }
+    }
 
     // Start server
     let addr = format!("{}:{}", bind, port);

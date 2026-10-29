@@ -92,7 +92,8 @@ pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, ApiError> {
 pub(crate) const SESSION_COOKIE: &str = "z8_session";
 
 /// Session lifetime in hours (matches the JWT expiry).
-const SESSION_TTL_HOURS: i64 = 24;
+/// GhostForge: 7 days instead of upstream's 24h — private instance, no passkeys.
+const SESSION_TTL_HOURS: i64 = 168;
 
 /// Whether to mark the session cookie `Secure` (HTTPS only).
 ///

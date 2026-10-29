@@ -806,6 +806,45 @@ export const FIELD_REGISTRY: Record<FieldKey, FieldDescriptor> = {
     mono: true,
   },
 
+  // ─── Unix In ──────────────────────────────────────────────────
+  "unix-in:method": {
+    type: "select",
+    defaultValue: "POST",
+    options: HTTP_METHODS,
+  },
+  "unix-in:path": {
+    type: "text",
+    placeholder: "/echo",
+    defaultValue: "/echo",
+    mono: true,
+  },
+
+  // ─── Unix Out ─────────────────────────────────────────────────
+  "unix-out:socketPath": {
+    type: "text",
+    placeholder: "/data/z8run/z8run.sock",
+    defaultValue: "/data/z8run/z8run.sock",
+    mono: true,
+    hint: "Path to the Unix socket (same host only)",
+  },
+  "unix-out:path": {
+    type: "text",
+    placeholder: "/hook/<flow-id>/echo",
+    defaultValue: "/hook/<flow-id>/echo",
+    mono: true,
+  },
+  "unix-out:method": {
+    type: "select",
+    defaultValue: "POST",
+    options: HTTP_METHODS,
+  },
+  "unix-out:bodyPath": {
+    type: "text",
+    placeholder: "payload",
+    defaultValue: "payload",
+    mono: true,
+  },
+
   // ─── Webhook ───────────────────────────────────────────────────
   "webhook:path": {
     type: "text",

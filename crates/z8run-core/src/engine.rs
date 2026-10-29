@@ -357,7 +357,13 @@ async fn dispatch_outputs(
                     message_id: msg.id,
                     payload_preview: Some(truncate_payload(&msg.payload)),
                 });
-                if tx.send(msg.clone()).await.is_err() {
+                // source_node muss der EMITTIERENDE Knoten sein, nicht der
+                // historische Ursprung: Nodes wie join identifizieren ihre
+                // Quellzweige darüber. Node-executor nutzen msg.source_node
+                // für derive() — dort wäre der Ursprungs-Node falsch.
+                let mut out = msg.clone();
+                out.source_node = node_id;
+                if tx.send(out).await.is_err() {
                     warn!("Channel closed when sending to node {}", to_node);
                 }
             }

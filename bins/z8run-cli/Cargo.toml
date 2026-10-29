@@ -36,4 +36,7 @@ dotenvy = { workspace = true }
 rand = { workspace = true }
 chrono = { workspace = true }
 sqlx = { workspace = true }
+tower = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 

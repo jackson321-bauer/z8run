@@ -513,7 +513,7 @@ async fn start_flow(
 }
 
 /// Canvas node types that expose an HTTP hook entry point.
-const HOOK_NODE_TYPES: [&str; 3] = ["http-in", "webhook", "webhook-trigger"];
+const HOOK_NODE_TYPES: [&str; 4] = ["http-in", "unix-in", "webhook", "webhook-trigger"];
 
 /// Normalizes a configured hook path to the sub-path form used for matching:
 /// empty or `"/"` becomes `"/"`, otherwise a single leading slash is ensured

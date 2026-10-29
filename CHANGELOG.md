@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/) and this 
 ## [Unreleased]
 
 ### Added
+- **Join node**: collects N parallel branches of one execution (same `trace_id`) and merges their payloads into one message; fail-fast on branch errors, lazy timeout cleanup (see `docs/nodes-join.md`)
+- **Engine**: `dispatch_outputs` now rewrites `msg.source_node` to the emitting node
+
+### Fixed
+- **`source_node` was never updated on dispatch**: messages carried the trigger's node id forever, so any node inspecting `msg.source_node` (fan-in correlation, provenance, debugging) saw the wrong origin for every message after the first hop. `dispatch_outputs` now sets `source_node` to the node that emitted the message. Visible symptom before the fix: fan-in/join patterns collected "identical sources" and never completed.
+
+### Changed
 - Standalone binary with the web editor built in (`--features embed-ui`), released for Windows x86_64, macOS arm64 and Linux x86_64 (#78)
 - Desktop mode: running `z8run` with no subcommand serves on `127.0.0.1`, keeps data in the per-user folder and opens the browser
 - `z8run init` to choose SQLite or PostgreSQL and the port, checked before saving to `<data dir>/z8run.env`
