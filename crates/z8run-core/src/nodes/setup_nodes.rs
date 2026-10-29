@@ -6,6 +6,7 @@
 
 pub mod setup_auth;
 pub mod setup_challenge;
+pub mod setup_pqc;
 pub mod setup_crypto;
 pub mod setup_db;
 pub mod setup_hashdatei;

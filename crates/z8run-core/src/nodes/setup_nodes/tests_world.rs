@@ -76,8 +76,9 @@ async fn setup_world_baut_zwei_userspaces_ohne_shared() {
         let pub_b64 = sc::pem_pub_b64(&pem0).unwrap();
         let blk = ha.iter().find(|(a, _)| a == &pub_b64).unwrap().1.clone();
         let hbox = sc::box_aus_b64(&hb.iter().find(|(b, _)| b == &blk).unwrap().1).unwrap();
-        let hplain = sc::kette::hwbox_oeffne(&hbox, &pem0).unwrap();
-        let hblock: serde_json::Value = serde_json::from_slice(&hplain).unwrap();
+        let pqc_path = pems[0]["pqc_dk_path"].as_str().unwrap();
+        let kem_dk = super::setup_pqc::lese_kem_dk(pqc_path).unwrap();
+        let hblock = super::setup_pqc::hwbox_oeffne_v3(&hbox, &pem0, &kem_dk).unwrap();
         let h = &hblock["shamir_hw"];
         let hw = sc::kette::shamir::Share {
             x: h["x"].as_u64().unwrap() as u8,

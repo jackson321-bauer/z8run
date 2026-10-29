@@ -102,7 +102,14 @@ impl NodeExecutor for SetupWorldNode {
             let pubkeys: Vec<Value> = b
                 .pems
                 .iter()
-                .map(|p| json!({"name": p["name"], "pub_b64": p["pub_b64"], "path": p["path"]}))
+                .map(|p| {
+                    json!({
+                        "name": p["name"],
+                        "pub_b64": p["pub_b64"],
+                        "pqc_pub_b64": p["pqc_pub_b64"],
+                        "path": p["path"],
+                    })
+                })
                 .collect();
             let user_json = json!({
                 "name": b.name,
@@ -113,7 +120,9 @@ impl NodeExecutor for SetupWorldNode {
                 "db": db_oeffentlich(&b.db),
                 "pubkeys": pubkeys,
                 "pems": b.pems.iter().map(|p| json!({
-                    "name": p["name"], "pub_b64": p["pub_b64"], "path": p["path"]
+                    "name": p["name"], "pub_b64": p["pub_b64"],
+                    "pqc_pub_b64": p["pqc_pub_b64"],
+                    "path": p["path"], "pqc_dk_path": p["pqc_dk_path"]
                 })).collect::<Vec<_>>(),
             });
             users_out.push(user_json.clone());

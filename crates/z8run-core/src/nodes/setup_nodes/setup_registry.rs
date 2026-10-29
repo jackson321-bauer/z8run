@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use super::setup_crypto as sc;
 use super::setup_io::S3Cfg;
+use super::setup_pqc as pqc;
 
 pub const REGISTRY_KEY: &str = "setup/registry.txt";
 pub const SHARDS_KEY: &str = "setup/setup-shards.txt";
@@ -51,13 +52,21 @@ pub async fn master_aus_pems(
     cfg: &S3Cfg,
     shards_key: &str,
     pems: &[String],
+    kem_dks: &[Vec<u8>],
 ) -> Result<Vec<u8>, String> {
+    if pems.len() != kem_dks.len() {
+        return Err(format!(
+            "Setup-Quorum: {} PEMs, aber {} ML-KEM-Privatekeys — je Setup-Key wird der PQC-Teil gebraucht",
+            pems.len(),
+            kem_dks.len()
+        ));
+    }
     let raw = cfg.get(shards_key).await?;
     let text = String::from_utf8_lossy(&raw);
     let (addrs, blocks) = sc::hashdatei_parsen(&text);
     let map: std::collections::HashMap<String, String> = blocks.into_iter().collect();
     let mut shares: Vec<sc::kette::shamir::Share> = Vec::new();
-    for pem in pems {
+    for (idx, pem) in pems.iter().enumerate() {
         let pub_b64 = sc::pem_pub_b64(pem)?;
         let Some((_, block)) = addrs.iter().find(|(a, _)| a == &pub_b64) else {
             continue;
@@ -66,8 +75,7 @@ pub async fn master_aus_pems(
             continue;
         };
         let box_val = sc::box_aus_b64(chiffre)?;
-        let plain = sc::kette::hwbox_oeffne(&box_val, pem)?;
-        let share: Value = serde_json::from_slice(&plain).map_err(|e| e.to_string())?;
+        let share: Value = pqc::hwbox_oeffne_v3(&box_val, pem, &kem_dks[idx])?;
         let y = B64
             .decode(share["y_b64"].as_str().ok_or("share.y_b64 fehlt")?)
             .map_err(|e| e.to_string())?;
@@ -110,21 +118,27 @@ pub fn pems_aus(req: &Value, path: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Baut das Setup-Shard-File: je Setup-Pubkey eine ECIES-Box mit dem Share.
-pub fn shards_bauen(master: &[u8], n: usize, pems: &[sc::PemPaar]) -> Result<(String, Vec<Value>), String> {
+/// Baut das Setup-Shard-File: je Setup-Identität eine HYBRIDE v3-Box
+/// (ECC P-256 + ML-KEM-1024). `pems[i].1` ist der ML-KEM-1024-Pubkey.
+pub fn shards_bauen(
+    master: &[u8],
+    n: usize,
+    pems: &[(sc::PemPaar, String)],
+) -> Result<(String, Vec<Value>), String> {
     let xs: Vec<u8> = (1..=n as u8).collect();
     let shares = sc::kette::shamir::split2(master, &xs)?;
     let mut addrs = Vec::new();
     let mut chiffren = Vec::new();
     let mut pubs = Vec::new();
-    for (i, paar) in pems.iter().enumerate() {
+    for (i, (paar, pqc_pub)) in pems.iter().enumerate() {
         let share = json!({ "x": shares[i].x, "y_b64": B64.encode(&shares[i].y) });
-        let box_val = sc::hwbox(&paar.pub_b64, &share, "kv3-setup")?;
+        let box_val = pqc::hwbox_v3(&paar.pub_b64, pqc_pub, &share, "kv3-setup")?;
         addrs.push((paar.pub_b64.clone(), format!("Block-{}", i + 1)));
         chiffren.push((format!("Block-{}", i + 1), sc::box_b64(&box_val)?));
         pubs.push(json!({
             "name": format!("setup-hw{}", i + 1),
             "pub_b64": paar.pub_b64,
+            "pqc_pub_b64": pqc_pub,
             "x": shares[i].x,
         }));
     }

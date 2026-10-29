@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use super::setup_crypto as sc;
 use super::setup_io::{body, text};
+use super::setup_pqc as pqc;
 use super::setup_registry as reg;
 use crate::configure_fields;
 use crate::engine::NodeExecutor;
@@ -49,7 +50,24 @@ impl NodeExecutor for SetupAuthNode {
             Ok(c) => c,
             Err(e) => return Ok(verweigert(&msg, format!("setup-auth: {e}"))),
         };
-        let master = match reg::master_aus_pems(&cfg, &self.shards_key, &pems).await {
+        let kem_dks: Vec<Vec<u8>> = req
+            .get("setup_pqc_keys")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|e| e.as_str())
+                    .filter_map(|s| {
+                        if std::path::Path::new(s).is_file() {
+                            pqc::lese_kem_dk(s).ok()
+                        } else {
+                            use base64::Engine;
+                            base64::engine::general_purpose::STANDARD.decode(s.trim()).ok()
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let master = match reg::master_aus_pems(&cfg, &self.shards_key, &pems, &kem_dks).await {
             Ok(m) => m,
             Err(e) => return Ok(verweigert(&msg, format!("setup-auth: {e}"))),
         };

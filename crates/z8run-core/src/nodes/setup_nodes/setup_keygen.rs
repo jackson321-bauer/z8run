@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 
 use super::setup_crypto as sc;
 use super::setup_io::{body, datei_eintrag, text};
+use super::setup_pqc as pqc;
 use super::setup_registry as reg;
 use crate::configure_fields;
 use crate::engine::NodeExecutor;
@@ -60,24 +61,21 @@ impl NodeExecutor for SetupKeygenNode {
             .map(|v| v as usize)
             .unwrap_or(self.pem_count)
             .clamp(2, 16);
-        let mut pems = Vec::new();
-        for _ in 0..n {
-            match sc::gen_pem() {
-                Ok(p) => pems.push(p),
-                Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen: {e}"))),
-            }
-        }
-        let master: Vec<u8> = (0u8..32).map(|_| rand::random::<u8>()).collect();
-        let master_hex = hex::encode(&master);
-        let (shards_text, setup_keys) = match reg::shards_bauen(&master, n, &pems) {
-            Ok(v) => v,
-            Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen: {e}"))),
-        };
         let out_dir = text(req, "keyOutDir")
             .map(str::to_string)
             .unwrap_or_else(|| format!("{}/{}", self.out_dir, space));
+        let mut pems = Vec::new();
         let mut pem_out = Vec::new();
-        for (i, p) in pems.iter().enumerate() {
+        let pqc_vorgaben: Vec<Option<String>> = req
+            .get("pqc_pubkeys")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().map(|e| e.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        for i in 0..n {
+            let p = match sc::gen_pem() {
+                Ok(p) => p,
+                Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen: {e}"))),
+            };
             let label = format!("setup-hw{}", i + 1);
             if let Err(e) = std::fs::create_dir_all(&out_dir) {
                 return Ok(fehler(&msg, 500, format!("setup-keygen dir: {e}")));
@@ -91,13 +89,30 @@ impl NodeExecutor for SetupKeygenNode {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
             }
+            let (pqc_pub, pqc_dk_path) = match pqc::pqc_paar_fuer(
+                &label,
+                &out_dir,
+                pqc_vorgaben.get(i).and_then(|v| v.as_deref()),
+            ) {
+                Ok(v) => v,
+                Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen pqc: {e}"))),
+            };
             pem_out.push(json!({
                 "name": label,
                 "pem": p.pem,
                 "pub_b64": p.pub_b64,
-                "path": path,
+                "pqc_pub_b64": pqc_pub.clone(),
+                "path": path.clone(),
+                "pqc_dk_path": pqc_dk_path,
             }));
+            pems.push((p, pqc_pub));
         }
+        let master: Vec<u8> = (0u8..32).map(|_| rand::random::<u8>()).collect();
+        let master_hex = hex::encode(&master);
+        let (shards_text, setup_keys) = match reg::shards_bauen(&master, n, &pems) {
+            Ok(v) => v,
+            Err(e) => return Ok(fehler(&msg, 500, format!("setup-keygen: {e}"))),
+        };
         let mut registry = sc::leeres_registry(&space);
         registry["threshold"] = json!(2);
         registry["setup_keys"] = json!(setup_keys);

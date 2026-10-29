@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use super::setup_crypto as sc;
 use super::setup_db;
 use super::setup_io::datei_eintrag;
+use super::setup_pqc as pqc;
 
 pub struct UserBau {
     pub name: String,
@@ -85,16 +86,26 @@ pub async fn bau_user(
 
     let mut pems = Vec::new();
     let mut pub_pems = Vec::new();
+    let pqc_vorgabe = u["pqc_pub_b64"].as_str();
     for i in 1..=hw_keys.max(1) {
         let paar = sc::gen_pem()?;
         let label = format!("{name}-hw{i}");
         let path = write_pem(key_dir, &label, &paar.pem)?;
-        pub_pems.push(json!({"name": label, "pub_b64": paar.pub_b64, "path": path}));
+        let (pqc_pub_b64, pqc_dk_path) = pqc::pqc_paar_fuer(&label, key_dir, pqc_vorgabe)?;
+        pub_pems.push(json!({
+            "name": label,
+            "pub_b64": paar.pub_b64.clone(),
+            "pqc_pub_b64": pqc_pub_b64,
+            "path": path,
+            "pqc_dk_path": pqc_dk_path,
+        }));
         pems.push(json!({
             "name": label,
             "pem": paar.pem,
-            "pub_b64": paar.pub_b64,
+            "pub_b64": paar.pub_b64.clone(),
+            "pqc_pub_b64": pqc_pub_b64.clone(),
             "path": path,
+            "pqc_dk_path": pqc_dk_path.clone(),
         }));
     }
     let hw_block = json!({
@@ -104,7 +115,12 @@ pub async fn bau_user(
     let mut addrs = Vec::new();
     let mut chiffren = Vec::new();
     for (i, p) in pub_pems.iter().enumerate() {
-        let hb = sc::hwbox(p["pub_b64"].as_str().unwrap(), &hw_block, "kv3-hw")?;
+        let hb = pqc::hwbox_v3(
+            p["pub_b64"].as_str().unwrap(),
+            p["pqc_pub_b64"].as_str().unwrap(),
+            &hw_block,
+            "kv3-hw",
+        )?;
         addrs.push((p["pub_b64"].as_str().unwrap().to_string(), format!("Block-{}", i + 1)));
         chiffren.push((format!("Block-{}", i + 1), sc::box_b64(&hb)?));
     }
