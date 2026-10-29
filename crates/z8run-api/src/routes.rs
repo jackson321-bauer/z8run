@@ -939,18 +939,7 @@ async fn authorize_trigger(
 /// Edges coming from pruned nodes are dropped too, so a shared downstream node
 /// only receives this branch's messages.
 fn restrict_to_trigger(flow: &mut Flow, trigger: Uuid) {
-    let mut keep = std::collections::HashSet::from([trigger]);
-    let mut queue = std::collections::VecDeque::from([trigger]);
-    while let Some(node) = queue.pop_front() {
-        for edge in flow.edges.iter().filter(|e| e.from_node == node) {
-            if keep.insert(edge.to_node) {
-                queue.push_back(edge.to_node);
-            }
-        }
-    }
-    flow.nodes.retain(|n| keep.contains(&n.id));
-    flow.edges
-        .retain(|e| keep.contains(&e.from_node) && keep.contains(&e.to_node));
+    z8run_core::canvas::restrict_to_trigger(flow, trigger);
 }
 
 /// ANY /hook/{flow_id} or /hook/{flow_id}/{*path}

@@ -6,6 +6,7 @@ members = [
     "crates/z8run-runtime",
     "crates/z8run-api",
     "bins/z8run-cli",
+    "bins/z8-export",
 ]
 
 [workspace.package]

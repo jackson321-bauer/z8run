@@ -4970,6 +4970,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "z8-export"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
+ "z8run-core",
+ "z8run-storage",
+]
+
+[[package]]
 name = "z8run-api"
 version = "0.2.0"
 dependencies = [

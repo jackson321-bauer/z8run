@@ -1,0 +1,23 @@
+[package]
+name = "z8-export"
+description = "Export a z8run flow as a standalone, server-less Rust project or binary"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "z8-export"
+path = "src/main.rs"
+
+[dependencies]
+z8run-core = { workspace = true }
+z8run-storage = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+sha2 = { workspace = true }

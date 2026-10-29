@@ -141,6 +141,39 @@ pub fn parse_port_type(s: &str) -> PortType {
     }
 }
 
+/// Node types that act as HTTP/unix triggers for a deployed flow.
+pub const HOOK_NODE_TYPES: [&str; 4] = ["http-in", "unix-in", "webhook", "webhook-trigger"];
+
+/// Normalizes a configured hook path to the sub-path form used for matching:
+/// empty or `"/"` becomes `"/"`, otherwise a single leading slash is ensured.
+pub fn normalize_hook_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        "/".to_string()
+    } else {
+        format!("/{}", trimmed.trim_start_matches('/'))
+    }
+}
+
+/// Restricts a compiled flow to the nodes reachable from `trigger`.
+///
+/// A canvas can contain several triggers with different auth policies; an
+/// executed request must only touch the branch of the matched trigger.
+pub fn restrict_to_trigger(flow: &mut Flow, trigger: Uuid) {
+    let mut keep = std::collections::HashSet::from([trigger]);
+    let mut queue = std::collections::VecDeque::from([trigger]);
+    while let Some(node) = queue.pop_front() {
+        for edge in flow.edges.iter().filter(|e| e.from_node == node) {
+            if keep.insert(edge.to_node) {
+                queue.push_back(edge.to_node);
+            }
+        }
+    }
+    flow.nodes.retain(|n| keep.contains(&n.id));
+    flow.edges
+        .retain(|e| keep.contains(&e.from_node) && keep.contains(&e.to_node));
+}
+
 /// Builds the trigger payload exactly as the HTTP hook handler does:
 /// `{ method, path, headers, query, body }`.
 pub fn hook_trigger_payload(
