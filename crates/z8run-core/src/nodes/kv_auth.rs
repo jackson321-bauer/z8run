@@ -54,7 +54,10 @@ impl NodeExecutor for KvLoginNode {
             .filter(|v| v.is_object())
             .unwrap_or_else(|| msg.payload.clone());
         if !body.is_object() {
-            return Ok(error_output(&msg, "kv-login: request body is not an object"));
+            return Ok(error_output(
+                &msg,
+                "kv-login: request body is not an object",
+            ));
         }
 
         let client = reqwest::Client::new();
@@ -73,8 +76,7 @@ impl NodeExecutor for KvLoginNode {
             .text()
             .await
             .map_err(|e| Z8Error::Internal(format!("kv-login body: {e}")))?;
-        let parsed: Value =
-            serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
+        let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
 
         let mut out = as_object(&msg.payload);
         out["login"] = parsed.clone();
@@ -141,7 +143,10 @@ impl NodeExecutor for KvDeriveNode {
             .or_else(|| lookup(&msg.payload, "body.token").and_then(|v| v.as_str()))
             .map(|s| s.to_string());
         let Some(token) = token else {
-            return Ok(error_output(&msg, "kv-derive: sessionToken fehlt (kv-login zuerst)"));
+            return Ok(error_output(
+                &msg,
+                "kv-derive: sessionToken fehlt (kv-login zuerst)",
+            ));
         };
 
         let db = lookup(&msg.payload, &self.db_path)
@@ -180,8 +185,7 @@ impl NodeExecutor for KvDeriveNode {
             .text()
             .await
             .map_err(|e| Z8Error::Internal(format!("kv-derive body: {e}")))?;
-        let parsed: Value =
-            serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
+        let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
 
         let mut out = as_object(&msg.payload);
         out["derive"] = parsed.clone();

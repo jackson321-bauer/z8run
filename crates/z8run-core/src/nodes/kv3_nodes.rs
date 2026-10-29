@@ -117,8 +117,14 @@ fn s3_endpoint_aus(cfg: &Value) -> Result<S3Endpoint, String> {
     Ok(S3Endpoint {
         host: cfg["host"].as_str().ok_or("s3.host fehlt")?.to_string(),
         region: cfg["region"].as_str().unwrap_or("us-east-1").to_string(),
-        access_key: cfg["access_key"].as_str().ok_or("s3.access_key fehlt")?.to_string(),
-        secret_key: cfg["secret_key"].as_str().ok_or("s3.secret_key fehlt")?.to_string(),
+        access_key: cfg["access_key"]
+            .as_str()
+            .ok_or("s3.access_key fehlt")?
+            .to_string(),
+        secret_key: cfg["secret_key"]
+            .as_str()
+            .ok_or("s3.secret_key fehlt")?
+            .to_string(),
     })
 }
 
@@ -162,18 +168,29 @@ impl NodeExecutor for Kv3AdresseNode {
             "space" => salt_space(&name),
             "user" => {
                 if space.is_empty() {
-                    return Ok(error_output(&msg, "kv3-adresse: space fehlt für user-Ebene"));
+                    return Ok(error_output(
+                        &msg,
+                        "kv3-adresse: space fehlt für user-Ebene",
+                    ));
                 }
                 salt_user(&salt_space(&space), &name)
             }
             "shared" => {
                 if space.is_empty() {
-                    return Ok(error_output(&msg, "kv3-adresse: space fehlt für shared-Ebene"));
+                    return Ok(error_output(
+                        &msg,
+                        "kv3-adresse: space fehlt für shared-Ebene",
+                    ));
                 }
                 let base = if shared.is_empty() { &name } else { &shared };
                 salt_shared(&salt_space(&space), base)
             }
-            _ => return Ok(error_output(&msg, "kv3-adresse: ebene muss space|user|shared sein")),
+            _ => {
+                return Ok(error_output(
+                    &msg,
+                    "kv3-adresse: ebene muss space|user|shared sein",
+                ))
+            }
         };
         let addr = match kv3_adresse(&name, &salt) {
             Ok(a) => a,
@@ -266,8 +283,9 @@ impl NodeExecutor for Kv3OpenNode {
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
-        let raw_cfg = std::fs::read_to_string(&self.s3_config)
-            .map_err(|e| Z8Error::Internal(format!("kv3-open s3 config {}: {e}", self.s3_config)))?;
+        let raw_cfg = std::fs::read_to_string(&self.s3_config).map_err(|e| {
+            Z8Error::Internal(format!("kv3-open s3 config {}: {e}", self.s3_config))
+        })?;
         let cfg: Value = serde_json::from_str(&raw_cfg)
             .map_err(|e| Z8Error::Internal(format!("kv3-open s3 parse: {e}")))?;
         let ep = match s3_endpoint_aus(&cfg) {
@@ -315,14 +333,15 @@ impl NodeExecutor for Kv3OpenNode {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let Some(salt) = salt else {
-            return Ok(self.err(&msg, format!("kv3-open: {} fehlt im Payload", self.salt_field)));
+            return Ok(self.err(
+                &msg,
+                format!("kv3-open: {} fehlt im Payload", self.salt_field),
+            ));
         };
         let key = argon_key(&passwort, &salt);
         let plain = match aes_open(&box_val, &key) {
             Ok(p) => p,
-            Err(_) => {
-                return Ok(self.err(&msg, "Passwort passt nicht (Box öffnet nicht)"))
-                }
+            Err(_) => return Ok(self.err(&msg, "Passwort passt nicht (Box öffnet nicht)")),
         };
         let block: Value = match serde_json::from_slice(&plain) {
             Ok(v) => v,
@@ -409,7 +428,10 @@ fn aes_open(box_val: &Value, key: &[u8; 32]) -> Result<Vec<u8>, String> {
     let aad = box_val["aad"].as_str().unwrap_or_default();
     aead.decrypt(
         (&nonce).into(),
-        Payload { msg: &ct, aad: aad.as_bytes() },
+        Payload {
+            msg: &ct,
+            aad: aad.as_bytes(),
+        },
     )
     .map_err(|e| format!("GCM: {e}"))
 }
@@ -488,7 +510,8 @@ impl NodeExecutor for Kv3HwshardNode {
         };
         let clean: String = chiffre.chars().filter(|c| !c.is_whitespace()).collect();
         let box_val: Value = serde_json::from_slice(
-            &B64.decode(clean.trim()).map_err(|e| Z8Error::Internal(e.to_string()))?,
+            &B64.decode(clean.trim())
+                .map_err(|e| Z8Error::Internal(e.to_string()))?,
         )
         .map_err(|e| Z8Error::Internal(format!("HW-Box: {e}")))?;
         // ECIES öffnen — Umschlag-Logik wie kette: p256 ECDH + HKDF + GCM
@@ -542,20 +565,28 @@ fn umschlag_oeffnen(box_val: &Value, secret: &p256::SecretKey) -> Result<Vec<u8>
     use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::Aes256Gcm;
     let eph_pub_b64 = box_val["ephem"].as_str().ok_or("ephem fehlt")?;
-    let nonce_v = B64.decode(box_val["nonce"].as_str().ok_or("nonce fehlt")?).map_err(|_| "nonce b64")?;
+    let nonce_v = B64
+        .decode(box_val["nonce"].as_str().ok_or("nonce fehlt")?)
+        .map_err(|_| "nonce b64")?;
     let nonce: [u8; 12] = nonce_v.as_slice().try_into().map_err(|_| "nonce Länge")?;
-    let ct = B64.decode(box_val["box"].as_str().ok_or("box fehlt")?).map_err(|_| "box b64")?;
+    let ct = B64
+        .decode(box_val["box"].as_str().ok_or("box fehlt")?)
+        .map_err(|_| "box b64")?;
     let aad = box_val["aad"].as_str().unwrap_or_default();
     let eph_raw = B64.decode(eph_pub_b64).map_err(|_| "ephem b64")?;
     let eph_pub = p256::PublicKey::from_sec1_bytes(&eph_raw).map_err(|e| format!("ephem: {e}"))?;
     let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), eph_pub.as_affine());
     let mut key = [0u8; 32];
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(&eph_raw), shared.raw_secret_bytes());
-    hk.expand(b"kv-m2-secretbox", &mut key).map_err(|e| format!("HKDF: {e}"))?;
+    hk.expand(b"kv-m2-secretbox", &mut key)
+        .map_err(|e| format!("HKDF: {e}"))?;
     let aead = Aes256Gcm::new((&key).into());
     aead.decrypt(
         (&nonce).into(),
-        Payload { msg: &ct, aad: aad.as_bytes() },
+        Payload {
+            msg: &ct,
+            aad: aad.as_bytes(),
+        },
     )
     .map_err(|e| format!("GCM: {e}"))
 }
@@ -582,16 +613,24 @@ impl NodeExecutor for Kv3MasterNode {
             .cloned()
             .filter(|v| !v.is_null());
         let (Some(p), Some(h)) = (provider, hw) else {
-            return Ok(error_output(&msg, "kv3-master: beide Shards nötig (kv3-open + kv3-hwshard zuerst)"));
+            return Ok(error_output(
+                &msg,
+                "kv3-master: beide Shards nötig (kv3-open + kv3-hwshard zuerst)",
+            ));
         };
         let px = p["x"].as_u64().unwrap_or(0) as u8;
-        let py = B64.decode(p["y"].as_str().unwrap_or_default())
+        let py = B64
+            .decode(p["y"].as_str().unwrap_or_default())
             .map_err(|e| Z8Error::Internal(e.to_string()))?;
         let hx = h["x"].as_u64().unwrap_or(0) as u8;
-        let hy = B64.decode(h["y"].as_str().unwrap_or_default())
+        let hy = B64
+            .decode(h["y"].as_str().unwrap_or_default())
             .map_err(|e| Z8Error::Internal(e.to_string()))?;
         if px == hx {
-            return Ok(error_output(&msg, "kv3-master: gleiche x-Werte — 2-of-2 unmöglich"));
+            return Ok(error_output(
+                &msg,
+                "kv3-master: gleiche x-Werte — 2-of-2 unmöglich",
+            ));
         }
         let master = shamir2(px, &py, hx, &hy);
         let fp = sha_hex(&master);
@@ -609,7 +648,9 @@ impl NodeExecutor for Kv3MasterNode {
         Ok(())
     }
 
-    async fn validate(&self) -> Z8Result<()> { Ok(()) }
+    async fn validate(&self) -> Z8Result<()> {
+        Ok(())
+    }
 
     fn node_type(&self) -> &str {
         "kv3-master"
@@ -628,9 +669,13 @@ fn shamir2(xa: u8, ya: &[u8], xb: u8, yb: &[u8]) -> Vec<u8> {
         let mut b = b as u16;
         let mut p = 0u16;
         while b != 0 {
-            if b & 1 == 1 { p ^= a; }
+            if b & 1 == 1 {
+                p ^= a;
+            }
             a <<= 1;
-            if a & 0x100 != 0 { a ^= 0x11b; }
+            if a & 0x100 != 0 {
+                a ^= 0x11b;
+            }
             b >>= 1;
         }
         p as u8
@@ -647,21 +692,26 @@ fn shamir2(xa: u8, ya: &[u8], xb: u8, yb: &[u8]) -> Vec<u8> {
     fn gf_pow(mut base: u8, mut exp: u32) -> u8 {
         let mut acc = 1u8;
         while exp > 0 {
-            if exp & 1 == 1 { acc = gf_mul(acc, base); }
+            if exp & 1 == 1 {
+                acc = gf_mul(acc, base);
+            }
             base = gf_mul(base, base);
             exp >>= 1;
         }
         acc
     }
     let _ = gf_inv;
-    fn inv(a: u8) -> u8 { gf_pow(a, 254) }
+    fn inv(a: u8) -> u8 {
+        gf_pow(a, 254)
+    }
     let la = gf_mul(ya[0], inv(xa)); // Anteil a: y_a * (0-x_b)/(x_a-x_b) = y_a * x_b/(x_b^x_a)
     let _ = la;
     // identisch kette::shamir::combine2:
     // la = y_a * x_b/(x_a^x_b), lb = y_b * x_a/(x_a^x_b)
     let la = gf_mul(xb, inv(xa ^ xb));
     let lb = gf_mul(xa, inv(xa ^ xb));
-    ya.iter().zip(yb.iter())
+    ya.iter()
+        .zip(yb.iter())
         .map(|(&a, &b)| gf_mul(a, la) ^ gf_mul(b, lb))
         .collect()
 }
@@ -684,24 +734,26 @@ impl NodeExecutor for Kv3SocketNode {
             "trace_id": msg.trace_id.to_string(),
         });
         if let Some(dst) = uebergabe.as_object_mut() {
-            for feld in self.payload_fields.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            for feld in self
+                .payload_fields
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 if let Some(v) = msg.payload.get(feld) {
                     dst.insert(feld.to_string(), v.clone());
                 }
             }
         }
         let body = uebergabe.to_string();
-        let senden = tokio::time::timeout(
-            Duration::from_secs(5),
-            async {
-                use tokio::io::AsyncWriteExt;
-                let mut s = tokio::net::UnixStream::connect(&self.socket_path).await?;
-                s.write_all(body.as_bytes()).await?;
-                s.write_all(b"\n").await?;
-                s.shutdown().await?;
-                Ok::<_, std::io::Error>(())
-            },
-        )
+        let senden = tokio::time::timeout(Duration::from_secs(5), async {
+            use tokio::io::AsyncWriteExt;
+            let mut s = tokio::net::UnixStream::connect(&self.socket_path).await?;
+            s.write_all(body.as_bytes()).await?;
+            s.write_all(b"\n").await?;
+            s.shutdown().await?;
+            Ok::<_, std::io::Error>(())
+        })
         .await;
         let status = match senden {
             Ok(Ok(())) => "gesendet".to_string(),
@@ -715,7 +767,11 @@ impl NodeExecutor for Kv3SocketNode {
         }
         // Erfolgreiche Übergabe = output; Fehler = error-Port (Proxy-Start kann
         // später auch ohne Socket getestet werden).
-        let port = if status == "gesendet" { "output" } else { "error" };
+        let port = if status == "gesendet" {
+            "output"
+        } else {
+            "error"
+        };
         Ok(vec![msg.derive(msg.source_node, port, out)])
     }
 

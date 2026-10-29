@@ -104,14 +104,12 @@ impl NodeExecutor for UnixOutNode {
             }
         };
 
-        let body_value = if !self.body_path.is_empty()
-            && self.method != "GET"
-            && self.method != "HEAD"
-        {
-            json_path_lookup(&msg.payload, &self.body_path)
-        } else {
-            serde_json::Value::Null
-        };
+        let body_value =
+            if !self.body_path.is_empty() && self.method != "GET" && self.method != "HEAD" {
+                json_path_lookup(&msg.payload, &self.body_path)
+            } else {
+                serde_json::Value::Null
+            };
         let body_bytes = if body_value.is_null() {
             Vec::new()
         } else {
@@ -186,18 +184,20 @@ impl NodeExecutor for UnixOutNode {
                 .await
                 .map_err(|e| e.to_string())?
                 .to_bytes();
-            let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(
-                if body.is_empty() {
+            let body_json: serde_json::Value =
+                serde_json::from_slice(&body).unwrap_or(if body.is_empty() {
                     serde_json::Value::Null
                 } else {
                     serde_json::Value::String(String::from_utf8_lossy(&body).to_string())
-                },
-            );
-            Ok::<(u16, serde_json::Map<String, serde_json::Value>, serde_json::Value), String>((
-                status,
-                headers,
-                body_json,
-            ))
+                });
+            Ok::<
+                (
+                    u16,
+                    serde_json::Map<String, serde_json::Value>,
+                    serde_json::Value,
+                ),
+                String,
+            >((status, headers, body_json))
         })
         .await;
 
@@ -299,7 +299,10 @@ mod tests {
 
     /// Minimal HTTP/1.1 server on a Unix socket. It reads one request and
     /// writes one fixed response. No z8run engine, no database, no UI.
-    async fn serve_once(path: std::path::PathBuf, response: &'static [u8]) -> tokio::task::JoinHandle<()> {
+    async fn serve_once(
+        path: std::path::PathBuf,
+        response: &'static [u8],
+    ) -> tokio::task::JoinHandle<()> {
         let listener = UnixListener::bind(&path).expect("bind test socket");
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.expect("accept");
@@ -321,7 +324,10 @@ mod tests {
         .await;
 
         let node = test_node(path.to_str().unwrap(), "/echo", 5000);
-        let out = node.process(test_msg(serde_json::json!({"x": 1}))).await.unwrap();
+        let out = node
+            .process(test_msg(serde_json::json!({"x": 1})))
+            .await
+            .unwrap();
         handle.await.unwrap();
 
         assert_eq!(out.len(), 1);

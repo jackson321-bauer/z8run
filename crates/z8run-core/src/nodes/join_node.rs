@@ -51,9 +51,18 @@ impl NodeExecutor for JoinNode {
     async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
         // Fail-fast: eingehender Zweig hat bereits einen Fehler → sofort
         // weiterreichen, Trace-Eintrag verwerfen.
-        if msg.payload.get("error").map(|v| !v.is_null()).unwrap_or(false) {
+        if msg
+            .payload
+            .get("error")
+            .map(|v| !v.is_null())
+            .unwrap_or(false)
+        {
             self.remove_entry(&msg.trace_id);
-            return Ok(vec![msg.derive(msg.source_node, "error", msg.payload.clone())]);
+            return Ok(vec![msg.derive(
+                msg.source_node,
+                "error",
+                msg.payload.clone(),
+            )]);
         }
 
         let mut state = self
@@ -79,12 +88,10 @@ impl NodeExecutor for JoinNode {
         }
 
         let expected = if self.inputs == 0 { 2 } else { self.inputs };
-        let entry = state
-            .entry(msg.trace_id)
-            .or_insert_with(|| JoinEntry {
-                first_seen: Instant::now(),
-                parts: HashMap::new(),
-            });
+        let entry = state.entry(msg.trace_id).or_insert_with(|| JoinEntry {
+            first_seen: Instant::now(),
+            parts: HashMap::new(),
+        });
         entry.parts.insert(msg.source_node, msg.payload.clone());
         let distinct = entry.parts.len();
 
@@ -180,7 +187,9 @@ mod tests {
             timeout_ms: 10_000,
             state: Mutex::new(HashMap::new()),
         };
-        node.configure(serde_json::json!({"inputs": 2})).await.unwrap();
+        node.configure(serde_json::json!({"inputs": 2}))
+            .await
+            .unwrap();
 
         let a = uuid::Uuid::now_v7();
         let b = uuid::Uuid::now_v7();
@@ -206,7 +215,9 @@ mod tests {
             timeout_ms: 10_000,
             state: Mutex::new(HashMap::new()),
         };
-        node.configure(serde_json::json!({"inputs": 2})).await.unwrap();
+        node.configure(serde_json::json!({"inputs": 2}))
+            .await
+            .unwrap();
 
         let a = uuid::Uuid::now_v7();
         let trace = Uuid::now_v7();
@@ -266,8 +277,13 @@ mod tests {
             timeout_ms: 0,
             state: Mutex::new(HashMap::new()),
         };
-        node.configure(serde_json::json!({"inputs": 1})).await.unwrap();
-        assert!(node.validate().await.is_err(), "inputs=1 muss abgelehnt werden");
+        node.configure(serde_json::json!({"inputs": 1}))
+            .await
+            .unwrap();
+        assert!(
+            node.validate().await.is_err(),
+            "inputs=1 muss abgelehnt werden"
+        );
     }
 
     #[allow(dead_code)]

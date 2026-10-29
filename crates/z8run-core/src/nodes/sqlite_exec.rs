@@ -265,7 +265,11 @@ impl NodeExecutor for SqliteExecNode {
             .unwrap_or(false)
             && msg.payload.get("error").is_some()
         {
-            return Ok(vec![msg.derive(msg.source_node, "error", msg.payload.clone())]);
+            return Ok(vec![msg.derive(
+                msg.source_node,
+                "error",
+                msg.payload.clone(),
+            )]);
         }
 
         let body = self.body(&msg.payload);
@@ -308,10 +312,9 @@ impl NodeExecutor for SqliteExecNode {
 
         let lower = sql.to_ascii_lowercase();
         if lower.contains("attach ") || lower.contains("vacuum ") {
-            return Ok(self.error_output(
-                &msg,
-                "ATTACH and VACUUM are not allowed through the proxy",
-            ));
+            return Ok(
+                self.error_output(&msg, "ATTACH and VACUUM are not allowed through the proxy")
+            );
         }
 
         let cache = PathBuf::from(&self.cache_dir);
@@ -337,17 +340,11 @@ impl NodeExecutor for SqliteExecNode {
             return Ok(self.error_output(&msg, "Database path is not a file"));
         }
 
-        let mut conn = match open_conn(
-            &path_canon,
-            &self.key_file,
-            key_override.as_deref(),
-            false,
-        )
-        .await
-        {
-            Ok(c) => c,
-            Err(e) => return Ok(self.error_output(&msg, e)),
-        };
+        let mut conn =
+            match open_conn(&path_canon, &self.key_file, key_override.as_deref(), false).await {
+                Ok(c) => c,
+                Err(e) => return Ok(self.error_output(&msg, e)),
+            };
 
         let started = Instant::now();
         let timeout = Duration::from_secs(self.timeout_secs.max(1));

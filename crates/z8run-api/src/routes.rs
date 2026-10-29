@@ -15,9 +15,7 @@ use crate::auth::Claims;
 use crate::error::ApiError;
 use crate::state::AppState;
 use tracing::{error, info, warn};
-use z8run_core::flow::{Edge, Flow};
-use z8run_core::message::FlowMessage;
-use z8run_core::node::{Node, PortType};
+use z8run_core::flow::Flow;
 use z8run_storage::credential_vault::CredentialVault;
 use z8run_storage::repository::HookRoute;
 
@@ -640,121 +638,31 @@ async fn resolve_vault_refs(
 
 /// Converts the frontend canvas state (stored in metadata) into
 /// an executable core Flow with proper Nodes and Edges.
+///
+/// Vault references are resolved under the flow owner before delegating to
+/// [`z8run_core::canvas::canvas_to_flow`], which is the single canvas compiler
+/// shared by the HTTP API and exported projects.
 async fn canvas_to_flow(
     stored: &Flow,
     user_id: Uuid,
     vault: &dyn CredentialVault,
 ) -> Result<(Flow, std::collections::HashMap<String, Uuid>), ApiError> {
-    let canvas_nodes = stored
+    let mut prepared = stored.clone();
+    if let Some(nodes) = prepared
         .metadata
         .positions
-        .get("canvas_nodes")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("No canvas nodes found. Save the flow first."))?;
-
-    let canvas_edges = stored
-        .metadata
-        .positions
-        .get("canvas_edges")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&Vec::new())
-        .clone();
-
-    let mut flow = Flow::new(&stored.name);
-    flow.id = stored.id;
-    flow.description = stored.description.clone();
-
-    // Namespace UUID for deterministic ID generation.
-    // Same flow_id + canvas_id always produces the same core UUID,
-    // so Deploy and hook trigger share the same node mapping.
-    let namespace = stored.id;
-
-    // Map canvas node IDs (strings like "node_123") to core UUIDs
-    let mut id_map: std::collections::HashMap<String, Uuid> = std::collections::HashMap::new();
-
-    for canvas_node in canvas_nodes {
-        let canvas_id = canvas_node["id"].as_str().unwrap_or("unknown").to_string();
-        let data = &canvas_node["data"];
-
-        // Extract the node type (try "type" first, then "nodeType" for curl-created nodes)
-        let node_type_str = data["type"]
-            .as_str()
-            .or_else(|| data["nodeType"].as_str())
-            .unwrap_or("function");
-        let label = data["label"].as_str().unwrap_or("Node");
-
-        // Build core Node with appropriate ports based on type
-        let mut core_node = Node::new(label, node_type_str);
-
-        // Override with deterministic UUID: same canvas_id always → same core UUID
-        core_node.id = Uuid::new_v5(&namespace, canvas_id.as_bytes());
-
-        // Add input ports based on canvas data
-        if let Some(inputs) = data["inputs"].as_array() {
-            for input in inputs {
-                let port_name = input["id"].as_str().unwrap_or("input");
-                let port_type = parse_port_type(input["type"].as_str().unwrap_or("any"));
-                core_node = core_node.with_input(port_name, port_type);
+        .get_mut("canvas_nodes")
+        .and_then(|v| v.as_array_mut())
+    {
+        for node in nodes {
+            if let Some(config) = node.get_mut("data").and_then(|d| d.get_mut("config")) {
+                let unresolved = config.clone();
+                *config = resolve_vault_refs(unresolved, user_id, vault).await;
             }
-        } else {
-            // Default: single input
-            core_node = core_node.with_input("input", PortType::Any);
-        }
-
-        // Add output ports based on canvas data
-        if let Some(outputs) = data["outputs"].as_array() {
-            for output in outputs {
-                let port_name = output["id"].as_str().unwrap_or("output");
-                let port_type = parse_port_type(output["type"].as_str().unwrap_or("any"));
-                core_node = core_node.with_output(port_name, port_type);
-            }
-        } else {
-            // Default: single output
-            core_node = core_node.with_output("output", PortType::Any);
-        }
-
-        // Pass the node config (resolve vault references under the flow owner)
-        if let Some(config) = data.get("config") {
-            let resolved = resolve_vault_refs(config.clone(), user_id, vault).await;
-            core_node = core_node.with_config(resolved);
-        }
-
-        id_map.insert(canvas_id, core_node.id);
-        flow.nodes.push(core_node);
-    }
-
-    // Convert canvas edges to core Edges
-    for canvas_edge in &canvas_edges {
-        let source = canvas_edge["source"].as_str().unwrap_or("");
-        let target = canvas_edge["target"].as_str().unwrap_or("");
-        let source_handle = canvas_edge["sourceHandle"].as_str().unwrap_or("output");
-        let target_handle = canvas_edge["targetHandle"].as_str().unwrap_or("input");
-
-        if let (Some(&from_id), Some(&to_id)) = (id_map.get(source), id_map.get(target)) {
-            let edge = Edge::new(from_id, source_handle, to_id, target_handle);
-            flow.edges.push(edge);
-        } else {
-            warn!(
-                source = source,
-                target = target,
-                "Skipping edge with unknown nodes"
-            );
         }
     }
 
-    Ok((flow, id_map))
-}
-
-fn parse_port_type(s: &str) -> PortType {
-    match s {
-        "string" => PortType::String,
-        "number" => PortType::Number,
-        "boolean" => PortType::Boolean,
-        "object" => PortType::Object,
-        "array" => PortType::Array,
-        "binary" => PortType::Binary,
-        _ => PortType::Any,
-    }
+    z8run_core::canvas::canvas_to_flow(&prepared).map_err(|e| ApiError::bad_request(e.to_string()))
 }
 
 /// GET /api/v1/vault
@@ -1231,17 +1139,17 @@ async fn hook_handler(
     let query_json: serde_json::Value =
         serde_json::to_value(&query_params).unwrap_or(serde_json::json!({}));
 
-    // Create the trigger message with real HTTP data
+    // Create the trigger message with real HTTP data (shared hook payload format)
     let trace_id = Uuid::now_v7();
-    let trigger_payload = serde_json::json!({
-        "method": method_str,
-        "path": sub_path,
-        "headers": headers_json,
-        "query": query_json,
-        "body": body_json,
-    });
+    let trigger_payload = z8run_core::canvas::hook_trigger_payload(
+        method_str,
+        sub_path,
+        serde_json::Value::Object(headers_json),
+        query_json,
+        body_json,
+    );
 
-    let trigger_msg = FlowMessage::new(Uuid::nil(), "hook", trigger_payload, trace_id);
+    let trigger_msg = z8run_core::canvas::hook_trigger_message(trigger_payload, trace_id);
 
     // Create oneshot channel for the response
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1526,6 +1434,8 @@ async fn import_flow(
 mod tests {
     use super::*;
     use serde_json::json;
+    use z8run_core::flow::Edge;
+    use z8run_core::node::Node;
 
     #[test]
     fn validate_canvas_accepts_wellformed_and_empty_payloads() {

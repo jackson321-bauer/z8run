@@ -15,8 +15,7 @@ async fn main() -> Result<(), String> {
     let path = &args[1];
     let key_file = &args[2];
 
-    let raw = std::fs::read_to_string(key_file)
-        .map_err(|e| format!("key file {key_file}: {e}"))?;
+    let raw = std::fs::read_to_string(key_file).map_err(|e| format!("key file {key_file}: {e}"))?;
     let key = raw.trim();
     if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("key file must contain exactly 64 hex characters".to_string());
@@ -54,9 +53,15 @@ async fn main() -> Result<(), String> {
         .map_err(|e| format!("clear table: {e}"))?;
 
     for (title, body) in [
-        ("Erster Eintrag", "Hallo aus der verschluesselten S3-Datenbank"),
+        (
+            "Erster Eintrag",
+            "Hallo aus der verschluesselten S3-Datenbank",
+        ),
         ("Zweiter Eintrag", "Der Proxy hat die Datei geladen"),
-        ("Dritter Eintrag", "SQLite bleibt verschluesselt auf der Platte"),
+        (
+            "Dritter Eintrag",
+            "SQLite bleibt verschluesselt auf der Platte",
+        ),
     ] {
         sqlx::query("INSERT INTO notes (title, body) VALUES (?, ?)")
             .bind(title)

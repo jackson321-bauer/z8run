@@ -138,24 +138,20 @@ impl NodeExecutor for S3DbFetchNode {
             let cfg: S3Config = if let Some(v) = inline_s3 {
                 match serde_json::from_value(v.clone()) {
                     Ok(v) => v,
-                    Err(e) => {
-                        return Ok(self.error_output(&msg, format!("Inline-S3 parse: {e}")))
-                    }
+                    Err(e) => return Ok(self.error_output(&msg, format!("Inline-S3 parse: {e}"))),
                 }
             } else {
                 if self.s3_config.is_empty() {
-                    return Ok(self.error_output(
-                        &msg,
-                        "No inline s3 credentials and no s3Config set",
-                    ));
+                    return Ok(
+                        self.error_output(&msg, "No inline s3 credentials and no s3Config set")
+                    );
                 }
                 let raw = match tokio::fs::read_to_string(&self.s3_config).await {
                     Ok(v) => v,
                     Err(e) => {
-                        return Ok(self.error_output(
-                            &msg,
-                            format!("S3 config {}: {e}", self.s3_config),
-                        ))
+                        return Ok(
+                            self.error_output(&msg, format!("S3 config {}: {e}", self.s3_config))
+                        )
                     }
                 };
                 match serde_json::from_str(&raw) {
@@ -181,18 +177,10 @@ impl NodeExecutor for S3DbFetchNode {
 
             let data = match endpoint.get_object(&bucket, &key).await {
                 Ok(v) => v,
-                Err(e) => {
-                    return Ok(self.error_output(
-                        &msg,
-                        format!("S3 GET {bucket}/{key}: {e}"),
-                    ))
-                }
+                Err(e) => return Ok(self.error_output(&msg, format!("S3 GET {bucket}/{key}: {e}"))),
             };
             if data.is_empty() {
-                return Ok(self.error_output(
-                    &msg,
-                    format!("S3 object {bucket}/{key} is empty"),
-                ));
+                return Ok(self.error_output(&msg, format!("S3 object {bucket}/{key} is empty")));
             }
 
             let tmp = cache.join(format!(".{filename}.{}.tmp", uuid::Uuid::now_v7()));

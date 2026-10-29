@@ -473,10 +473,8 @@ async fn cmd_serve(
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(
-                            &path,
-                            std::fs::Permissions::from_mode(0o600),
-                        );
+                        let _ =
+                            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
                     }
                     tracing::info!(path = %uds_path, "UDS listener ready");
                     tokio::spawn(async move {
@@ -503,7 +501,8 @@ async fn cmd_serve(
                                                         parts,
                                                         axum::body::Body::new(body),
                                                     );
-                                                    match tower::ServiceExt::oneshot(app, req).await {
+                                                    match tower::ServiceExt::oneshot(app, req).await
+                                                    {
                                                         Ok(resp) => {
                                                             Ok::<_, std::convert::Infallible>(resp)
                                                         }
