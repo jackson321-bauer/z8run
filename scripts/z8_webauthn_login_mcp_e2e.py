@@ -8,12 +8,15 @@ prüft Replay. Der HW-Shard wird vorher clientseitig geöffnet.
 
 from __future__ import annotations
 
+import asyncio
 import http.cookiejar
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
+
+from mcp.server.fastmcp import FastMCP
 
 import z8_webauthn_login_e2e as e2e
 
@@ -94,6 +97,21 @@ def upsert(op, flow_file: str) -> str:
     return fid
 
 
+def mcp_call(**kwargs):
+    """Echter MCP-Endpunkt: registriertes Tool über FastMCP.call_tool."""
+    res = asyncio.run(MCP.call_tool("z8_login", kwargs))
+    # FastMCP liefert (content_blocks, structured_result).
+    if isinstance(res, tuple) and len(res) == 2 and isinstance(res[1], dict):
+        return res[1]
+    if isinstance(res, dict):
+        return res
+    for block in res:
+        text = getattr(block, "text", None)
+        if text:
+            return json.loads(text)
+    return {"raw": str(res)}
+
+
 def log(name, obj):
     with open(f"{LOG}/s4-{name}.json", "w") as f:
         json.dump(obj, f, indent=2)
@@ -104,6 +122,11 @@ def main():
     fid_wa = upsert(op, f"{e2e.BASE}/flows/KV3-Login-WebAuthn.flow.json")
     fid_pem = upsert(op, f"{e2e.BASE}/flows/KV3-Login-PEM.flow.json")
     print(f"[S4] Flows angelegt: webauthn={fid_wa} pem={fid_pem}")
+    global MCP
+    z8_login_run.FLOW_LOGIN = fid_wa
+    z8_login_run.FLOW_LOGIN_PEM = fid_pem
+    MCP = FastMCP("z8-webauthn-login-audit")
+    z8_login_run.register_login_tool(MCP)
 
     password = "pw-" + os.urandom(8).hex()
     print(f"[S4] Prefix leeren: {e2e.wipe_prefix()} Objekte")
@@ -135,13 +158,17 @@ def main():
             "--addr", user["addr_user"], "--key", pem_path, "--kem", kem,
         ]).decode())
         assertion = e2e.assertion(key, cred_id, ch["webauthn_challenge"], 2)
-        r = z8_login_run.perform_login(
+        r = mcp_call(
             space=e2e.SPACE, user="anna", password=password,
             assertion=assertion, shamir_hw=shard["shamir_hw"],
-            s3_prefix=e2e.PREFIX, flow_id=fid_wa,
+            s3_prefix=e2e.PREFIX,
         )
-        assert r["ok"] and r["body"].get("master_sha256") == expected, r
+        log("mcp-raw-assertion", r)
+        assert isinstance(r, dict) and r.get("ok") and r.get("body", {}).get("master_sha256") == expected, r
+        for feld in ("req", "opened_datei", "opened_block", "hw_block"):
+            assert feld not in r["body"], f"Leak in MCP-Antwort: {feld}"
         log("mcp-assertion", {"status": r["status"], "master_sha256": r["body"]["master_sha256"],
+                              "expected_master_sha256": expected,
                               "session_view": r["body"].get("session_view")})
         print(f"[S4] MCP z8_login ASSERTION OK master={expected[:16]}")
 
@@ -149,24 +176,27 @@ def main():
         st, ch2 = z8_login_run._post(
             fid_wa, "/challenge", {"user": "anna", "s3": {"prefix": e2e.PREFIX}})
         replay_assertion = e2e.assertion(key, cred_id, ch2["webauthn_challenge"], 2)
-        r = z8_login_run.perform_login(
+        r = mcp_call(
             space=e2e.SPACE, user="anna", password=password,
             assertion=replay_assertion, shamir_hw=shard["shamir_hw"],
-            s3_prefix=e2e.PREFIX, flow_id=fid_wa,
+            s3_prefix=e2e.PREFIX,
         )
         assert not r["ok"] and r["status"] == 401, r
         log("mcp-replay", {"status": r["status"], "error": r["body"].get("error")})
         print(f"[S4] MCP z8_login REPLAY -> {r['status']}")
 
         # PEM-Parallelweg
-        r = z8_login_run.perform_login(
+        r = mcp_call(
             space=e2e.SPACE, user="anna", password=password,
             pem_path=user["pems"][0]["path"],
             pqc_dk_path=user["pems"][0]["pqc_dk_path"],
-            s3_prefix=e2e.PREFIX, pem_flow_id=fid_pem,
+            s3_prefix=e2e.PREFIX,
         )
         assert r["ok"] and r["body"].get("master_sha256") == expected, r
-        log("mcp-pem", {"status": r["status"], "master_sha256": r["body"]["master_sha256"]})
+        for feld in ("req", "key_pem", "pqc_dk"):
+            assert feld not in r["body"], f"Leak im MCP-PEM: {feld}"
+        log("mcp-pem", {"status": r["status"], "master_sha256": r["body"]["master_sha256"],
+                        "expected_master_sha256": expected})
         print(f"[S4] MCP z8_login PEM OK master={expected[:16]}")
 
         tools = [t for t in sys.modules["z8_login_run"].__dict__]

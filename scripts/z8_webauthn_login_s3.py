@@ -79,7 +79,10 @@ def main():
         assert rc == 0, (rc, out, err)
         assert out.get("master_sha256") == expected, (out.get("master_sha256"), expected)
         assert e2e._proxy_body.get("session", {}).get("master_sha256") == expected
+        for feld in ("req", "opened_datei", "opened_block", "hw_block"):
+            assert feld not in out, f"Leak im CLI-Login: {feld}"
         log("cli-ok", {"exit": rc, "seconds": dur, "master_sha256": out["master_sha256"],
+                       "expected_master_sha256": expected,
                        "session_view": out.get("session_view"),
                        "proxy_fields": sorted(e2e._proxy_body["session"].keys())})
         print(f"[S3] CLI ASSERTION OK exit={rc} master={out['master_sha256'][:16]}")

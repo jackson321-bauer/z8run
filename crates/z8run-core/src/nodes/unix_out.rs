@@ -221,11 +221,19 @@ impl NodeExecutor for UnixOutNode {
                 // Session-Passthrough: Eingabe bleibt erhalten (Login-Response),
                 // nur der UDS-Body wird NICHT nach aussen gespiegelt.
                 let mut payload = msg.payload.clone();
+                let strip: Vec<&str> = self
+                    .strip_fields
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 if let Some(o) = payload.as_object_mut() {
-                    for feld in self.strip_fields.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-                        o.remove(feld);
+                    for feld in &strip {
+                        o.remove(*feld);
                     }
-                    o.insert("uds_response".into(), uds);
+                    if !strip.contains(&"uds_response") {
+                        o.insert("uds_response".into(), uds);
+                    }
                 }
                 Ok(vec![msg.derive(msg.source_node, "output", payload)])
             }

@@ -31,18 +31,30 @@ pub fn speichere(dir: &str, user: &str, challenge: &str, ttl_secs: u64) -> Resul
 }
 
 /// Prüft Challenge + Ablauf und verbraucht sie (einmalig).
+/// Das Umbenennen ist atomar: zwei parallele Aufrufe können dieselbe
+/// Challenge nicht beide verbrauchen (kein read→remove-TOCTOU).
 pub fn verbrauche(dir: &str, user: &str, challenge: &str) -> Result<(), String> {
     let path = pfad(dir, user);
-    let raw = std::fs::read_to_string(&path).map_err(|_| "Challenge nicht gefunden (neu anfordern)")?;
-    let v: Value = serde_json::from_str(&raw).map_err(|e| format!("Challenge-JSON: {e}"))?;
-    if v["challenge"].as_str() != Some(challenge) {
-        return Err("Challenge stimmt nicht mit der ausgegebenen überein".into());
-    }
-    if v["expires"].as_i64().unwrap_or(0) < chrono::Utc::now().timestamp() {
-        let _ = std::fs::remove_file(&path);
-        return Err("Challenge abgelaufen".into());
-    }
-    std::fs::remove_file(&path).map_err(|e| format!("Challenge verbrauchen: {e}"))?;
+    let lock = path.with_extension(format!(
+        "consuming-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    std::fs::rename(&path, &lock)
+        .map_err(|_| "Challenge nicht gefunden (neu anfordern/heute verbraucht)")?;
+    let ergebnis = (|| -> Result<(), String> {
+        let raw = std::fs::read_to_string(&lock)
+            .map_err(|e| format!("Challenge lesen: {e}"))?;
+        let v: Value = serde_json::from_str(&raw).map_err(|e| format!("Challenge-JSON: {e}"))?;
+        if v["challenge"].as_str() != Some(challenge) {
+            return Err("Challenge stimmt nicht mit der ausgegebenen überein".into());
+        }
+        if v["expires"].as_i64().unwrap_or(0) < chrono::Utc::now().timestamp() {
+            return Err("Challenge abgelaufen".into());
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(&lock);
     let _ = sha2::Sha256::digest(user.as_bytes());
-    Ok(())
+    ergebnis
 }

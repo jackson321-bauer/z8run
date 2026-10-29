@@ -156,6 +156,13 @@ impl NodeExecutor for WebauthnVerifyNode {
         }
         let mut out = msg.payload.clone();
         if let Some(o) = out.as_object_mut() {
+            if let Some(body) = o
+                .get_mut("req")
+                .and_then(|r| r.get_mut("body"))
+                .and_then(|b| b.as_object_mut())
+            {
+                body.remove("shamir_hw");
+            }
             o.insert(
                 "hw_block".into(),
                 json!({ "shamir_hw": shamir_hw, "quelle": "webauthn-credential" }),

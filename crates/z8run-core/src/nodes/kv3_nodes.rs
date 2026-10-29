@@ -362,6 +362,14 @@ impl NodeExecutor for Kv3OpenNode {
             }
             o.insert("opened_block".into(), block);
             o.insert("opened_datei".into(), json!(key));
+            if let Some(body) = o
+                .get_mut("req")
+                .and_then(|r| r.get_mut("body"))
+                .and_then(|b| b.as_object_mut())
+            {
+                body.remove("password");
+                body.remove("passwort");
+            }
         }
         Ok(vec![msg.derive(msg.source_node, "output", out)])
     }
@@ -548,6 +556,15 @@ impl NodeExecutor for Kv3HwshardNode {
             o.remove("key_pem");
             o.remove("pqc_dk_path");
             o.remove("pqc_dk");
+            if let Some(body) = o
+                .get_mut("req")
+                .and_then(|r| r.get_mut("body"))
+                .and_then(|b| b.as_object_mut())
+            {
+                body.remove("key_pem");
+                body.remove("pqc_dk");
+                body.remove("pqc_dk_path");
+            }
             o.insert("hw_block".into(), hw_block);
         }
         Ok(vec![msg.derive(msg.source_node, "output", out)])
@@ -814,6 +831,13 @@ impl NodeExecutor for Kv3SocketNode {
         if let Some(o) = out.as_object_mut() {
             o.insert("socket_status".into(), json!(status));
             o.insert("socket_target".into(), json!(self.socket_path));
+            // Antwort-Grenze: Request-Body (Passwort/PEM/KEM) und interne
+            // Öffnungs-Metadaten nie nach aussen spiegeln.
+            o.remove("req");
+            o.remove("opened_datei");
+            o.remove("key_pem");
+            o.remove("pqc_dk");
+            o.remove("pqc_dk_path");
         }
         // Erfolgreiche Übergabe = output; Fehler = error-Port (Proxy-Start kann
         // später auch ohne Socket getestet werden).

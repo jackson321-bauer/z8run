@@ -1064,4 +1064,106 @@ mod tests {
         // The functional payload is untouched.
         assert_eq!(payload["headers"]["Authorization"], "Bearer abc");
     }
+    /// Regression: a shared error target that is also reachable from an
+    /// earlier (non-erroring) node must stay open until ALL its producers
+    /// have run. A later node's error must reach the error target, not leak
+    /// into its normal output edge because the channel was closed too early.
+    #[tokio::test]
+    async fn spaeter_fehler_erreicht_shared_error_target() {
+        use crate::flow::Edge;
+        use crate::message::FlowMessage;
+
+        struct FailNode;
+        #[async_trait::async_trait]
+        impl NodeExecutor for FailNode {
+            async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
+                Ok(vec![msg.derive(
+                    msg.source_node,
+                    "error",
+                    serde_json::json!({"error": "boom"}),
+                )])
+            }
+            async fn configure(&mut self, _c: serde_json::Value) -> Z8Result<()> {
+                Ok(())
+            }
+            async fn validate(&self) -> Z8Result<()> {
+                Ok(())
+            }
+            fn node_type(&self) -> &str {
+                "test-fail"
+            }
+        }
+        struct FailFactory;
+        #[async_trait::async_trait]
+        impl NodeExecutorFactory for FailFactory {
+            async fn create(&self, _c: serde_json::Value) -> Z8Result<Box<dyn NodeExecutor>> {
+                Ok(Box::new(FailNode))
+            }
+            fn node_type(&self) -> &str {
+                "test-fail"
+            }
+        }
+
+        let engine = FlowEngine::new();
+        engine
+            .register_node_type(Arc::new(crate::nodes::debug::DebugNodeFactory))
+            .await;
+        engine.register_node_type(Arc::new(FailFactory)).await;
+
+        let mut flow = Flow::new("Shared Error Target");
+        let a = Node::new("A", "debug").with_output("output", PortType::Any);
+        let b = Node::new("B", "test-fail")
+            .with_input("input", PortType::Any)
+            .with_output("output", PortType::Any)
+            .with_output("error", PortType::Any);
+        let c = Node::new("C", "debug").with_input("input", PortType::Any);
+        let e = Node::new("E", "debug").with_input("input", PortType::Any);
+        let (a_id, b_id, c_id, e_id) = (a.id, b.id, c.id, e.id);
+        flow.add_node(a);
+        flow.add_node(b);
+        flow.add_node(c);
+        flow.add_node(e);
+        flow.edges.push(Edge::new(a_id, "output", b_id, "input"));
+        // A also points at the shared error target, so that target exists
+        // from the first step on (the old teardown closed it too early).
+        flow.edges.push(Edge::new(a_id, "error", e_id, "input"));
+        flow.edges.push(Edge::new(b_id, "output", c_id, "input"));
+        flow.edges.push(Edge::new(b_id, "error", e_id, "input"));
+
+        let flow_id = flow.id;
+        let mut events = engine.subscribe_events();
+        engine.execute(flow).await.unwrap();
+
+        let (nach_e, nach_c) = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut nach_e = 0;
+            let mut nach_c = 0;
+            loop {
+                match events.recv().await {
+                    Ok(EngineEvent::MessageSent { from_node, to_node, .. })
+                        if from_node == b_id && to_node == e_id =>
+                    {
+                        nach_e += 1;
+                    }
+                    Ok(EngineEvent::MessageSent { from_node, to_node, .. })
+                        if from_node == b_id && to_node == c_id =>
+                    {
+                        nach_c += 1;
+                    }
+                    Ok(EngineEvent::FlowCompleted { flow_id: fid, .. })
+                    | Ok(EngineEvent::FlowError { flow_id: fid, .. })
+                        if fid == flow_id =>
+                    {
+                        break (nach_e, nach_c);
+                    }
+                    _ => continue,
+                }
+            }
+        })
+        .await
+        .expect("flow did not complete in time");
+
+        assert_eq!(nach_e, 1, "Fehler erreichte den shared error target nicht");
+        assert_eq!(nach_c, 0, "Fehler leakte in den normalen Output-Edge");
+    }
+
 }

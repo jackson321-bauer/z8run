@@ -71,7 +71,7 @@ def build(prefix: str):
         node("sess", "unix-out", "Session an Proxy-UDS", {
             "socketPath": PROXY_SOCK, "method": "POST", "path": "/session",
             "bodyPath": "proxy_session", "timeoutMs": 5000,
-            "preserveInput": True, "stripFields": "proxy_session"}, error=True),
+            "preserveInput": True, "stripFields": "proxy_session,req,opened_datei,uds_response"}, error=True),
         node("ok", "http-out", "200 Login OK", {"statusCode": 200}, out=True),
         node("err-j", "http-out", "401 Join", {"statusCode": 401}, out=True),
         node("err-open", "http-out", "401 Open", {"statusCode": 401}, out=True),

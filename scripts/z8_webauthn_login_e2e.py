@@ -286,6 +286,7 @@ def main():
         addr = user["addr_user"]
         expected_master = user["user_master_sha256"]
         log("setup", {"status": st, "space": resp["space"], "addr_user": addr,
+                      "expected_master_sha256": expected_master,
                       "users": len(resp["users"]), "secrets_exposed": False})
 
         # Faktor 2: Software-Passkey (P-256 ES256 + ML-KEM-1024)
@@ -318,7 +319,12 @@ def main():
             "--out", f"{LOG}/s2-qr.svg",
         ])
         assert _proxy_body.get("session", {}).get("master_sha256") == expected_master
+        for feld in ("req", "opened_datei", "opened_block", "hw_block"):
+            assert feld not in out, f"Secret-/Interna-Leak in Login-Antwort: {feld}"
+        assert "password" not in json.dumps(out) and "key_pem" not in json.dumps(out)
         log("login-ok", {"status": st, "master_sha256": out["master_sha256"],
+                         "expected_master_sha256": expected_master,
+                         "response_fields": sorted(out.keys()),
                          "session_view": out["session_view"],
                          "proxy_session_fields": sorted(_proxy_body["session"].keys())})
         print(f"[a] LOGIN OK master={out['master_sha256'][:16]} qr={out['session_view']['qr_code_uri']}")
@@ -331,7 +337,10 @@ def main():
             "s3": {"prefix": PREFIX},
         })
         assert st == 200 and out_pem.get("master_sha256") == expected_master, (st, out_pem)
-        log("login-pem", {"status": st, "master_sha256": out_pem["master_sha256"]})
+        for feld in ("req", "key_pem", "pqc_dk"):
+            assert feld not in out_pem, f"Secret-Leak im PEM-Login: {feld}"
+        log("login-pem", {"status": st, "master_sha256": out_pem["master_sha256"],
+                          "expected_master_sha256": expected_master})
         print(f"[c] PEM-LOGIN OK master={out_pem['master_sha256'][:16]}")
 
         # (e) Counter-Replay: neue Challenge, gleicher Counter
