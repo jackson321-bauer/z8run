@@ -25,9 +25,6 @@ pub fn salt_user(space_salt: &str, name: &str) -> String {
     sha_hex(format!("{space_salt}:user:{name}").as_bytes())
 }
 
-pub fn salt_shared(space_salt: &str, name: &str) -> String {
-    sha_hex(format!("{space_salt}:shared:{name}").as_bytes())
-}
 
 pub struct PemPaar {
     pub pem: String,

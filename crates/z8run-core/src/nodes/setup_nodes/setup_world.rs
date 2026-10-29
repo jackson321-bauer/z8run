@@ -112,7 +112,9 @@ impl NodeExecutor for SetupWorldNode {
                 "engines": b.block["engines"],
                 "db": db_oeffentlich(&b.db),
                 "pubkeys": pubkeys,
-                "pems": b.pems,
+                "pems": b.pems.iter().map(|p| json!({
+                    "name": p["name"], "pub_b64": p["pub_b64"], "path": p["path"]
+                })).collect::<Vec<_>>(),
             });
             users_out.push(user_json.clone());
             reg_users.push(json!({

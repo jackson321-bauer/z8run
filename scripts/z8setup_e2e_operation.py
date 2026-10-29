@@ -22,6 +22,7 @@ OLD = os.environ.get("SETUP_OLD_PREFIX", "sim2/welt2/z8setup/run3/")
 NEW = os.environ.get("SETUP_NEW_PREFIX", "sim2/welt2/z8setup/run3-rot/")
 KEYS = os.environ.get("SETUP_KEYS", "/data/z8run-test/verify-logs/z8-setup/s2-world/keys")
 RESP = os.environ.get("SETUP_RESP", "/data/z8run-test/verify-logs/z8-setup/s2-world/response.json")
+SPEC = os.environ.get("SETUP_SPEC", "/data/z8run-test/verify-logs/z8-setup/s2-world/spec.json")
 
 
 def unix_post(path: str, body: dict) -> tuple[int, dict]:
@@ -102,21 +103,29 @@ def main():
     assert st == 403, (st, out)
     print(f"[2] NEGATIV rotate falsche Signatur -> HTTP {st}")
 
-    # --- Rotate: positiv
-    body = {"newS3": {"prefix": NEW}, "deleteOld": True,
-            "s3": {"prefix": OLD}, **auth("rotate", space)}
+    # --- Rotate: positiv, inkl. Re-Seal (D4)
+    pw = {u["name"]: u["password"] for u in json.load(open(SPEC))["users"]}
+    body = {"newS3": {"prefix": NEW}, "deleteOld": True, "rotateBoxes": True,
+            "userPasswords": pw, "s3": {"prefix": OLD}, **auth("rotate", space)}
     st, out = unix_post(f"/hook/{uid}/rotate-s3", body)
     assert st == 200 and out.get("rotation", {}).get("ok"), (st, out)
     rot = out["rotation"]
     assert rot["objects"] >= 11, rot
+    assert rot.get("resealed", 0) >= 2 and rot.get("resealed_changed") is True, rot
     json.dump(rot, open("/data/z8run-test/verify-logs/z8-setup/s3-rotate.json", "w"), indent=1)
     print(f"[3] ROTATE OK objects={rot['objects']} deleted_old={rot['deleted_old']} "
+          f"resealed={rot.get('resealed')} changed={rot.get('resealed_changed')} "
           f"{OLD} -> {NEW} (shards_salts_unchanged={rot['shards_salts_unchanged']})")
 
     # --- Plugin: Negativ + positiv
     st, out = unix_post(f"/hook/{uid}/plugin-add", {"s3": {"prefix": NEW}, "user": "anna", "plugin": "demo-plugin"})
     assert st == 403, (st, out)
     print(f"[4] NEGATIV plugin ohne Setup-Key -> HTTP {st}")
+    bad = {"s3": {"prefix": NEW}, "user": "anna", "plugin": "x", **auth("plugin", space)}
+    bad["setup_signature"] = base64.b64encode(b"falsch").decode()
+    st, out = unix_post(f"/hook/{uid}/plugin-add", bad)
+    assert st == 403, (st, out)
+    print(f"[4b] NEGATIV plugin falsche Signatur -> HTTP {st}")
     for plug in ("demo-plugin", "vec-plugin"):
         body = {"s3": {"prefix": NEW}, "user": "anna", "plugin": plug, **auth("plugin", space)}
         st, out = unix_post(f"/hook/{uid}/plugin-add", body)
@@ -129,6 +138,11 @@ def main():
                                                          "pub_b64": "x"})
     assert st == 403, (st, out)
     print(f"[6] NEGATIV pubkey ohne Setup-Key -> HTTP {st}")
+    bad = {"s3": {"prefix": NEW}, "user": "bernd", "pub_b64": "x", **auth("pubkey", space)}
+    bad["setup_signature"] = base64.b64encode(b"falsch").decode()
+    st, out = unix_post(f"/hook/{uid}/user-pubkey-add", bad)
+    assert st == 403, (st, out)
+    print(f"[6b] NEGATIV pubkey falsche Signatur -> HTTP {st}")
     key = ec.generate_private_key(ec.SECP256R1())
     nums = key.public_key().public_numbers()
     pub = b"\x04" + nums.x.to_bytes(32, "big") + nums.y.to_bytes(32, "big")

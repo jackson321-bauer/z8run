@@ -28,29 +28,8 @@ KEYS = os.environ.get("SETUP_KEYS", "/data/z8run-test/verify-logs/z8-setup/s2-wo
 RESP = os.environ.get("SETUP_RESP", "/data/z8run-test/verify-logs/z8-setup/s2-world/response.json")
 
 
-def b64url(b: bytes) -> str:
-    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
-
-def cb_head(major: int, n: int) -> bytes:
-    if n < 24:
-        return bytes([(major << 5) | n])
-    if n < 256:
-        return bytes([(major << 5) | 24, n])
-    return bytes([(major << 5) | 25]) + n.to_bytes(2, "big")
-
-
-def cb_bytes(b: bytes) -> bytes:
-    return cb_head(2, len(b)) + b
-
-
-def cb_text(s: str) -> bytes:
-    b = s.encode()
-    return cb_head(3, len(b)) + b
-
-
-def cb_int(i: int) -> bytes:
-    return cb_head(0, i) if i >= 0 else cb_head(1, -1 - i)
+from z8setup_authenticator import b64url, cb_bytes, cb_head, cb_int, cb_text
 
 
 def unix_post(path: str, body: dict) -> tuple[int, dict]:

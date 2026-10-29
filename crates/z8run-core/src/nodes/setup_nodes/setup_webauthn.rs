@@ -6,13 +6,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use sha2::Digest;
 
-use super::setup_io::{body, text};
 use super::webauthn_cbor::{decode, Cbor};
-use crate::configure_fields;
-use crate::engine::NodeExecutor;
-use crate::error::Z8Result;
-use crate::message::FlowMessage;
-use crate::node_factory;
 
 pub fn b64url(data: &[u8]) -> String {
     B64URL.encode(data)
@@ -149,51 +143,3 @@ pub fn verarbeite_registrierung(
         "created": chrono::Utc::now().to_rfc3339(),
     }))
 }
-
-pub struct WebauthnChallengeNode {
-    name: String,
-    rp_id: String,
-    origin: String,
-}
-
-#[async_trait::async_trait]
-impl NodeExecutor for WebauthnChallengeNode {
-    async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
-        let req = body(&msg.payload);
-        let challenge = b64url(&(0u8..32).map(|_| rand::random::<u8>()).collect::<Vec<u8>>());
-        let mut out = body(&msg.payload).clone();
-        if let Some(o) = out.as_object_mut() {
-            o.insert("webauthn_challenge".into(), json!(challenge));
-            o.insert("rp_id".into(), json!(text(req, "rpId").unwrap_or(&self.rp_id)));
-            o.insert("origin".into(), json!(text(req, "origin").unwrap_or(&self.origin)));
-            if let Some(u) = req.get("user") {
-                o.insert("user".into(), u.clone());
-            }
-        }
-        Ok(vec![msg.derive(msg.source_node, "output", out)])
-    }
-
-    async fn configure(&mut self, config: Value) -> Z8Result<()> {
-        configure_fields!(config, self,
-            "name" => name: str,
-            "rpId" => rp_id: str,
-            "origin" => origin: str,
-        );
-        Ok(())
-    }
-
-    async fn validate(&self) -> Z8Result<()> {
-        Ok(())
-    }
-
-    fn node_type(&self) -> &str {
-        "webauthn-challenge"
-    }
-}
-
-node_factory!(WebauthnChallengeNodeFactory, WebauthnChallengeNode, "webauthn-challenge", {
-    name: "webauthn-challenge".to_string(),
-    rp_id: "localhost".to_string(),
-    origin: "http://localhost:7700".to_string(),
-});
-

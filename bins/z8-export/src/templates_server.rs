@@ -129,6 +129,22 @@ async fn __FN_RUN__() -> Result<(), BoxErr> {
 __ROUTE_REGISTRATION__
     let router = router.with_state(state);
 
+    // D3: Die Setup-API ist lokal-only. Mit Z8_EXPORT_SOCK lauscht die
+    // Binary ausschliesslich auf einem Unix-Socket (0600), nie auf TCP.
+    if let Ok(sock) = std::env::var("Z8_EXPORT_SOCK") {
+        if !sock.is_empty() {
+            let _ = std::fs::remove_file(&sock);
+            let listener = tokio::net::UnixListener::bind(&sock)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600));
+            }
+            eprintln!("z8-export: listening on unix://{sock}");
+            axum::serve(listener, router).await?;
+            return Ok(());
+        }
+    }
     let bind = std::env::var("Z8_EXPORT_BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     eprintln!("z8-export: listening on http://{bind}");

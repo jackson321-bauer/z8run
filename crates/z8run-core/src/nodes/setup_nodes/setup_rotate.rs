@@ -88,6 +88,18 @@ impl NodeExecutor for RotateS3Node {
             return Ok(fehler(&msg, 400, "rotate-s3: keine Objekte unter altem Prefix"));
         }
 
+        // D4: optional echte Neuversiegelung der Boxen (Shards+Salts bleiben).
+        let mut resealed = Vec::new();
+        if req.get("rotateBoxes").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let Some(pw) = req.get("userPasswords") else {
+                return Ok(fehler(&msg, 400, "rotate-s3: rotateBoxes braucht userPasswords"));
+            };
+            match super::setup_rotate_reseal::reseal(&new, &registry, master_hex, pw).await {
+                Ok(r) => resealed = r,
+                Err(e) => return Ok(fehler(&msg, 400, format!("rotate-s3 reseal: {e}"))),
+            }
+        }
+
         let mut registry = registry;
         registry["rotation"] = json!({
             "at": chrono::Utc::now().to_rfc3339(),
@@ -95,6 +107,8 @@ impl NodeExecutor for RotateS3Node {
             "to": {"bucket": new.bucket, "prefix": new.prefix, "host": new.endpoint.host},
             "objects": kopiert.len(),
             "shards_salts_unchanged": true,
+            "resealed": resealed.len(),
+            "resealed_changed": resealed.iter().all(|r| r["before"] != r["after"]),
         });
         registry["s3"] = json!({
             "host": new.endpoint.host,
@@ -131,6 +145,8 @@ impl NodeExecutor for RotateS3Node {
                 "to_prefix": new.prefix,
                 "registry_sha256": reg_sha,
                 "shards_salts_unchanged": true,
+                "resealed": resealed.len(),
+                "resealed_changed": resealed.iter().all(|r| r["before"] != r["after"]),
             }));
         }
         Ok(vec![msg.derive(msg.source_node, "output", out)])

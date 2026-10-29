@@ -5,6 +5,7 @@
 //! hier sind reine Verkabelung.
 
 pub mod setup_auth;
+pub mod setup_challenge;
 pub mod setup_crypto;
 pub mod setup_db;
 pub mod setup_hashdatei;
@@ -14,6 +15,7 @@ pub mod setup_plugin;
 pub mod setup_pubkey;
 pub mod setup_registry;
 pub mod setup_rotate;
+pub mod setup_rotate_reseal;
 pub mod setup_s3_list;
 pub mod setup_seal_boxes;
 pub mod setup_seal_keys;
@@ -21,6 +23,7 @@ pub mod setup_store_nodes;
 pub mod setup_summary;
 pub mod setup_validate;
 pub mod setup_webauthn;
+pub mod setup_webauthn_challenge;
 pub mod setup_webauthn_assert;
 pub mod setup_webauthn_register;
 pub mod setup_world;
@@ -32,6 +35,8 @@ pub mod webauthn_cbor;
 mod tests;
 #[cfg(test)]
 mod tests_webauthn;
+#[cfg(test)]
+mod tests_world;
 
 use crate::engine::{FlowEngine, NodeExecutorFactory};
 use std::sync::Arc;
@@ -49,7 +54,7 @@ pub async fn registrieren(engine: &FlowEngine) {
     use setup_store_nodes::*;
     use setup_summary::*;
     use setup_validate::*;
-    use setup_webauthn::*;
+    use setup_webauthn_challenge::*;
     use setup_webauthn_assert::*;
     use setup_webauthn_register::*;
     use setup_world_factory::*;

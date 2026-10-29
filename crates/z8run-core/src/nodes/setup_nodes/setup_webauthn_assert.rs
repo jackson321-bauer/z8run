@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use sha2::Digest;
 
 use super::setup_crypto as sc;
+use super::setup_challenge;
 use super::setup_io::{body, text};
 use super::setup_registry as reg;
 use super::setup_webauthn::{b64url_decode, client_data_ok, parse_auth_data};
@@ -59,6 +60,7 @@ pub struct WebauthnAssertNode {
     s3_config: String,
     registry_key: String,
     master_path: String,
+    challenge_dir: String,
 }
 
 #[async_trait::async_trait]
@@ -88,6 +90,9 @@ impl NodeExecutor for WebauthnAssertNode {
         let cd_b64 = text(req, "clientDataJSON").unwrap_or_default();
         let sig_b64 = text(req, "signature").unwrap_or_default();
 
+        if let Err(e) = setup_challenge::verbrauche(&self.challenge_dir, &user, challenge) {
+            return Ok(err(format!("webauthn-assert challenge: {e}")));
+        }
         let cred = registry["webauthn"][&user]
             .as_array()
             .and_then(|arr| arr.iter().find(|c| c["credential_id"] == json!(cred_id)))
@@ -138,6 +143,7 @@ impl NodeExecutor for WebauthnAssertNode {
             "s3Config" => s3_config: str,
             "registryKey" => registry_key: str,
             "masterPath" => master_path: str,
+            "challengeDir" => challenge_dir: str,
         );
         Ok(())
     }
@@ -156,4 +162,5 @@ node_factory!(WebauthnAssertNodeFactory, WebauthnAssertNode, "webauthn-assert", 
     s3_config: "/etc/z8run/kv3-s3.json".to_string(),
     registry_key: reg::REGISTRY_KEY.to_string(),
     master_path: "setup_master_hex".to_string(),
+    challenge_dir: "/data/z8run/setup-challenges".to_string(),
 });

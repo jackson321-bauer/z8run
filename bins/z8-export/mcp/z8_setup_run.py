@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 SOCK = os.environ.get("Z8_UDS_PATH", "/data/z8run/z8run.sock")
-SETUP_DIR = Path("/etc/z8run/setup-keys").resolve()
+SETUP_DIRS = [Path("/etc/z8run/setup-keys").resolve(), Path("/data/z8run/setup-keys").resolve()]
 FLOW_INITIAL = os.environ.get("Z8_SETUP_FLOW_ID", "")
 FLOW_OPERATION = os.environ.get("Z8_SETUP_OPERATION_FLOW_ID", "")
 
@@ -33,8 +33,8 @@ def _erlaubte_pems(paths: list[str]) -> list[str]:
     out = []
     for p in paths:
         resolved = Path(p).resolve()
-        if not resolved.is_relative_to(SETUP_DIR):
-            raise ValueError(f"Setup-PEM muss unter {SETUP_DIR} liegen: {p}")
+        if not any(resolved.is_relative_to(d) for d in SETUP_DIRS):
+            raise ValueError(f"Setup-PEM muss unter {SETUP_DIRS} liegen: {p}")
         if not resolved.is_file():
             raise ValueError(f"Setup-PEM fehlt: {p}")
         out.append(resolved.read_text())

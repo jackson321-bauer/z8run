@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 
+use super::setup_challenge;
 use super::setup_io::{body, text};
 use super::setup_registry as reg;
 use super::setup_webauthn::verarbeite_registrierung;
@@ -16,6 +17,7 @@ pub struct WebauthnRegisterNode {
     s3_config: String,
     registry_key: String,
     master_path: String,
+    challenge_dir: String,
 }
 
 #[async_trait::async_trait]
@@ -42,6 +44,9 @@ impl NodeExecutor for WebauthnRegisterNode {
         };
         let att_b64 = text(req, "attestationObject").unwrap_or_default();
         let cd_b64 = text(req, "clientDataJSON").unwrap_or_default();
+        if let Err(e) = setup_challenge::verbrauche(&self.challenge_dir, &user, challenge) {
+            return Ok(err(format!("webauthn-register challenge: {e}")));
+        }
         let cred = match verarbeite_registrierung(
             cd_b64, att_b64, challenge, &origin, &rp_id, &user,
         ) {
@@ -78,6 +83,7 @@ impl NodeExecutor for WebauthnRegisterNode {
             "s3Config" => s3_config: str,
             "registryKey" => registry_key: str,
             "masterPath" => master_path: str,
+            "challengeDir" => challenge_dir: str,
         );
         Ok(())
     }
@@ -96,4 +102,5 @@ node_factory!(WebauthnRegisterNodeFactory, WebauthnRegisterNode, "webauthn-regis
     s3_config: "/etc/z8run/kv3-s3.json".to_string(),
     registry_key: reg::REGISTRY_KEY.to_string(),
     master_path: "setup_master_hex".to_string(),
+    challenge_dir: "/data/z8run/setup-challenges".to_string(),
 });

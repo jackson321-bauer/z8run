@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
@@ -13,6 +14,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 BASE = os.environ.get("SETUP_HTTP_BASE", "http://127.0.0.1:18124").rstrip("/")
+UDS = os.environ.get("SETUP_UDS", "")
 OLD = os.environ.get("SETUP_OLD_PREFIX", "sim2/welt2/z8setup/run7/")
 NEW = os.environ.get("SETUP_NEW_PREFIX", "sim2/welt2/z8setup/run7-rot/")
 KEYS = os.environ.get("SETUP_KEYS", "/data/z8run-test/verify-logs/z8-setup/s2-world/keys")
@@ -20,6 +22,23 @@ KEYS = os.environ.get("SETUP_KEYS", "/data/z8run-test/verify-logs/z8-setup/s2-wo
 
 def post(path: str, body: dict) -> tuple[int, dict]:
     data = json.dumps(body).encode()
+    if UDS:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(180)
+        s.connect(UDS)
+        s.sendall(
+            f"POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(data)}\r\nConnection: close\r\n\r\n".encode() + data
+        )
+        raw = b""
+        while True:
+            c = s.recv(65536)
+            if not c:
+                break
+            raw += c
+        s.close()
+        head, _, rest = raw.partition(b"\r\n\r\n")
+        return int(head.split(b" ")[1]), json.loads(rest or b"{}")
     r = urllib.request.Request(BASE + path, data=data, method="POST")
     r.add_header("content-type", "application/json")
     try:

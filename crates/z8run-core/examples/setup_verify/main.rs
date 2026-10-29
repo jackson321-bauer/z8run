@@ -3,20 +3,17 @@
 //! Aufruf:
 //!   SETUP_RESP=resp.json SETUP_SPEC=spec.json SETUP_PREFIX=... \
 //!   SETUP_PEMS="a.pem:b.pem" cargo run --release --example setup_verify
-//!
-//! Prüft: Hashdatei aus S3 → Passwort-Box → Provider-Shard;
-//! hw-shards → ECIES mit User-PEM → HW-Shard; Shamir 2-of-2 → Master
-//! == erwarteter Fingerprint; DB entschlüsselt + Tabellen; Registry mit
-//! 2 Setup-PEMs entschlüsselbar.
+//! Prüft Login-Kette, DBs, Registry, Rotation und Extra-Pubkeys am Endpunkt.
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde_json::Value;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
-use sqlx::Connection;
 use z8run_core::nodes::setup_nodes::setup_crypto as sc;
 use z8run_core::nodes::setup_nodes::setup_io::S3Cfg;
 use z8run_core::nodes::setup_nodes::setup_registry as reg;
+
+mod db;
+use db::db_pruefen;
 
 fn fail(msg: impl Into<String>) -> ! {
     eprintln!("VERIFY ROT: {}", msg.into());
@@ -28,35 +25,6 @@ async fn hole(cfg: &S3Cfg, key: &str) -> Vec<u8> {
         Ok(d) => d,
         Err(e) => fail(format!("S3 GET {key}: {e}")),
     }
-}
-
-async fn db_pruefen(key_hex: &str, bytes: &[u8], name: &str) {
-    let path = std::env::temp_dir().join(format!("z8verify-{name}-{}.db", std::process::id()));
-    std::fs::write(&path, bytes).unwrap();
-    let opts = SqliteConnectOptions::new().filename(&path).create_if_missing(false);
-    let mut conn = match SqliteConnection::connect_with(&opts).await {
-        Ok(c) => c,
-        Err(e) => fail(format!("DB open {name}: {e}")),
-    };
-    if let Err(e) = sqlx::query(&format!("PRAGMA key = \"x'{key_hex}'\";"))
-        .execute(&mut conn)
-        .await
-    {
-        fail(format!("DB key {name}: {e}"));
-    }
-    let tabs: Vec<(String,)> = match sqlx::query_as(
-        "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name",
-    )
-    .fetch_all(&mut conn)
-    .await
-    {
-        Ok(t) => t,
-        Err(e) => fail(format!("DB read {name}: {e} (falscher Key?)")),
-    };
-    let names: Vec<String> = tabs.into_iter().map(|t| t.0).collect();
-    println!("    DB {name}: entschlüsselt, Tabellen={names:?}");
-    let _ = conn.close().await;
-    let _ = std::fs::remove_file(&path);
 }
 
 #[tokio::main]
@@ -112,8 +80,14 @@ async fn main() {
         let hw_text =
             String::from_utf8(hole(&cfg, &format!("workspaces/{addr}/hw-shards.txt")).await).unwrap();
         let (ha, hb) = sc::hashdatei_parsen(&hw_text);
-        let pem = user["pems"][0]["pem"].as_str().expect("user pem");
-        let pub_b64 = sc::pem_pub_b64(pem).unwrap();
+        let pem = match user["pems"][0]["pem"].as_str() {
+            Some(p) => p.to_string(),
+            None => std::fs::read_to_string(
+                user["pems"][0]["path"].as_str().expect("user pem path"),
+            )
+            .expect("user pem lesen"),
+        };
+        let pub_b64 = sc::pem_pub_b64(&pem).unwrap();
         let hblk = ha
             .iter()
             .find(|(a, _)| a == &pub_b64)
@@ -121,7 +95,7 @@ async fn main() {
             .unwrap_or_else(|| fail(format!("{name}: PEM-Pubkey nicht in hw-shards")));
         let hchiffre = hb.iter().find(|(b, _)| b == &hblk).map(|(_, c)| c.clone()).unwrap();
         let hbox = sc::box_aus_b64(&hchiffre).unwrap();
-        let hplain = sc::kette::hwbox_oeffne(&hbox, pem)
+        let hplain = sc::kette::hwbox_oeffne(&hbox, &pem)
             .unwrap_or_else(|e| fail(format!("{name}: HW-Box: {e}")));
         let hblock: Value = serde_json::from_slice(&hplain).unwrap();
         let h = &hblock["shamir_hw"];
