@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Gemeinsame Test-Helfer (Temp-Verzeichnisse, Cluster, Master).
 
 use std::path::{Path, PathBuf};

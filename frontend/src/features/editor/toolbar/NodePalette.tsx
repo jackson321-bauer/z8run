@@ -11,7 +11,7 @@ import { useCallback, useState } from "react";
 
 function PaletteNode({ def }: { def: NodeDefinition }) {
   const Icon = NODE_ICON_MAP[def.icon];
-  const color = CATEGORY_COLORS[def.category];
+  const color = def.color ?? CATEGORY_COLORS[def.category];
 
   const onDragStart = useCallback(
     (e: React.DragEvent) => {

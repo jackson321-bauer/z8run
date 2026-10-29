@@ -39,6 +39,14 @@ pub mod classifier;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crm;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod dbnode_admin;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dbnode_common;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dbnode_open;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dbnode_query;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod database;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod embeddings;
@@ -141,6 +149,16 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
             Arc::new(sqlite_exec::SqliteExecNodeFactory) as Arc<dyn NodeExecutorFactory>
         )
         .await;
+    for factory in [
+        Arc::new(dbnode_open::DbOpenNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(dbnode_query::DbQueryNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(dbnode_query::DbWriteNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(dbnode_admin::DbSchemaNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(dbnode_admin::DbStatusNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(dbnode_admin::DbSyncNodeFactory) as Arc<dyn NodeExecutorFactory>,
+    ] {
+        engine.register_node_type(factory).await;
+    }
     engine
         .register_node_type(Arc::new(kv_auth::KvLoginNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;

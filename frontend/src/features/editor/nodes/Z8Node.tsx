@@ -41,7 +41,9 @@ function Z8NodeComponent({ id, data, selected }: NodeProps) {
 
     const Icon = NODE_ICON_MAP[icon];
     const categoryColor =
-      (CATEGORY_COLORS as Record<string, string>)[category] ?? "#6366f1";
+      (nodeData?.color as string | undefined) ??
+      (CATEGORY_COLORS as Record<string, string>)[category] ??
+      "#6366f1";
     const status = nodeData?.status ?? "idle";
     const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.idle;
 

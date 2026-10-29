@@ -82,6 +82,8 @@ export interface NodeDefinition {
   label: string;
   category: NodeCategory;
   icon: string;
+  /** Optional per-node color; DB nodes have their own (data category stays teal). */
+  color?: string;
   description: string;
   inputs: PortDefinition[];
   outputs: PortDefinition[];
@@ -403,6 +405,105 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       maxRows: 1000,
       timeoutSecs: 30,
     },
+  },
+  {
+    type: "db-open",
+    label: "DB Open",
+    category: "data",
+    color: "#0E7490",
+    icon: "Database",
+    description: "Open a SQLCipher database (vec+FTS5) in the DB-Node engine",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Status", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: {
+      dbId: "",
+      clusterId: "default",
+      adapter: "fs",
+      localDir: "/data/z8run/dbnode",
+      storageRoot: "",
+      bucket: "",
+      prefix: "",
+      masterKeyPath: "master_key_b64",
+    },
+  },
+  {
+    type: "db-query",
+    label: "DB Query",
+    category: "data",
+    color: "#0E7490",
+    icon: "Layers",
+    description: "Read-only query against an open DB (parallel reads)",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Rows", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: { dbId: "", sql: "", paramsPath: "params" },
+  },
+  {
+    type: "db-write",
+    label: "DB Write",
+    category: "data",
+    color: "#0E7490",
+    icon: "Send",
+    description: "Write via the WAL stream (reservation required)",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Result", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: {
+      dbId: "",
+      sql: "",
+      paramsPath: "params",
+      sessionPath: "session_id",
+      autoReserve: false,
+    },
+  },
+  {
+    type: "db-schema",
+    label: "DB Schema",
+    category: "data",
+    color: "#0E7490",
+    icon: "Database",
+    description: "Schema for the canvas: tables, columns, rows, WAL state",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Schema", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: { dbId: "" },
+  },
+  {
+    type: "db-status",
+    label: "DB Status",
+    category: "data",
+    color: "#0E7490",
+    icon: "Radio",
+    description: "Status of all open DBs (canvas badge)",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Status", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: { dbId: "" },
+  },
+  {
+    type: "db-sync",
+    label: "DB Sync",
+    category: "data",
+    color: "#0E7490",
+    icon: "Repeat",
+    description: "Upload pending WALs to the cluster storage",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Progress", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: { dbId: "" },
   },
   {
     type: "kv-login",
@@ -920,6 +1021,7 @@ export function createNodeData(def: NodeDefinition): Z8NodeData {
     type: def.type,
     category: def.category,
     icon: def.icon,
+    color: def.color,
     config: { ...def.defaultConfig },
     status: "idle",
     inputs: def.inputs,
