@@ -58,6 +58,49 @@ impl Names {
     }
 }
 
+/// Mangled names for the generated runner's functions.
+pub struct FnNames {
+    pub resolve_env: String,
+    pub compile_one: String,
+    pub new_engine: String,
+    pub parse_body: String,
+    pub read_body: String,
+    pub run: String,
+    pub handle: String,
+    pub parse_query: String,
+    pub run_one: String,
+}
+
+impl FnNames {
+    pub fn new(names: &Names) -> Self {
+        Self {
+            resolve_env: names.ident("resolve_env"),
+            compile_one: names.ident("compile_one"),
+            new_engine: names.ident("new_engine"),
+            parse_body: names.ident("parse_body"),
+            read_body: names.ident("read_body"),
+            run: names.ident("run"),
+            handle: names.ident("handle"),
+            parse_query: names.ident("parse_query"),
+            run_one: names.ident("run_one"),
+        }
+    }
+
+    /// Applies all function-name placeholders to a generated source string.
+    pub fn apply(&self, source: &str) -> String {
+        source
+            .replace("__FN_RESOLVE__", &self.resolve_env)
+            .replace("__FN_COMPILE__", &self.compile_one)
+            .replace("__FN_ENGINE__", &self.new_engine)
+            .replace("__FN_PARSE_BODY__", &self.parse_body)
+            .replace("__FN_READ_BODY__", &self.read_body)
+            .replace("__FN_RUN__", &self.run)
+            .replace("__FN_HANDLE__", &self.handle)
+            .replace("__FN_PARSE_QUERY__", &self.parse_query)
+            .replace("__FN_RUN_ONE__", &self.run_one)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

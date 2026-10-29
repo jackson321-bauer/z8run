@@ -58,14 +58,19 @@ z8-export --db /data/z8run/data/z8run.db --flow-id <FLOW-ID> \
 # 2) Binary ohne z8run starten (stdin = Trigger-Body)
 echo '{"space":"space-alpha"}' | ./mein-flow/target/release/<binary>
 
-# 3) Oder als kleiner HTTP-Server (Route = Trigger-Pfad)
+# 3) Server-Variante exportieren, bauen und starten
+z8-export --db /data/z8run/data/z8run.db --flow-id <FLOW-ID> \
+          --out ./mein-flow-server --mode server --build
 ./mein-flow-server/target/release/<binary>    # bindet 127.0.0.1:8080
+# Route = Trigger-Pfad, z.B.:
+curl -X POST http://127.0.0.1:8080/setup -d '{"space":"space-alpha"}'
 ```
 
 ## CLI-Modus
 
-Die Binary liest den Trigger-Body von **stdin** (JSON; sonst Rohtext) und
-schreibt die Antwort des `http-out`-Nodes als JSON nach **stdout**.
+Die Binary liest den Trigger-Body als **erstes Argument** oder von **stdin**
+(JSON; sonst Rohtext) und schreibt die Antwort des `http-out`-Nodes als JSON
+nach **stdout**.
 
 - Exit `0`: Antwortstatus < 400 **und** kein `error`-Feld im Body.
 - Exit `1`: Fehlerstatus, `error`-Feld oder kein `http-out` erreicht.
@@ -81,9 +86,11 @@ Bind-Adresse: `Z8_EXPORT_BIND` (Default `127.0.0.1:8080`).
 
 ## Secrets
 
-Der Export bricht ab, wenn eine Node-Config einen **Klartext-Secret**
-enthält (Schlüssel wie `password`, `token`, `secret`, `api_key`, …).
-Erlaubt sind Referenzen:
+Der Export bricht ab, wenn das Flow-Dokument irgendwo einen
+**Klartext-Secret** enthält. Geprüft werden Schlüsselmuster wie `secret`,
+`password`, `access_key`, `api_key`, `private_key`, `key_pem`, `token`,
+`authorization`, `credential` — über Canvas-Configs, die Top-Level-Node-Liste
+und `env_vars`. Erlaubt sind Referenzen:
 
 - `"vault:mein_key"` → zur Laufzeit `Z8_SECRET_MEIN_KEY`
 - `"$ENV:MEIN_KEY"` → zur Laufzeit `MEIN_KEY`
@@ -92,13 +99,15 @@ Fehlt die Umgebungsvariable, bricht die Binary mit klarer Meldung ab.
 Im generierten Projekt steht **kein** Klartext-Secret.
 
 Pfad-Felder wie `passwordPath` oder `tokenPath` zeigen auf Request-Daten
-und sind keine Secrets; sie werden nicht blockiert.
+und sind keine Secrets; sie werden nicht blockiert. `${NAME}` wird NICHT
+aufgelöst und gilt deshalb als Klartext (nur `vault:` und `$ENV:` sind
+Referenzen).
 
 ## Obfuscation
 
-Standard: verstümmelte Config-Dateinamen und generierte Symbole,
-`release` + LTO + `strip`. `--readable` erzeugt lesbare Namen und einen
-Debug-Build — nur für Entwicklung.
+Standard: verstümmelte Config-Dateinamen, generierte Funktionssymbole,
+Binary-/Package-Namen sowie `release` + LTO + `strip`. `--readable` erzeugt
+lesbare Namen und einen Debug-Build — nur für Entwicklung.
 
 Der `z8run-core`-Anteil bleibt unverändert (er ist Teil der
 path-Dependency, nicht des generierten Teils).
@@ -107,8 +116,9 @@ path-Dependency, nicht des generierten Teils).
 
 `--target wasm` baut dieselbe Verkabelung für `wasm32-wasip1`. Erlaubt
 sind nur Logik-Nodes (Function, Join, Switch, Mapper, JSON, Filter,
-Delay, …). Netz-, DB- und Krypto-Nodes werden **je Node** mit klarer
-Fehlermeldung abgelehnt, nie still übergangen.
+Delay, …). Netz- und DB-Nodes sowie die KV3-Crypto-Nodes werden **je Node**
+mit klarer Fehlermeldung abgelehnt, nie still übergangen. Reine
+Hash-/HMAC-Logik (`sanitize`, `webhook`) bleibt erlaubt.
 
 ```bash
 z8-export --flow-file logic.json --out ./logic --target wasm --build

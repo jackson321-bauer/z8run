@@ -5,7 +5,11 @@ mod loader;
 mod obfuscate;
 mod secrets;
 mod templates;
+mod templates_cli;
+mod templates_server;
+mod toolchain;
 mod triggers;
+mod wasm;
 
 use anyhow::{Context, Result};
 use clap::{ArgGroup, Parser, ValueEnum};

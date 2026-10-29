@@ -1,15 +1,16 @@
 //! Generates the standalone Cargo project for an exported flow.
 
 use anyhow::{bail, Context, Result};
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use z8run_core::canvas::canvas_to_flow;
 use z8run_core::flow::Flow;
 
-use crate::obfuscate::Names;
+use crate::obfuscate::{FnNames, Names};
 use crate::secrets;
 use crate::templates;
+use crate::toolchain::{build, default_core_path, write_cargo};
 use crate::triggers::TriggerSpec;
+use crate::wasm::check_wasm_supported;
 
 /// Export mode baked into the generated runner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,67 +24,6 @@ pub enum Mode {
 pub enum Target {
     Native,
     Wasm,
-}
-
-/// Node types that the logic-only WASM build can execute.
-pub const WASM_NODE_TYPES: &[&str] = &[
-    "aggregator",
-    "batch",
-    "conversation-memory",
-    "cron-trigger",
-    "csv",
-    "debug",
-    "delay",
-    "filter",
-    "function",
-    "http-in",
-    "http-out",
-    "if-else",
-    "join",
-    "json",
-    "loop",
-    "mapper",
-    "prompt-template",
-    "sanitize",
-    "switch",
-    "text-splitter",
-    "timer",
-    "unix-in",
-    "vector-store",
-    "webhook",
-    "webhook-trigger",
-];
-
-/// Rejects flows containing network/DB/crypto nodes for the WASM target.
-pub fn check_wasm_supported(stored: &Flow) -> Result<()> {
-    let mut rejected: Vec<String> = Vec::new();
-    if let Some(nodes) = stored
-        .metadata
-        .positions
-        .get("canvas_nodes")
-        .and_then(|v| v.as_array())
-    {
-        for node in nodes {
-            let data = &node["data"];
-            let ty = data["type"]
-                .as_str()
-                .or_else(|| data["nodeType"].as_str())
-                .unwrap_or("?");
-            if !WASM_NODE_TYPES.contains(&ty) {
-                let id = node["id"].as_str().unwrap_or("?");
-                let label = data["label"].as_str().unwrap_or("Node");
-                rejected.push(format!("'{id}' ({label}): {ty}"));
-            }
-        }
-    }
-    if rejected.is_empty() {
-        Ok(())
-    } else {
-        bail!(
-            "target wasm: folgende Nodes werden nicht unterstützt (Netz/DB/Crypto):\n  - {}",
-            rejected.join("\n  - ")
-        )
-    }
 }
 
 /// What to generate and where.
@@ -102,14 +42,6 @@ pub struct Generated {
     pub binary: Option<PathBuf>,
 }
 
-/// Default path-dependency target: the real source tree this tool was built in.
-pub fn default_core_path() -> Result<PathBuf> {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let core = manifest.join("../../crates/z8run-core");
-    core.canonicalize()
-        .with_context(|| format!("z8run-core source not found at {}", core.display()))
-}
-
 fn strip_configs(stored: &Flow) -> Result<serde_json::Value> {
     let mut value = serde_json::to_value(stored)?;
     if let Some(nodes) = value
@@ -124,6 +56,12 @@ fn strip_configs(stored: &Flow) -> Result<serde_json::Value> {
             }
         }
     }
+    // The canvas is the only graph source for `canvas_to_flow`. Drop the
+    // legacy top-level node list so its configs can never leak into flow.json.
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("nodes".into(), serde_json::Value::Array(Vec::new()));
+        obj.insert("edges".into(), serde_json::Value::Array(Vec::new()));
+    }
     Ok(value)
 }
 
@@ -136,46 +74,6 @@ fn method_router(method: &str) -> &'static str {
         "PATCH" => "patch",
         _ => "any",
     }
-}
-
-fn write_cargo(
-    dir: &Path,
-    pkg: &str,
-    bin: &str,
-    core: &Path,
-    server: bool,
-    readable: bool,
-    wasm: bool,
-) -> Result<()> {
-    let tokio_features = if wasm {
-        "[\"rt\", \"sync\", \"time\", \"macros\"]"
-    } else {
-        "[\"full\"]"
-    };
-    let mut deps = format!(
-        "z8run-core = {{ path = {:?} }}\n\
-         tokio = {{ version = \"1\", features = {tokio_features} }}\n\
-         serde_json = \"1\"\n\
-         uuid = {{ version = \"1\", features = [\"v4\", \"v5\", \"v7\", \"serde\"] }}\n",
-        core.display().to_string()
-    );
-    if server {
-        deps.push_str("axum = { version = \"0.8\", features = [\"macros\"] }\n");
-        deps.push_str("urlencoding = \"2\"\n");
-    }
-    let profile = if readable {
-        String::new()
-    } else {
-        "\n[profile.release]\nlto = true\ncodegen-units = 1\nstrip = true\npanic = \"abort\"\n"
-            .to_string()
-    };
-    let cargo = format!(
-        "[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
-         [[bin]]\nname = \"{bin}\"\npath = \"src/main.rs\"\n\n\
-         [workspace]\n\n[dependencies]\n{deps}{profile}"
-    );
-    std::fs::write(dir.join("Cargo.toml"), cargo).context("write Cargo.toml")?;
-    Ok(())
 }
 
 /// Generates the project and optionally builds it.
@@ -199,6 +97,7 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
     std::fs::create_dir_all(dir.join("config")).context("create config")?;
 
     let names = Names::new(opts.readable);
+    let fns = FnNames::new(&names);
     let mut config_entries = String::new();
     for node in &compiled.nodes {
         let file = format!("{}.json", names.file_base(&node.id.to_string()));
@@ -238,6 +137,7 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
                 &t.method,
                 &t.path,
                 opts.target == Target::Wasm,
+                &fns,
             )
         }
         Mode::Server => {
@@ -248,20 +148,21 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
             for (i, t) in triggers.iter().enumerate() {
                 routes.push_str(&format!("    (\"{}\", \"{}\"),\n", t.method, t.path));
                 ids.push_str(&format!("    \"{}\",\n", t.canvas_id));
+                let handler = names.ident(&format!("handler{i}"));
                 reg.push_str(&format!(
-                    "    router = router.route(\"{}\", axum::routing::{}(h{}));\n",
+                    "    router = router.route(\"{}\", axum::routing::{}({}));\n",
                     t.path,
                     method_router(&t.method),
-                    i
+                    handler
                 ));
                 handlers.push_str(&format!(
-                    "async fn h{i}(axum::extract::State(st): axum::extract::State<AppState>, req: axum::extract::Request) -> axum::response::Response {{ handle(st, {i}, req).await }}\n"
+                    "async fn {handler}(axum::extract::State(st): axum::extract::State<AppState>, req: axum::extract::Request) -> axum::response::Response {{ __FN_HANDLE__(st, {i}, req).await }}\n"
                 ));
             }
             if triggers.is_empty() {
                 bail!("no triggers to serve");
             }
-            templates::server_main(&config_entries, &routes, &ids, &reg, &handlers)
+            templates::server_main(&config_entries, &routes, &ids, &reg, &handlers, &fns)
         }
     };
 
@@ -297,48 +198,4 @@ pub fn generate(stored: &Flow, triggers: &[TriggerSpec], opts: &Options) -> Resu
         dir: dir.clone(),
         binary,
     })
-}
-
-fn cargo_bin() -> String {
-    if let Ok(cargo) = std::env::var("CARGO") {
-        return cargo;
-    }
-    // MCP/service processes often run with a minimal PATH.
-    let home_cargo = Path::new("/root/.cargo/bin/cargo");
-    if home_cargo.is_file() {
-        return home_cargo.display().to_string();
-    }
-    "cargo".to_string()
-}
-
-fn build(dir: &Path, bin: &str, readable: bool, wasm: bool) -> Result<PathBuf> {
-    let mut cmd = Command::new(cargo_bin());
-    let path = std::env::var("PATH").unwrap_or_default();
-    cmd.env("PATH", format!("/root/.cargo/bin:{path}"));
-    cmd.current_dir(dir).arg("build");
-    if wasm {
-        cmd.args(["--target", "wasm32-wasip1"]);
-    }
-    if !readable {
-        cmd.arg("--release");
-    }
-    let out = cmd.output().context("run cargo build")?;
-    if !out.status.success() {
-        bail!(
-            "cargo build failed:\n--- stdout ---\n{}\n--- stderr ---\n{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    let profile = if readable { "debug" } else { "release" };
-    let name = if wasm {
-        format!("{bin}.wasm")
-    } else {
-        bin.to_string()
-    };
-    let mut out = dir.join("target");
-    if wasm {
-        out = out.join("wasm32-wasip1");
-    }
-    Ok(out.join(profile).join(name))
 }
