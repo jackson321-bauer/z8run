@@ -26,6 +26,7 @@ base64 = { workspace = true }
 urlencoding = { workspace = true }
 sha2 = { workspace = true }
 hex = "0.4"
+hmac = { workspace = true }
 rand = { workspace = true }
 data-encoding = "2"
 
@@ -45,6 +46,7 @@ rumqttc = { workspace = true }
 argon2 = "0.5"
 aes-gcm = "0.10"
 hkdf = "0.12"
+zeroize = "1"
 p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "arithmetic"] }
 kv-store = { path = "/data/kronvault/kv-store" }
 # EINE Krypto-Quelle: dieselbe kette.rs wie Produktion (smart-frontend).
@@ -53,7 +55,14 @@ kv-login = { path = "/data/kronvault/kv-login" }
 # sqlx SQLite driver use the same SQLCipher build; plain files still open
 # without a key, encrypted files require PRAGMA key.
 libsqlite3-sys = { version = "0.30.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+# EIN Versionsstrang: rusqlite 0.32.1 nutzt dasselbe libsqlite3-sys 0.30.1
+# wie sqlx. Die im Plan genannte 0.31 verlangt libsqlite3-sys 0.28 -> zwei
+# Pakete mit links="sqlite3" = harter Buildfehler (siehe S0-Log).
+rusqlite = { version = "0.32.1", features = ["bundled-sqlcipher-vendored-openssl", "backup"] }
 ml-dsa = "0.1.1"
+
+[build-dependencies]
+cc = "1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # tokio's net/process features do not build for WASI; the engine only needs

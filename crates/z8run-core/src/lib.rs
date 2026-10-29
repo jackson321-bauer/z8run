@@ -6,6 +6,8 @@
 
 pub mod canvas;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod dbnode;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod egress;
 pub mod engine;
 pub mod error;
