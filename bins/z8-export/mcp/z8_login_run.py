@@ -137,10 +137,11 @@ def register_login_tool(mcp) -> None:
     ) -> dict[str, Any]:
         """Login v2: Passwort + WebAuthn-Assertion ODER PEM-Parallelweg.
 
-        assertion = {credentialId, authenticatorData, clientDataJSON, signature}
+        assertion = {challenge, credentialId, authenticatorData,
+        clientDataJSON, signature} — die Challenge MUSS vorher über
+        z8_login_challenge geholt und signiert worden sein.
         shamir_hw = vom CLIENT geöffneter HW-Shard {x, y_b64}; der Flow macht
         KEIN ECDH. pem_path zeigt auf eine User-PEM unter den Setup-Key-Dirs.
-        Die Challenge wird intern über /challenge geholt.
         """
         return perform_login(
             space=space, user=user, password=password, assertion=assertion,

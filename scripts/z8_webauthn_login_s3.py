@@ -111,6 +111,17 @@ def main():
         log("cli-keyless", {"exit": rc, "error": out.get("error")})
         print(f"[S3] CLI KEYLESS -> exit={rc}: {out.get('error')}")
 
+        # Server-Modus /login ebenfalls OHNE z8run (Binary-Server auf UDS)
+        st, ch = e2e.unix_post(e2e.SOCK_LOGIN, "/challenge", {"user": "anna"})
+        assert st == 200, (st, ch)
+        srv_body = {**unix, **e2e.assertion(key, cred_id, ch["webauthn_challenge"], 3),
+                    "shamir_hw": shard["shamir_hw"], "s3": {"prefix": e2e.PREFIX}}
+        st, out = e2e.unix_post(e2e.SOCK_LOGIN, "/login", srv_body)
+        assert st == 200 and out.get("master_sha256") == expected, (st, out)
+        log("server-login", {"status": st, "master_sha256": out["master_sha256"],
+                             "expected_master_sha256": expected})
+        print(f"[S3] SERVER /login OK z8run-gestoppt master={expected[:16]}")
+
         # Export-Projekt: path-Dependency + kein nachgebauter Node-Code
         tree = subprocess.check_output(
             ["cargo", "tree", "--offline"], cwd=CLI_PROJECT,

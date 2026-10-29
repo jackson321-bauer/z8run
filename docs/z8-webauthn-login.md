@@ -52,11 +52,13 @@ Kombiniert Provider- und HW-Shard (Shamir 2-of-2) und liefert:
 
 ### `unix-out` (Konsolidierung)
 
-Der frühere `kv3-socket`-Direkt-Write ist durch `unix-out` ersetzt:
-HTTP/1.1 über den lokalen Proxy-Socket, `bodyPath=proxy_session`.
-`preserveInput=true` reicht die Login-Antwort durch, `stripFields`
-entfernt den UDS-Body aus der HTTP-Antwort. Es gibt keinen zweiten
-HTTP-Client und keinen TCP-Port.
+Der **WebAuthn-Login-Flow** nutzt `unix-out`: HTTP/1.1 über den lokalen
+Proxy-Socket, `bodyPath=proxy_session`. `preserveInput=true` reicht die
+Login-Antwort durch, `stripFields` entfernt `proxy_session`, `req`,
+`opened_datei` und `uds_response` aus der HTTP-Antwort. Es gibt keinen
+zweiten HTTP-Client und keinen TCP-Port. Der **alte PEM-Parallel-Flow**
+behält aus Kompatibilität `kv3-socket`, strippt dort aber ebenfalls
+`req`/`opened_datei`/`proxy_session`/PEM/KEM aus dem Output.
 
 ## Canvas / Hook-Pfade
 

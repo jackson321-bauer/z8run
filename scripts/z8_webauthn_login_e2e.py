@@ -326,6 +326,7 @@ def main():
         uds_master = hashlib.sha256(base64.b64decode(uds["master_key_b64"])).hexdigest()
         assert uds_master == expected_master, (uds_master, expected_master)
         log("proxy", {"fields": sorted(uds.keys()), "master_key_present": True,
+                      "expected_master_sha256": expected_master,
                       "uds_master_sha256": uds_master, "master_key_logged": False,
                       "body_redacted": True})
         log("login-ok", {"status": st, "master_sha256": out["master_sha256"],
