@@ -15,10 +15,6 @@ fn nachricht(payload: serde_json::Value) -> crate::message::FlowMessage {
 
 #[tokio::test]
 async fn setup_world_baut_zwei_userspaces_ohne_shared() {
-    use super::setup_io as io;
-    use super::setup_registry as reg;
-    use super::setup_world_factory::SetupWorldNodeFactory;
-
     let base = std::env::temp_dir().join(format!("z8setup-world-{}", Uuid::new_v4()));
     let master_hex = hex::encode([7u8; 32]);
     let pw_anna = format!("dummy-anna-{}", Uuid::new_v4());

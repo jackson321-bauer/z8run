@@ -146,7 +146,8 @@ def register_setup_tool(mcp) -> None:
         rotate:  new_s3 = {prefix|host|region|bucket|access_key|secret_key}
         plugin:  user + plugin
         pubkey:  user + pub_b64
-        Setup-PEMs werden NUR als Pfade unter /etc/z8run/setup-keys übergeben.
+        Setup-PEMs werden NUR als Pfade unter /etc/z8run/setup-keys oder
+        /data/z8run/setup-keys übergeben.
         Die Signatur wird hier erzeugt; PEM-Inhalte verlassen den Rechner nicht.
         """
         return perform_setup(

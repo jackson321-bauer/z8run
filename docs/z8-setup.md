@@ -168,6 +168,23 @@ Die Krypto-/S3-Wahrheit liegt außerhalb dieses Repos als path-Dependency:
 (SigV4). Beide werden mit dem lokalen Worktree-Stand gebaut; für
 Reproduzierbarkeit sind die Commit-Hashes im VERIFY-Bericht dokumentiert.
 
+## Bewusste Abweichung: setup-world-Orchestrator
+
+Der Bauplan beschreibt die per-User-Kette als sichtbare Canvas-Nodes. Der
+z8-Canvas ist ein **statischer DAG**; der `loop`-Node emittiert pro Element
+eine Nachricht, aggregiert aber keine Ergebnisse, und ein `join` hat eine
+feste Eingangszahl. Für **N Userspaces atomar** (eine Registry, ein
+Quorum, alle Dateien erst am Ende) ist eine per-User-Canvas-Kette daher
+nicht korrekt abbildbar. Deshalb orchestriert `setup-world` die Schritte
+Adresse → Shamir → Passbox/HW-Box → Hashdatei → DB → Escrow intern über
+dieselben Helfer, die auch die S1-Nodes verwenden.
+
+Die S1-Nodes (`pem-gen`, `shamir-split2`, `passbox-seal`, `hwbox-seal`,
+`hashdatei-write`, `s3-put`, `s3-list`, `setup-keygen`, `setup-auth`) sind
+implementiert, registriert und einzeln getestet; sie stehen für
+Einzel-User-Flows/Erweiterungen bereit. Die S2-Abnahme wird über das
+Endprodukt (Welt + Verify) bewiesen, nicht über die Canvas-Optik.
+
 ## Grenzen
 
 - Lokal/Single only; mehrere Userspaces am selben PC, aber **kein

@@ -80,12 +80,17 @@ async fn main() {
         let hw_text =
             String::from_utf8(hole(&cfg, &format!("workspaces/{addr}/hw-shards.txt")).await).unwrap();
         let (ha, hb) = sc::hashdatei_parsen(&hw_text);
-        let pem = match user["pems"][0]["pem"].as_str() {
-            Some(p) => p.to_string(),
-            None => std::fs::read_to_string(
-                user["pems"][0]["path"].as_str().expect("user pem path"),
-            )
-            .expect("user pem lesen"),
+        let pem = if let Ok(dir) = std::env::var("SETUP_KEYS_DIR") {
+            let name = user["pems"][0]["name"].as_str().expect("pem name");
+            std::fs::read_to_string(format!("{dir}/{name}.pem")).expect("pem aus SETUP_KEYS_DIR")
+        } else {
+            match user["pems"][0]["pem"].as_str() {
+                Some(p) => p.to_string(),
+                None => std::fs::read_to_string(
+                    user["pems"][0]["path"].as_str().expect("user pem path"),
+                )
+                .expect("user pem lesen"),
+            }
         };
         let pub_b64 = sc::pem_pub_b64(&pem).unwrap();
         let hblk = ha

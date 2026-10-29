@@ -127,6 +127,9 @@ def registriere(uid: str, space: str, user: str):
     assert cred["credential_id"] == b64url(cred_id), (cred["credential_id"], b64url(cred_id))
     pub_sec1 = b"\x04" + x + y
     assert cred["pub_b64"] == base64.b64encode(pub_sec1).decode(), "registrierter Pubkey falsch"
+    st2, out2 = unix_post(f"/hook/{uid}/webauthn/register", body)
+    assert st2 == 403 and "Challenge" in out2.get("error", ""), (st2, out2)
+    print(f"[1b] NEGATIV Challenge-Replay {user} -> HTTP {st2}")
     return key, cred_id, rp, origin
 
 
