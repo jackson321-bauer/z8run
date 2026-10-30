@@ -107,7 +107,7 @@ async fn s3_blobs_zwei_cluster_zwei_dbs_und_cleanup() {
         assert!(!roh.windows(klar.len()).any(|w| w == klar.as_slice()), "Klartext im S3-Objekt");
         println!("S3_CIPHER_OK key={roh_key} roh_len={} klar_len={}", roh.len(), klar.len());
     }
-    // Download quer (andere DB, ggf. anderer Cluster): Inhalt + sha prüfen.
+    // Download je DB (über beide Cluster verteilt): Inhalt + sha prüfen.
     for (db, label, blob_id) in &ids {
         let erwartet = &daten.iter().find(|(l, _)| l == label).unwrap().1;
         let out = node.blob_get_bytes(db, blob_id).await.unwrap();
