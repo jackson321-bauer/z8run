@@ -10,6 +10,7 @@ impl DbHandle {
         let mut stmt = conn.prepare(
             "SELECT name FROM sqlite_master \
              WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_z8_%' \
+             AND name NOT LIKE 'linefs_%' \
              ORDER BY name",
         )?;
         let names: Vec<String> = stmt
