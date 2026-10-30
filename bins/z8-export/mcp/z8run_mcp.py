@@ -19,6 +19,7 @@ from z8_export_run import register_export_tool
 from z8_setup_run import register_setup_tool
 from z8_stahlgitter_run import register_stahlgitter_tool
 from z8_login_run import register_login_tool
+from z8_db_run import register_db_tool
 
 ENV_FILE = Path("/etc/z8run/mcp.env")
 
@@ -45,6 +46,7 @@ register_export_tool(mcp)
 register_setup_tool(mcp)
 register_stahlgitter_tool(mcp)
 register_login_tool(mcp)
+register_db_tool(mcp)
 _client: httpx.Client | None = None
 
 

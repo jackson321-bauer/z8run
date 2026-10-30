@@ -18,7 +18,7 @@ pub async fn open_handle(h: &DbHandle) -> DbResult<WriterState> {
         prepare_writer(&conn)?;
         let st = wal::load_state(&h.base_dir, &h.id)
             .unwrap_or_else(|| derive_state_from_local(h));
-        let ws = WriterState {
+        WriterState {
             conn,
             state: st,
             since_snap: 0,
@@ -26,8 +26,7 @@ pub async fn open_handle(h: &DbHandle) -> DbResult<WriterState> {
             snapshots: 0,
             downloaded: 0,
             restored: false,
-        };
-        ws
+        }
     } else {
         let mut st = LocalState::default();
         let mut restored = false;

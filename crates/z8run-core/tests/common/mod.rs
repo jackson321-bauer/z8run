@@ -46,9 +46,10 @@ pub fn node() -> DbNode {
 }
 
 pub fn node_mit_limit(limit: u64) -> DbNode {
-    let mut cfg = DbNodeConfig::default();
-    cfg.wal_snapshot_limit = limit;
-    DbNode::new(cfg)
+    DbNode::new(DbNodeConfig {
+        wal_snapshot_limit: limit,
+        ..Default::default()
+    })
 }
 
 pub fn master() -> Vec<u8> {

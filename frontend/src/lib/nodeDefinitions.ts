@@ -117,7 +117,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     label: "Join",
     category: "process",
     icon: "GitMerge",
-    description: "Collect N parallel branches of one execution (trace) and merge their payloads into one message. Fail-fast on branch errors, lazy timeout cleanup.",
+    description:
+      "Collect N parallel branches of one execution (trace) and merge their payloads into one message. Fail-fast on branch errors, lazy timeout cleanup.",
     inputs: [{ id: "input", name: "Input", type: "any" }],
     outputs: [
       { id: "output", name: "Merged", type: "object" },

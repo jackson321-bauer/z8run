@@ -1,5 +1,4 @@
-//! Öffentliche Typen des DB-NODE (Engine-Bibliothek, kein z8-Code).
-//! Alle Typen sind serde-fähig (Rust-API + natives Nachrichten-Interface).
+//! Öffentliche Typen des DB-NODE (Engine-Bibliothek, kein z8-Code); serde-fähig.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -122,10 +121,11 @@ pub struct ClusterConfig {
     pub adapter: Adapter,
 }
 
-/// Reservierungszustand (Ein-Schreiber-Regel, FEST 4+5).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// Reservierungszustand (Ein-Schreiber, FEST 4+5).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ReservationState {
+    #[default]
     Frei,
     Reserviert,
     Schreibend,

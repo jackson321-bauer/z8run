@@ -22,12 +22,7 @@ static INIT: Once = Once::new();
 /// Registriert vec0 global für alle danach geöffneten Verbindungen.
 pub fn register_auto_extension() {
     INIT.call_once(|| unsafe {
-        let f: unsafe extern "C" fn(
-            *mut rusqlite::ffi::sqlite3,
-            *mut *mut c_char,
-            *const rusqlite::ffi::sqlite3_api_routines,
-        ) -> c_int = sqlite3_vec_init;
-        let _ = rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(f)));
+        let _ = rusqlite::ffi::sqlite3_auto_extension(Some(sqlite3_vec_init));
     });
 }
 

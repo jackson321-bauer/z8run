@@ -43,12 +43,6 @@ pub struct Reservation {
     pub by: Option<String>,
 }
 
-impl Default for ReservationState {
-    fn default() -> Self {
-        ReservationState::Frei
-    }
-}
-
 #[derive(Default)]
 pub struct Stats {
     pub last_wal: u64,

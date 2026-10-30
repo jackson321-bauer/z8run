@@ -1,0 +1,87 @@
+//! One-shot CLI für das MCP-Tool `z8_db`: liest EIN JSON-Objekt von stdin,
+//! öffnet die DB (Masterkey aus dem JSON) und führt EINE Aktion aus.
+//! Antwort enthält NIE den Masterkey. Kein HTTP, nur lokale Engine.
+
+use serde_json::{json, Value};
+use std::io::Read;
+use z8run_core::dbnode::types::DbNodeConfig;
+use z8run_core::dbnode::DbNode;
+use z8run_core::nodes::dbnode_common::ClusterSpec;
+
+fn b64(raw: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(raw)
+        .map_err(|e| format!("master_key_b64: {e}"))
+}
+
+#[tokio::main]
+async fn main() {
+    let mut raw = String::new();
+    if let Err(e) = std::io::stdin().read_to_string(&mut raw) {
+        print(&json!({"status": 400, "code": "INPUT", "error": e.to_string()}));
+        std::process::exit(2);
+    }
+    let v: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            print(&json!({"status": 400, "code": "JSON", "error": e.to_string()}));
+            std::process::exit(2);
+        }
+    };
+    match run(&v).await {
+        Ok(out) => print(&out),
+        Err((code, msg)) => {
+            print(&json!({"status": 400, "code": code, "error": msg}));
+            std::process::exit(1);
+        }
+    }
+}
+
+fn print(v: &Value) {
+    println!("{}", serde_json::to_string(v).unwrap_or_else(|_| "{}".into()));
+}
+
+async fn run(v: &Value) -> Result<Value, (String, String)> {
+    let action = v["action"].as_str().unwrap_or("status").to_string();
+    let db_id = v["db_id"].as_str().unwrap_or("default").to_string();
+    let master = b64(v["master_key_b64"].as_str().unwrap_or(""))
+        .map_err(|e| ("KEY".into(), e))?;
+    let spec = ClusterSpec::from_config(v);
+    let node = DbNode::new(DbNodeConfig::default());
+    let status = node
+        .open_db(&db_id, &master, spec.to_cluster())
+        .await
+        .map_err(|e| (e.code, e.message))?;
+
+    match action.as_str() {
+        "open" | "status" => Ok(json!({"status": 200, "db_status": status})),
+        "schema" => node
+            .schema(&db_id)
+            .map(|s| json!({"status": 200, "schema": s}))
+            .map_err(|e| (e.code, e.message)),
+        "query" => {
+            let sql = v["sql"].as_str().unwrap_or("");
+            let params = v["params"].as_array().cloned().unwrap_or_default();
+            node.query(&db_id, sql, &params)
+                .map(|q| json!({"status": 200, "query": q}))
+                .map_err(|e| (e.code, e.message))
+        }
+        "write" => {
+            let sql = v["sql"].as_str().unwrap_or("");
+            let params = v["params"].as_array().cloned().unwrap_or_default();
+            let session = v["session_id"].as_str().unwrap_or("mcp");
+            node.reserve(&db_id, session).map_err(|e| (e.code, e.message))?;
+            let res = node.write(&db_id, session, sql, params).await;
+            let _ = node.release(&db_id, session);
+            res.map(|w| json!({"status": 200, "write": w}))
+                .map_err(|e| (e.code, e.message))
+        }
+        "sync" => node
+            .wal_sync(&db_id)
+            .await
+            .map(|p| json!({"status": 200, "progress": p}))
+            .map_err(|e| (e.code, e.message)),
+        other => Err(("ACTION".into(), format!("unbekannte Aktion: {other}"))),
+    }
+}
