@@ -35,6 +35,10 @@ pub mod webhook_trigger;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ai_agent;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod blob_read_nodes;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod blob_write_nodes;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod classifier;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crm;
@@ -156,6 +160,10 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         Arc::new(dbnode_admin::DbSchemaNodeFactory) as Arc<dyn NodeExecutorFactory>,
         Arc::new(dbnode_admin::DbStatusNodeFactory) as Arc<dyn NodeExecutorFactory>,
         Arc::new(dbnode_admin::DbSyncNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(blob_write_nodes::BlobPutNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(blob_read_nodes::BlobGetNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(blob_read_nodes::BlobListNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(blob_write_nodes::BlobDeleteNodeFactory) as Arc<dyn NodeExecutorFactory>,
     ] {
         engine.register_node_type(factory).await;
     }
