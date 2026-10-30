@@ -65,6 +65,10 @@ pub mod kv3_nodes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kv_auth;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod linefs_nodes;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ordner_nodes;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod setup_nodes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod webauthn_login_nodes;
@@ -164,6 +168,13 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         Arc::new(blob_read_nodes::BlobGetNodeFactory) as Arc<dyn NodeExecutorFactory>,
         Arc::new(blob_read_nodes::BlobListNodeFactory) as Arc<dyn NodeExecutorFactory>,
         Arc::new(blob_write_nodes::BlobDeleteNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(linefs_nodes::LinefsOpenNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(linefs_nodes::LinefsReadNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(linefs_nodes::LinefsWriteNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(linefs_nodes::LinefsCloseNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(ordner_nodes::LinefsListNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(ordner_nodes::OrdnerListNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(ordner_nodes::OrdnerPfadNodeFactory) as Arc<dyn NodeExecutorFactory>,
     ] {
         engine.register_node_type(factory).await;
     }

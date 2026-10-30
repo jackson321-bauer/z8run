@@ -2,6 +2,8 @@
 //! öffnet die DB (Masterkey aus dem JSON) und führt EINE Aktion aus.
 //! Antwort enthält NIE den Masterkey. Kein HTTP, nur lokale Engine.
 
+mod linefs;
+
 use serde_json::{json, Value};
 use std::io::Read;
 use z8run_core::dbnode::types::DbNodeConfig;
@@ -139,6 +141,14 @@ async fn run(v: &Value) -> Result<Value, (String, String)> {
             let _ = node.release(&db_id, session);
             res.map(|parts| json!({"status": 200, "blob_id": blob_id, "parts": parts}))
                 .map_err(|e| (e.code, e.message))
+        }
+        "linefs" | "linefs_ops" | "ordner" => {
+            let session = v["session_id"].as_str().unwrap_or("mcp");
+            linefs::run(&node, &db_id, session, v).await
+        }
+        other if other.starts_with("linefs_") || other.starts_with("ordner_") => {
+            let session = v["session_id"].as_str().unwrap_or("mcp");
+            linefs::run(&node, &db_id, session, v).await
         }
         other => Err(("ACTION".into(), format!("unbekannte Aktion: {other}"))),
     }

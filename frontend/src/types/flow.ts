@@ -13,6 +13,7 @@ export type NodeCategory =
   | "output"
   | "logic"
   | "data"
+  | "files"
   | "ai"
   | "communication"
   | "security"
@@ -79,6 +80,7 @@ export const CATEGORY_COLORS: Record<NodeCategory, string> = {
   output: "#F59E0B",
   logic: "#8B5CF6",
   data: "#06B6D4",
+  files: "#0D9488",
   ai: "#EC4899",
   communication: "#F97316",
   security: "#EF4444",

@@ -57,9 +57,35 @@ def _payload(
     mime: str = "",
     owner: str = "mcp",
     ziel_adapter: str = "",
+    op: str = "",
+    pfad: str = "",
+    nr: int = 0,
+    inhalt: str = "",
+    eltern_id: int = 0,
+    neu: str = "",
+    muster: str = "",
+    suche: str = "",
+    ersatz: str = "",
+    fassung: int = 0,
+    schluessel: int | None = None,
+    prozess_id: str = "",
+    ops: list[Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "action": action,
+        "op": op,
+        "pfad": pfad,
+        "nr": nr,
+        "inhalt": inhalt,
+        "eltern_id": eltern_id,
+        "neu": neu,
+        "muster": muster,
+        "suche": suche,
+        "ersatz": ersatz,
+        "fassung": fassung,
+        "schluessel": schluessel,
+        "prozess_id": prozess_id,
+        "ops": ops or [],
         "db_id": db_id,
         "master_key_b64": master_key_b64,
         "sql": sql,
@@ -103,9 +129,30 @@ def register_db_tool(mcp) -> None:
         mime: str = "",
         owner: str = "mcp",
         ziel_adapter: str = "",
+        op: str = "",
+        pfad: str = "",
+        nr: int = 0,
+        inhalt: str = "",
+        eltern_id: int = 0,
+        neu: str = "",
+        muster: str = "",
+        suche: str = "",
+        ersatz: str = "",
+        fassung: int = 0,
+        schluessel: int | None = None,
+        prozess_id: str = "",
+        ops: list[Any] | None = None,
     ) -> dict[str, Any]:
         """DB-Node-Aktion: open|query|write|schema|status|sync|
-        blob_put|blob_get|blob_list|blob_delete.
+        blob_put|blob_get|blob_list|blob_delete sowie die volle
+        LineFS-/Ordner-Matrix: linefs_anlegen|linefs_open|linefs_read|
+        linefs_write|linefs_insert|linefs_delete|linefs_close|
+        linefs_render|linefs_pages|linefs_history|linefs_verify|
+        linefs_rename|linefs_blob_put|linefs_blob_get|linefs_blob_show|
+        ordner_anlegen|ordner_verschieben|ordner_umbenennen|
+        ordner_listen|ordner_pfad_aufloesen. Mit action="linefs_ops"
+        laesst sich eine ops-Liste (open/write/close) in EINEM Prozess
+        ausfuehren.
 
         master_key_b64 kommt aus dem Login/Proxy-Scope und wird NIE in der
         Antwort ausgegeben. query ist readonly; write/blob_put/blob_delete
@@ -118,5 +165,7 @@ def register_db_tool(mcp) -> None:
                 action, db_id, master_key_b64, sql, params, session_id,
                 local_dir, cluster_id, adapter, storage_root, bucket, prefix,
                 blob_id, datei_pfad, base64, name, mime, owner, ziel_adapter,
+                op, pfad, nr, inhalt, eltern_id, neu, muster, suche, ersatz,
+                fassung, schluessel, prozess_id, ops,
             )
         )

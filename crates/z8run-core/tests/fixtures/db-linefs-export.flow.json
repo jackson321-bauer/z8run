@@ -1,0 +1,384 @@
+{
+  "id": "54b45442-58b0-4bf8-bfe3-d000abc2481e",
+  "name": "Z8-LINEFS",
+  "description": "LineFS Demo: Ordner, Editor-Welt, Commit, Baum",
+  "version": "0.1.0",
+  "nodes": [],
+  "edges": [],
+  "metadata": {
+    "positions": {
+      "canvas_nodes": [
+        {
+          "id": "in",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "unix-in",
+            "label": "POST /linefs",
+            "config": {
+              "method": "POST",
+              "path": "/linefs"
+            },
+            "inputs": [],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              }
+            ]
+          }
+        },
+        {
+          "id": "open",
+          "type": "z8node",
+          "position": {
+            "x": 220,
+            "y": 0
+          },
+          "data": {
+            "type": "db-open",
+            "label": "DB Open",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "clusterId": "lf",
+              "adapter": "fs",
+              "localDir": "/data/z8run-test/dbnode-linefs",
+              "storageRoot": "/data/z8run-test/dbnode-linefs/storage",
+              "masterKeyPath": "req.body.master_key_b64"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "dirs",
+          "type": "z8node",
+          "position": {
+            "x": 440,
+            "y": 0
+          },
+          "data": {
+            "type": "ordner-list",
+            "label": "Ordner List",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "elternId": 0,
+              "elternIdPath": "req.body.eltern_id"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "fopen",
+          "type": "z8node",
+          "position": {
+            "x": 660,
+            "y": 0
+          },
+          "data": {
+            "type": "linefs-open",
+            "label": "LineFS Open",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "pfadPath": "req.body.pfad",
+              "sessionPath": "req.body.session_id",
+              "autoReserve": true
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "read",
+          "type": "z8node",
+          "position": {
+            "x": 880,
+            "y": 0
+          },
+          "data": {
+            "type": "linefs-read",
+            "label": "LineFS Read",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "pfad": "",
+              "sessionPath": "req.body.session_id",
+              "vonPath": "req.body.von",
+              "bisPath": "req.body.bis"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "write",
+          "type": "z8node",
+          "position": {
+            "x": 1100,
+            "y": 0
+          },
+          "data": {
+            "type": "linefs-write",
+            "label": "LineFS Write",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "sessionPath": "req.body.session_id",
+              "modus": "setzen",
+              "nrPath": "req.body.nr",
+              "inhaltPath": "req.body.inhalt",
+              "autoReserve": true
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "close",
+          "type": "z8node",
+          "position": {
+            "x": 1320,
+            "y": 0
+          },
+          "data": {
+            "type": "linefs-close",
+            "label": "LineFS Close",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "sessionPath": "req.body.session_id",
+              "autoReserve": true
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "list",
+          "type": "z8node",
+          "position": {
+            "x": 1540,
+            "y": 0
+          },
+          "data": {
+            "type": "linefs-list",
+            "label": "LineFS List",
+            "config": {
+              "dbId": "db-linefs-demo",
+              "elternId": 0,
+              "elternIdPath": "req.body.eltern_id"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "out",
+          "type": "z8node",
+          "position": {
+            "x": 1760,
+            "y": 0
+          },
+          "data": {
+            "type": "http-out",
+            "label": "200 OK",
+            "config": {
+              "statusCode": 200
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": []
+          }
+        }
+      ],
+      "canvas_edges": [
+        {
+          "id": "e-in-open",
+          "source": "in",
+          "sourceHandle": "output",
+          "target": "open",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-open-dirs",
+          "source": "open",
+          "sourceHandle": "output",
+          "target": "dirs",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-dirs-fopen",
+          "source": "dirs",
+          "sourceHandle": "output",
+          "target": "fopen",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-fopen-read",
+          "source": "fopen",
+          "sourceHandle": "output",
+          "target": "read",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-read-write",
+          "source": "read",
+          "sourceHandle": "output",
+          "target": "write",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-write-close",
+          "source": "write",
+          "sourceHandle": "output",
+          "target": "close",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-close-list",
+          "source": "close",
+          "sourceHandle": "output",
+          "target": "list",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-list-out",
+          "source": "list",
+          "sourceHandle": "output",
+          "target": "out",
+          "targetHandle": "input"
+        }
+      ]
+    }
+  },
+  "config": {},
+  "status": "idle",
+  "created_at": "2026-10-30T00:00:00Z",
+  "updated_at": "2026-10-30T00:00:00Z"
+}
