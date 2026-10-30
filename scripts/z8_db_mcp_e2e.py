@@ -68,6 +68,7 @@ results["linefs_edit"] = call("linefs_ops", session_id="mcp-edit", ops=[
     {"op": "LinefsSchliessen"},
 ])
 results["linefs_render"] = call("linefs_rendere", pfad="e2e.txt")
+results["schema2"] = call("schema")
 print(json.dumps(results, indent=1))
 
 assert results["open"]["status"] == 200, results["open"]
@@ -80,6 +81,10 @@ assert results["linefs_anlegen"]["status"] == 200, results["linefs_anlegen"]
 assert results["linefs_edit"]["status"] == 200, results["linefs_edit"]
 assert results["linefs_render"]["ergebnis"]["text"] == "A\nb", results["linefs_render"]
 assert results["ordner_listen"]["ergebnis"]["eintraege"], results["ordner_listen"]
+intern = {"dateien", "seiten", "zeilen_epochen", "ordner", "linefs_blobs",
+          "linefs_blobhash", "_z8_line_epochs"}
+names2 = {t["name"] for t in results["schema2"]["schema"]["tables"]}
+assert not (names2 & intern), f"interne Tabellen im Schema: {names2 & intern}"
 blob = json.dumps(results)
 assert MASTER not in blob, "Masterkey in MCP-Antwort!"
 print("MCP-E2E GRUEN: write+query+schema+status+sync, kein Masterkey in Antwort")
