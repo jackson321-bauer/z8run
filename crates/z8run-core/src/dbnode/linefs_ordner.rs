@@ -2,6 +2,7 @@
 //! Zyklen verboten, Tiefe/Name begrenzt, verwaiste Dateien verboten.
 
 use super::linefs_common::db_err;
+use super::linefs_ordner_read::pruefe_integritaet;
 use super::linefs_pfad::{id_fuer, pfad_von_ordner, pruefe_name, MAX_TIEFE};
 use super::linefs_rows::{schema::ORDNER_WURZEL, Aktion};
 use super::types::DbResult;
@@ -73,6 +74,7 @@ impl DbNode {
         h.end_write();
         pruefe_name(name).map_err(db_err)?;
         let conn = h.readonly()?;
+        pruefe_integritaet(&conn).map_err(db_err)?;
         if eltern_id != ORDNER_WURZEL {
             let n: i64 = conn
                 .query_row("SELECT count(*) FROM ordner WHERE id = ?1", [eltern_id], |r| r.get(0))
@@ -107,6 +109,7 @@ impl DbNode {
         h.begin_write(session)?;
         h.end_write();
         let conn = h.readonly()?;
+        pruefe_integritaet(&conn).map_err(db_err)?;
         tiefe(&conn, id).map_err(db_err)?;
         if neuer_eltern_id != ORDNER_WURZEL {
             tiefe(&conn, neuer_eltern_id).map_err(db_err)?;
@@ -138,6 +141,7 @@ impl DbNode {
         h.end_write();
         pruefe_name(name).map_err(db_err)?;
         let conn = h.readonly()?;
+        pruefe_integritaet(&conn).map_err(db_err)?;
         let eltern: i64 = conn
             .query_row("SELECT eltern_id FROM ordner WHERE id = ?1", [id], |r| r.get(0))
             .map_err(|_| db_err(format!("Ordner {id} existiert nicht")))?;
