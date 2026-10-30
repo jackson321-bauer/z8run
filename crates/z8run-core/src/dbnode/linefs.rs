@@ -130,6 +130,16 @@ impl DbNode {
         if da > 0 {
             return Err(db_err(format!("Datei existiert bereits: {name}")));
         }
+        let kollision: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM ordner WHERE eltern_id = ?1 AND name = ?2",
+                rusqlite::params![ordner_id, name],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if kollision > 0 {
+            return Err(db_err(format!("Name im Ordner bereits als Ordner belegt: {name}")));
+        }
         let datei_id: i64 = conn
             .query_row("SELECT COALESCE(MAX(datei_id),0)+1 FROM dateien", [], |r| r.get(0))
             .map_err(|e| db_err(e.to_string()))?;

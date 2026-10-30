@@ -136,6 +136,7 @@ impl DbNode {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn meta_neu(
     db: &str, blob_id: &str, name: &str, mime: &str, groesse: u64, sha: &str, uri: String,
     key: String, parts: u64, owner: &str, epoch: u64,

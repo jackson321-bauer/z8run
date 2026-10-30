@@ -106,5 +106,5 @@ async fn e_race_zwei_puts_orphan_gc_rest_null() {
         assert_eq!(node.blob_get_bytes("d", &m.blob_id).await.unwrap(), data);
     }
     println!("RACE metas={} gc_entfernt={}", list.len(), geloescht.len());
-    assert!(geloescht.len() >= 1, "Race muss einen Orphan erzeugen (Upload parallel)");
+    assert!(!geloescht.is_empty(), "Race muss einen Orphan erzeugen (Upload parallel)");
 }

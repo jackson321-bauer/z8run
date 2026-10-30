@@ -86,6 +86,16 @@ impl DbNode {
         if id_fuer(&conn, eltern_id, name).is_some() {
             return Err(db_err(format!("Ordner existiert bereits: {name}")));
         }
+        let datei_kollision: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM dateien WHERE ordner_id=?1 AND name=?2 AND geloescht=0",
+                rusqlite::params![eltern_id, name],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if datei_kollision > 0 {
+            return Err(db_err(format!("Name im Ordner bereits als Datei belegt: {name}")));
+        }
         if tiefe(&conn, eltern_id).map_err(db_err)? + 1 > MAX_TIEFE {
             return Err(db_err(format!("Pfad-Tiefe > {MAX_TIEFE}")));
         }
@@ -149,6 +159,16 @@ impl DbNode {
             if anderer != id {
                 return Err(db_err(format!("Name existiert bereits: {name}")));
             }
+        }
+        let datei_kollision: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM dateien WHERE ordner_id=?1 AND name=?2 AND geloescht=0",
+                rusqlite::params![eltern, name],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if datei_kollision > 0 {
+            return Err(db_err(format!("Name im Ordner bereits als Datei belegt: {name}")));
         }
         let ops = vec![Aktion {
             sql: "UPDATE ordner SET name = ?1 WHERE id = ?2".into(),

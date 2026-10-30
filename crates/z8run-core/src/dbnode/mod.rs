@@ -122,6 +122,9 @@ impl DbNode {
         if let Ok(h) = self.get(db_id) {
             return Ok(h.status());
         }
+        // Prozess-Kill hinterlaesst keine Render-Leiche: beim Oeffnen fegen.
+        let base = cluster.local_dir.join(&cluster.cluster_id);
+        let _ = std::fs::remove_dir_all(base.join("tmp").join("linefs-render"));
         let h = Arc::new(DbHandle::assemble_with_storage(
             db_id,
             &cluster,
@@ -144,6 +147,17 @@ impl DbNode {
         }
         let prefix = format!("{db_id}\u{0}");
         self.sitzungen.lock().unwrap().retain(|k, _| !k.starts_with(&prefix));
+        if let Some(h) = removed {
+            let _ = std::fs::remove_dir_all(h.base_dir.join("tmp").join("linefs-render"));
+            self.render_tmp.lock().unwrap().retain(|_, dir| {
+                if dir.starts_with(&h.base_dir) {
+                    let _ = std::fs::remove_dir_all(dir);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         Ok(())
     }
 

@@ -2,6 +2,7 @@
 //! binaer_s3/Secret.db). Uebergaenge sind bewusst und epochen-belegt.
 
 use super::linefs_common::{db_err, kopf, lese_ist, policy, rendere};
+use super::linefs_ordner_read::pruefe_integritaet;
 use super::linefs_pfad::datei_id_fuer_pfad;
 use super::linefs_rows::{planung::plane_commit_daten, scheide, zerlege, Aktion, LinefsAktion, ZeileStand};
 use super::types::DbResult;
@@ -72,6 +73,7 @@ impl DbNode {
                 h.begin_write(session)?;
                 h.end_write();
                 let conn = h.readonly()?;
+                pruefe_integritaet(&conn).map_err(db_err)?;
                 let id = datei_id_fuer_pfad(&conn, &pfad).map_err(db_err)?;
                 let text = rendere(&conn, id).map_err(db_err)?;
                 let k = kopf(&conn, id).map_err(db_err)?;
@@ -93,6 +95,7 @@ impl DbNode {
                 h.begin_write(session)?;
                 h.end_write();
                 let conn = h.readonly()?;
+                pruefe_integritaet(&conn).map_err(db_err)?;
                 let id = datei_id_fuer_pfad(&conn, &pfad).map_err(db_err)?;
                 let k = kopf(&conn, id).map_err(db_err)?;
                 let (blob_id, status): (Option<String>, String) = conn

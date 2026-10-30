@@ -2,6 +2,7 @@
 //! stand_zu_zeitpunkt, umbenennen, kette_pruefen, render_fuer_prozess.
 
 use super::linefs_common::{db_err, kopf, lese_ist, rendere, sitzung_key, zeilen_json};
+use super::linefs_ordner_read::pruefe_integritaet;
 use super::linefs_pfad::{datei_id_fuer_pfad, pruefe_name};
 use super::linefs_rows::{
     als_zeilen, fassung_aus_epochen, haenge_zusammen, historie_aus_epochen, kette_pruefen_daten,
@@ -132,6 +133,7 @@ impl DbNode {
         h.end_write();
         pruefe_name(neu).map_err(db_err)?;
         let conn = h.readonly()?;
+        pruefe_integritaet(&conn).map_err(db_err)?;
         let id = datei_id_fuer_pfad(&conn, pfad).map_err(db_err)?;
         let k = kopf(&conn, id).map_err(db_err)?;
         let da: i64 = conn.query_row(
@@ -140,6 +142,13 @@ impl DbNode {
         ).unwrap_or(0);
         if da > 0 {
             return Err(db_err(format!("Name existiert bereits: {neu}")));
+        }
+        let ordner_kollision: i64 = conn.query_row(
+            "SELECT count(*) FROM ordner WHERE eltern_id=?1 AND name=?2",
+            rusqlite::params![k.ordner_id, neu], |r| r.get(0),
+        ).unwrap_or(0);
+        if ordner_kollision > 0 {
+            return Err(db_err(format!("Name im Ordner bereits als Ordner belegt: {neu}")));
         }
         let ops = vec![Aktion {
             sql: "UPDATE dateien SET name=?1 WHERE datei_id=?2".into(),

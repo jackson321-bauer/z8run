@@ -117,11 +117,11 @@ mod tests {
     fn bom_varianten() {
         // UTF-8-BOM am Anfang: gültiges UTF-8, kein Null-Byte → TEXT
         // (BOM bleibt Inhalt — kein heimliches Entfernen).
-        let mit_bom = format!("\u{feff}inhalt\n");
+        let mit_bom = "\u{feff}inhalt\n".to_string();
         assert_eq!(pruefe(mit_bom.as_bytes()), Urteil::Text);
         // BOM mitten in der Datei: illegal-ish, aber gültiges UTF-8 → TEXT
         // (U+FEFF ist ein gültiges Zeichen; Zeilen-Welt hält es einfach aus).
-        let mittel = format!("a\u{feff}b");
+        let mittel = "a\u{feff}b".to_string();
         assert_eq!(pruefe(mittel.as_bytes()), Urteil::Text);
     }
 

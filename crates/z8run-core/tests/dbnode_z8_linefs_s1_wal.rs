@@ -38,8 +38,7 @@ fn kette_pruefen(base: &Path, db: &str, key: &KeyEnvelope) -> (usize, usize) {
     let mut prev = String::new();
     let mut linefs = 0usize;
     let mut sql = 0usize;
-    let mut erwartet = 1u64;
-    for (nr, obj) in wal_dateien(base, db) {
+    for (erwartet, (nr, obj)) in (1u64..).zip(wal_dateien(base, db)) {
         assert_eq!(nr, erwartet, "WAL-Luecke");
         assert_eq!(obj.prev_hash, prev, "prev_hash-Kette bei {nr}");
         let sealed = base64::engine::general_purpose::STANDARD.decode(&obj.seal).unwrap();
@@ -53,7 +52,6 @@ fn kette_pruefen(base: &Path, db: &str, key: &KeyEnvelope) -> (usize, usize) {
             _ => sql += 1,
         }
         prev = obj.hash;
-        erwartet += 1;
     }
     (linefs, sql)
 }
@@ -135,4 +133,27 @@ async fn h_render_fuer_prozess_byte_identisch_und_weggeraeumt() {
     assert_eq!(e["rest"], 0);
     assert!(!Path::new(&p).exists(), "keine Leiche im Adapter-Pfad");
     assert!(!Path::new(&p).parent().unwrap().exists());
+}
+
+#[tokio::test]
+async fn i_stale_render_wird_bei_reopen_und_close_entfernt() {
+    let base = temp_base("linefs-i");
+    let stale = base.join("c").join("tmp").join("linefs-render").join("alt");
+    std::fs::create_dir_all(&stale).unwrap();
+    std::fs::write(stale.join("leiche"), b"x").unwrap();
+    let node = node();
+    node.open_db("d", &master(), cluster("c", &base)).await.unwrap();
+    assert!(!stale.parent().unwrap().exists(), "Stale-Render beim Oeffnen gefegt");
+    node.reserve("d", "s").unwrap();
+    lf(&node, "d", "s", LinefsAktion::LinefsAnlegen {
+        name: "r.txt".into(), art: "code".into(), text: "x".into(),
+        urheber: "ki".into(), ordner_id: None,
+    }).await;
+    lf(&node, "d", "s", LinefsAktion::LinefsRenderFuerProzess {
+        pfad: "r.txt".into(), prozess_id: "p".into(),
+    }).await;
+    let dir = base.join("c").join("tmp").join("linefs-render");
+    assert!(dir.exists());
+    node.close_db("d").unwrap();
+    assert!(!dir.exists(), "Close raeumt Renderkopien");
 }

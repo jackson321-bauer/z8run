@@ -113,6 +113,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn physik_ist_fest_und_policy_separat() {
         assert_eq!(SEITE_MAX, 205, "Kern-Physik bleibt 205");
         assert!(ZEILEN_LIMIT >= 4096);

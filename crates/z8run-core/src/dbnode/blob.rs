@@ -96,13 +96,16 @@ impl DbNode {
                     vec![json!(meta.sha256_klartext)]).await?;
             }
             _ => {
-                for part in 0..meta.parts {
-                    h.storage.delete(&part_key(db, &obj, part)).await?;
-                }
+                // Reihenfolge FEST: Meta -> refcount/Hash-Zeile -> Backend.
+                // Crash davor hinterlaesst nur ein GC-bares Orphan, nie eine
+                // stale Hash-Zeile (die spaetere Dedup-Puts blockieren wuerde).
                 if refcount.is_some() {
                     h.write(session,
                         "DELETE FROM linefs_blobhash WHERE sha256=?1",
                         vec![json!(meta.sha256_klartext)]).await?;
+                }
+                for part in 0..meta.parts {
+                    h.storage.delete(&part_key(db, &obj, part)).await?;
                 }
             }
         }
