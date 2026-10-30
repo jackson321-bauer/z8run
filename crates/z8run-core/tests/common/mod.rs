@@ -60,3 +60,54 @@ pub fn master() -> Vec<u8> {
 pub async fn write(node: &DbNode, db: &str, sql: &str, params: Vec<serde_json::Value>) -> u64 {
     node.write(db, "s", sql, params).await.unwrap().wal_nr
 }
+
+/// Aktuelle VmRSS in KiB (Linux).
+pub fn rss_kb() -> u64 {
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    for line in s.lines() {
+        if let Some(rest) = line.strip_prefix("VmRSS:") {
+            return rest
+                .split_whitespace()
+                .next()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+        }
+    }
+    0
+}
+
+/// Sampler-Thread: misst die RSS-Spitze während einer Operation.
+pub struct RssSampler {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    peak: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RssSampler {
+    pub fn start() -> Self {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        use std::sync::Arc;
+        let stop = Arc::new(AtomicBool::new(false));
+        let peak = Arc::new(AtomicU64::new(rss_kb()));
+        let (s, p) = (stop.clone(), peak.clone());
+        let handle = std::thread::spawn(move || {
+            while !s.load(Ordering::SeqCst) {
+                let now = rss_kb();
+                p.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        });
+        Self { stop, peak, handle: Some(handle) }
+    }
+
+    /// Stoppt den Sampler und liefert die RSS-Spitze in KiB.
+    pub fn stop(mut self) -> u64 {
+        use std::sync::atomic::Ordering;
+        let peak = self.peak.load(Ordering::SeqCst);
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+        peak
+    }
+}
