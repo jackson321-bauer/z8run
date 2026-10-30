@@ -34,7 +34,28 @@ pub fn prepare_writer(conn: &Connection, ram_budget: usize) -> DbResult<()> {
             format!("journal_mode={mode}, erwartet wal"),
         ));
     }
-    wal::ensure_epoch_table(conn)
+    wal::ensure_epoch_table(conn)?;
+    ensure_blob_tables(conn)
+}
+
+/// Blob-Meta-/Session-Tabellen: Schema wie die Epochen-Tabelle direkt beim
+/// Öffnen (kein WAL-Verbrauch); Zeilen selbst laufen über den WAL-Schreibpfad.
+pub fn ensure_blob_tables(conn: &Connection) -> DbResult<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS linefs_blobs (\
+           blob_id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL,\
+           groesse INTEGER NOT NULL, sha256_klartext TEXT NOT NULL,\
+           content_key_huellereferenz TEXT NOT NULL, storage_uri TEXT NOT NULL,\
+           epoch INTEGER NOT NULL, owner TEXT NOT NULL, parts INTEGER NOT NULL,\
+           session_id TEXT, chunk_index INTEGER, dauer_ms INTEGER,\
+           created_at TEXT NOT NULL);\
+         CREATE TABLE IF NOT EXISTS linefs_blob_sessions (\
+           session_id TEXT PRIMARY KEY, owner TEXT NOT NULL, mime TEXT NOT NULL,\
+           chunk_ids TEXT NOT NULL, gesamt_sha256 TEXT NOT NULL,\
+           dauer_ms INTEGER NOT NULL, session_key_huellereferenz TEXT NOT NULL,\
+           epoch INTEGER NOT NULL, created_at TEXT NOT NULL);",
+    )?;
+    Ok(())
 }
 
 /// Frische Readonly-Verbindung: paralleles Lesen ohne Reservierung.

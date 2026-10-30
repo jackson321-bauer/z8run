@@ -4,6 +4,13 @@
 //! Reservierung, WAL-Strom, Schreib-Warteschlange und RAM-Budget getrennt
 //! (FEST 13). Storage über einen Adapter-Trait (FS/S3/Dummy, OPFS andockbar).
 
+pub mod blob;
+mod blob_export;
+mod blob_export_key;
+mod blob_io;
+mod blob_meta;
+mod blob_playback;
+pub mod blob_stream;
 pub mod conn;
 pub mod crypto;
 pub mod db;
@@ -20,6 +27,10 @@ pub mod wal;
 
 pub use handle::{DbHandle, WriterState};
 pub use msg::{serve, DbNodeCommand, DbNodeEvent};
+pub use blob::BlobMeta;
+pub use blob_export::ContainerManifest;
+pub use blob_export_key::{BoxMode, OpenBox};
+pub use blob_stream::SessionManifest;
 pub use storage::StorageBackend;
 pub use storage_s3::{DummyBackend, S3Backend};
 pub use types::*;
