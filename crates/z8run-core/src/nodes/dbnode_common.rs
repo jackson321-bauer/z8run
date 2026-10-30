@@ -117,14 +117,65 @@ pub fn master_at(payload: &Value, path: &str) -> Result<Vec<u8>, String> {
     hex::decode(hexs).map_err(|e| format!("Masterkey weder Base64 noch Hex: {e}"))
 }
 
+/// Merge: der Eingabe-Payload bleibt erhalten (req/params/session_id), die
+/// Node-Felder werden flach ergänzt — dünne Nodes, keine Payload-Vernichtung.
+pub fn merge(base: &Value, extra: Value) -> Value {
+    let mut out = match base {
+        Value::Object(m) => m.clone(),
+        _ => serde_json::Map::new(),
+    };
+    if let Value::Object(extra) = extra {
+        for (k, v) in extra {
+            out.insert(k, v);
+        }
+    }
+    Value::Object(out)
+}
+
 pub fn ok(msg: &FlowMessage, payload: Value) -> Vec<FlowMessage> {
-    vec![msg.derive(msg.source_node, "output", payload)]
+    let merged = merge(&msg.payload, payload);
+    vec![msg.derive(msg.source_node, "output", merged)]
+}
+
+/// Entfernt einen Punkt-Pfad (z. B. den Masterkey) aus dem Payload.
+pub fn strip_path(v: &mut Value, path: &str) {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut cur = v;
+    for part in &parts[..parts.len() - 1] {
+        match cur.get_mut(*part) {
+            Some(next) => cur = next,
+            None => return,
+        }
+    }
+    if let Some(obj) = cur.as_object_mut() {
+        obj.remove(parts[parts.len() - 1]);
+    }
+}
+
+pub fn ok_without(msg: &FlowMessage, payload: Value, strip: &str) -> Vec<FlowMessage> {
+    let mut base = msg.payload.clone();
+    strip_path(&mut base, strip);
+    let merged = merge(&base, payload);
+    vec![msg.derive(msg.source_node, "output", merged)]
+}
+
+pub fn err_without(msg: &FlowMessage, code: &str, message: &str, strip: &str) -> Vec<FlowMessage> {
+    let mut base = msg.payload.clone();
+    strip_path(&mut base, strip);
+    let merged = merge(
+        &base,
+        json!({"status": 400, "code": code, "error": message}),
+    );
+    vec![msg.derive(msg.source_node, "error", merged)]
 }
 
 pub fn err(msg: &FlowMessage, code: &str, message: &str) -> Vec<FlowMessage> {
-    vec![msg.derive(
-        msg.source_node,
-        "error",
+    let merged = merge(
+        &msg.payload,
         json!({"status": 400, "code": code, "error": message}),
-    )]
+    );
+    vec![msg.derive(msg.source_node, "error", merged)]
 }

@@ -1,0 +1,300 @@
+{
+  "id": "e88a0078-c907-5ef0-8e36-601b7041988b",
+  "name": "DB-DBOX",
+  "description": "DB-Node Export/CLI/Server Beweis",
+  "version": "0.1.0",
+  "nodes": [],
+  "edges": [],
+  "metadata": {
+    "positions": {
+      "canvas_nodes": [
+        {
+          "id": "in",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "unix-in",
+            "label": "POST /dbflow",
+            "config": {
+              "method": "POST",
+              "path": "/dbflow"
+            },
+            "inputs": [],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              }
+            ]
+          }
+        },
+        {
+          "id": "open",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "db-open",
+            "label": "DB Open",
+            "config": {
+              "dbId": "db-export",
+              "clusterId": "export",
+              "adapter": "fs",
+              "localDir": "/data/z8run-test/dbnode-export",
+              "storageRoot": "/data/z8run-test/dbnode-export/storage",
+              "masterKeyPath": "req.body.master_key_b64"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "w1",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "db-write",
+            "label": "Create Table",
+            "config": {
+              "dbId": "db-export",
+              "sql": "CREATE TABLE IF NOT EXISTS t (x INTEGER)",
+              "paramsPath": "params",
+              "sessionPath": "req.body.session_id",
+              "autoReserve": true
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "w2",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "db-write",
+            "label": "Insert",
+            "config": {
+              "dbId": "db-export",
+              "sql": "INSERT INTO t VALUES (?1)",
+              "paramsPath": "req.body.params",
+              "sessionPath": "req.body.session_id",
+              "autoReserve": true
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "q",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "db-query",
+            "label": "Read",
+            "config": {
+              "dbId": "db-export",
+              "sql": "SELECT count(*) AS n FROM t",
+              "paramsPath": "params"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "sync",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "db-sync",
+            "label": "WAL Sync",
+            "config": {
+              "dbId": "db-export"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "out",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "http-out",
+            "label": "200 OK",
+            "config": {
+              "statusCode": 200
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": []
+          }
+        }
+      ],
+      "canvas_edges": [
+        {
+          "id": "e-in-output-open",
+          "source": "in",
+          "sourceHandle": "output",
+          "target": "open",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-open-output-w1",
+          "source": "open",
+          "sourceHandle": "output",
+          "target": "w1",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-w1-output-w2",
+          "source": "w1",
+          "sourceHandle": "output",
+          "target": "w2",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-w2-output-q",
+          "source": "w2",
+          "sourceHandle": "output",
+          "target": "q",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-q-output-sync",
+          "source": "q",
+          "sourceHandle": "output",
+          "target": "sync",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-sync-output-out",
+          "source": "sync",
+          "sourceHandle": "output",
+          "target": "out",
+          "targetHandle": "input"
+        }
+      ]
+    },
+    "zoom": 1.0
+  },
+  "config": {
+    "credentials": [],
+    "env_vars": {},
+    "timeout_ms": 0,
+    "buffer_size": 0
+  },
+  "status": "idle",
+  "created_at": "2026-10-29T23:50:19.472053Z",
+  "updated_at": "2026-10-29T23:50:19.472053Z"
+}

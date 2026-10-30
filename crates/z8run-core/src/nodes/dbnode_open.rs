@@ -6,7 +6,7 @@ use crate::engine::NodeExecutor;
 use crate::error::Z8Result;
 use crate::message::FlowMessage;
 use crate::node_factory;
-use crate::nodes::dbnode_common::{at_str, err, master_at, ok, ClusterSpec};
+use crate::nodes::dbnode_common::{at_str, err_without, master_at, ok_without, ClusterSpec};
 use serde_json::{json, Value};
 
 pub struct DbOpenNode {
@@ -32,18 +32,19 @@ impl NodeExecutor for DbOpenNode {
         };
         let master = match master_at(&msg.payload, &self.master_key_path) {
             Ok(m) => m,
-            Err(e) => return Ok(err(&msg, "KEY", &e)),
+            Err(e) => return Ok(err_without(&msg, "KEY", &e, &self.master_key_path)),
         };
         let engine = crate::nodes::dbnode_common::engine();
         match engine
             .open_db(&db_id, &master, self.cluster.to_cluster())
             .await
         {
-            Ok(status) => Ok(ok(
+            Ok(status) => Ok(ok_without(
                 &msg,
                 json!({"status": 200, "db": db_id, "db_status": status}),
+                &self.master_key_path,
             )),
-            Err(e) => Ok(err(&msg, &e.code, &e.message)),
+            Err(e) => Ok(err_without(&msg, &e.code, &e.message, &self.master_key_path)),
         }
     }
 

@@ -135,6 +135,7 @@ async fn flow_unix_in_db_open_schema_mit_schema_feldern() {
         .iter()
         .find(|p| p.get("tabellen").is_some())
         .expect("tabellen fehlt");
+    assert!(schema.pointer("/req/body/master_key_b64").is_none(), "Masterkey im Output!");
     let t = &schema["tabellen"][0];
     assert_eq!(t["name"], "t");
     assert_eq!(t["spalten"][0]["name"], "x");
