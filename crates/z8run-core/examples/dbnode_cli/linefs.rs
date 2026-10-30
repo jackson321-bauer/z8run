@@ -41,7 +41,8 @@ fn tag(op: &str) -> Option<&'static str> {
 }
 
 fn aktion(v: &Value) -> Result<LinefsAktion, (String, String)> {
-    let op = v["op"].as_str().or_else(|| v["action"].as_str()).unwrap_or("");
+    let op = v["op"].as_str().filter(|s| !s.is_empty())
+        .or_else(|| v["action"].as_str()).unwrap_or("");
     let Some(t) = tag(op) else {
         return Err(("ACTION".into(), format!("unbekannte LineFS-Aktion: {op}")));
     };
@@ -55,8 +56,8 @@ pub async fn run(
     node: &DbNode, db: &str, session: &str, v: &Value,
 ) -> Result<Value, (String, String)> {
     let ops: Vec<LinefsAktion> = match v.get("ops").and_then(|x| x.as_array()) {
-        Some(list) => list.iter().map(aktion).collect::<Result<_, _>>()?,
-        None => vec![aktion(v)?],
+        Some(list) if !list.is_empty() => list.iter().map(aktion).collect::<Result<_, _>>()?,
+        _ => vec![aktion(v)?],
     };
     node.reserve(db, session).map_err(|e| (e.code, e.message))?;
     let mut out = Vec::new();

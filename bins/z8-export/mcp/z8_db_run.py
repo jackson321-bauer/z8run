@@ -70,9 +70,17 @@ def _payload(
     schluessel: int | None = None,
     prozess_id: str = "",
     ops: list[Any] | None = None,
+    art: str = "code",
+    text: str = "",
+    urheber: str = "mcp",
+    ordner_id: int = 0,
 ) -> dict[str, Any]:
     return {
         "action": action,
+        "art": art,
+        "text": text,
+        "urheber": urheber,
+        "ordner_id": ordner_id,
         "op": op,
         "pfad": pfad,
         "nr": nr,
@@ -142,6 +150,10 @@ def register_db_tool(mcp) -> None:
         schluessel: int | None = None,
         prozess_id: str = "",
         ops: list[Any] | None = None,
+        art: str = "code",
+        text: str = "",
+        urheber: str = "mcp",
+        ordner_id: int = 0,
     ) -> dict[str, Any]:
         """DB-Node-Aktion: open|query|write|schema|status|sync|
         blob_put|blob_get|blob_list|blob_delete sowie die volle
@@ -166,6 +178,6 @@ def register_db_tool(mcp) -> None:
                 local_dir, cluster_id, adapter, storage_root, bucket, prefix,
                 blob_id, datei_pfad, base64, name, mime, owner, ziel_adapter,
                 op, pfad, nr, inhalt, eltern_id, neu, muster, suche, ersatz,
-                fassung, schluessel, prozess_id, ops,
+                fassung, schluessel, prozess_id, ops, art, text, urheber, ordner_id,
             )
         )
