@@ -55,7 +55,10 @@ pub fn ensure_blob_tables(conn: &Connection) -> DbResult<()> {
            session_id TEXT PRIMARY KEY, owner TEXT NOT NULL, mime TEXT NOT NULL,\
            chunk_ids TEXT NOT NULL, gesamt_sha256 TEXT NOT NULL,\
            dauer_ms INTEGER NOT NULL, session_key_huellereferenz TEXT NOT NULL,\
-           epoch INTEGER NOT NULL, created_at TEXT NOT NULL);",
+           epoch INTEGER NOT NULL, created_at TEXT NOT NULL);\
+         CREATE TABLE IF NOT EXISTS linefs_blobhash (\
+           sha256 TEXT PRIMARY KEY, storage_uri TEXT NOT NULL,\
+           refcount INTEGER NOT NULL, groesse INTEGER NOT NULL);",
     )?;
     Ok(())
 }

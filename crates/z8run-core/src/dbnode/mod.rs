@@ -9,6 +9,7 @@ mod blob_export;
 mod blob_export_key;
 mod blob_io;
 mod blob_meta;
+mod blob_put;
 mod blob_playback;
 pub mod blob_stream;
 pub mod conn;

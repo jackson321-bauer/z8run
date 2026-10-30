@@ -120,12 +120,13 @@ async fn f_wal_epoche_enthaelt_meta_zeile() {
         .await
         .unwrap();
     let wal = storage.list("wal/db-f/").await.unwrap();
-    assert_eq!(wal.len(), 1, "genau ein WAL-Objekt");
+    // Dedup-Index (linefs_blobhash) ist ein zweites WAL-Objekt (S3).
+    assert_eq!(wal.len(), 2, "Meta + Dedup-Index");
     let q = node
         .query("db-f", "SELECT count(*), max(nr) FROM _z8_line_epochs", &[])
         .unwrap();
-    assert_eq!(q.rows[0][0].as_i64(), Some(1));
-    assert_eq!(q.rows[0][1].as_i64(), Some(1));
+    assert_eq!(q.rows[0][0].as_i64(), Some(2));
+    assert_eq!(q.rows[0][1].as_i64(), Some(2));
     let listed = node.blob_list("db-f").unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].epoch, 1, "Meta-Zeile trägt die WAL-Epoche");

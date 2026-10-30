@@ -1,76 +1,29 @@
-//! BLOB-MANAGER: verschlüsselte Dateien über das bestehende StorageBackend.
-//! Aufsatz auf die dbnode-Engine — Meta bleibt Zeile (WAL/Epochen), Rohdaten
-//! liegen NIE in SQLite, sondern als Chiffre-Parts im Backend. RSS flach:
-//! Upload/Download arbeiten in festen Parts (1 MiB), nie am Stück.
+//! BLOB-MANAGER: verschlüsselte Dateien über das StorageBackend.
+//! Rohdaten liegen NIE in SQLite, sondern als Chiffre-Parts im Backend.
+//! Dedup: identischer Klartext-Hash teilt sich EIN Backend-Objekt
+//! (linefs_blobhash haelt refcount); Reihenfolge beim Loeschen:
+//! Meta zuerst, dann refcount, erst bei 0 das Backend-Objekt.
 
-use crate::dbnode::blob_io::{
-    blob_prefix, decrypt_part, open_db_key, part_key, seal_db_key, upload_parts,
-};
-use crate::dbnode::blob_meta::{insert_meta, load_meta, row_to_meta, BLOB_META_TABLE};
+use crate::dbnode::blob_io::{blob_prefix, decrypt_part, open_db_key, part_key};
+use crate::dbnode::blob_meta::{load_meta, row_to_meta, BLOB_META_TABLE, META_COLS};
 use crate::dbnode::types::{DbError, DbResult};
 use crate::dbnode::{DbHandle, DbNode};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::io::{Read, Write};
+use std::io::Write;
 
 pub use crate::dbnode::blob_io::BLOB_PART_SIZE;
 pub use crate::dbnode::blob_meta::{BlobMeta, BLOB_SESSION_TABLE};
 
+fn objekt_id(storage_uri: &str) -> String {
+    storage_uri.rsplit('/').next().unwrap_or_default().to_string()
+}
+
 impl DbNode {
-    pub async fn blob_put_bytes(
-        &self, db: &str, session: &str, owner: &str, name: &str, mime: &str, data: &[u8],
-    ) -> DbResult<BlobMeta> {
-        let mut cur = std::io::Cursor::new(data);
-        self.blob_put_reader(db, session, owner, name, mime, &mut cur).await
-    }
-
-    pub async fn blob_put_file(
-        &self, db: &str, session: &str, owner: &str, name: &str, mime: &str,
-        path: &std::path::Path,
-    ) -> DbResult<BlobMeta> {
-        let mut f = std::fs::File::open(path)
-            .map_err(|e| DbError::new("BLOB_INPUT", format!("{}: {e}", path.display())))?;
-        self.blob_put_reader(db, session, owner, name, mime, &mut f).await
-    }
-
-    pub async fn blob_put_reader<R: Read>(
-        &self, db: &str, session: &str, owner: &str, name: &str, mime: &str, reader: &mut R,
-    ) -> DbResult<BlobMeta> {
-        let h = self.get(db)?;
-        // Fail-fast: Meta-Zeilen sind Ein-Schreiber (Reservierungspflicht).
-        h.begin_write(session)?;
-        h.end_write();
-        let blob_id = uuid::Uuid::new_v4().to_string();
-        let content_key: [u8; 32] = rand::random();
-        let aad_ctx = format!("{db}:{blob_id}");
-        let (parts, groesse, sha) =
-            upload_parts(&h, &blob_id, &content_key, &aad_ctx, reader).await?;
-        let huelleref = seal_db_key(&h, &blob_id, &content_key)?;
-        let meta = BlobMeta {
-            blob_id: blob_id.clone(),
-            name: name.to_string(),
-            mime: mime.to_string(),
-            groesse,
-            sha256_klartext: sha,
-            content_key_huellereferenz: huelleref,
-            storage_uri: format!("blobs/{db}/{blob_id}"),
-            epoch: h.status().wal_stand + 1,
-            owner: owner.to_string(),
-            parts,
-            session_id: None,
-            chunk_index: None,
-            dauer_ms: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
-        };
-        insert_meta(&h, session, &meta).await?;
-        Ok(meta)
-    }
-
     pub fn blob_list(&self, db: &str) -> DbResult<Vec<BlobMeta>> {
         let h = self.get(db)?;
         let q = h.query(
-            &format!("SELECT {} FROM {BLOB_META_TABLE} ORDER BY created_at, blob_id",
-                     crate::dbnode::blob_meta::META_COLS),
+            &format!("SELECT {META_COLS} FROM {BLOB_META_TABLE} ORDER BY created_at, blob_id"),
             &[],
         )?;
         Ok(q.rows.iter().map(|r| row_to_meta(&q.columns, r)).collect())
@@ -81,13 +34,13 @@ impl DbNode {
     ) -> DbResult<BlobMeta> {
         let h = self.get(db)?;
         let meta = load_meta(&h, blob_id)?;
-        let (key, aad_ctx) = resolve_key(&h, db, &meta)?;
+        let (key, aad_ctx, obj) = resolve_key(&h, db, &meta)?;
         let mut sha = Sha256::new();
         let mut size = 0u64;
         for part in 0..meta.parts {
             let sealed = h
                 .storage
-                .read(&part_key(db, blob_id, part))
+                .read(&part_key(db, &obj, part))
                 .await?
                 .ok_or_else(|| DbError::new("BLOB_MISSING", format!("Part {part} fehlt")))?;
             let plain = decrypt_part(&key, &aad_ctx, part, &sealed)?;
@@ -118,39 +71,58 @@ impl DbNode {
         Ok(meta)
     }
 
-    /// Konsistente Reihenfolge: ERST Meta-Zeile (WAL), DANN Backend-Parts.
+    /// ERST Meta-Zeile (WAL), DANN refcount, erst bei 0 die Backend-Parts.
     pub async fn blob_delete(&self, db: &str, session: &str, blob_id: &str) -> DbResult<u64> {
         let h = self.get(db)?;
         h.begin_write(session)?;
         h.end_write();
         let meta = load_meta(&h, blob_id)?;
+        let obj = objekt_id(&meta.storage_uri);
+        let q = h.query(
+            "SELECT refcount FROM linefs_blobhash WHERE sha256=?1",
+            &[json!(meta.sha256_klartext)],
+        )?;
+        let refcount = q.rows.first().and_then(|r| r[0].as_i64());
         h.write(
             session,
             &format!("DELETE FROM {BLOB_META_TABLE} WHERE blob_id = ?1"),
             vec![json!(blob_id)],
         )
         .await?;
-        for part in 0..meta.parts {
-            h.storage.delete(&part_key(db, blob_id, part)).await?;
+        match refcount {
+            Some(rc) if rc > 1 => {
+                h.write(session,
+                    "UPDATE linefs_blobhash SET refcount=refcount-1 WHERE sha256=?1",
+                    vec![json!(meta.sha256_klartext)]).await?;
+            }
+            _ => {
+                for part in 0..meta.parts {
+                    h.storage.delete(&part_key(db, &obj, part)).await?;
+                }
+                if refcount.is_some() {
+                    h.write(session,
+                        "DELETE FROM linefs_blobhash WHERE sha256=?1",
+                        vec![json!(meta.sha256_klartext)]).await?;
+                }
+            }
         }
         Ok(meta.parts)
     }
 
-    /// Orphan-GC: Backend-Objekte ohne Meta-Zeile werden entfernt.
+    /// Orphan-GC: Backend-Objekte ohne referenzierende Metazeile entfernen.
     pub async fn blob_gc(&self, db: &str) -> DbResult<Vec<String>> {
         let h = self.get(db)?;
-        let known: std::collections::HashSet<String> =
-            self.blob_list(db)?.into_iter().map(|m| m.blob_id).collect();
+        let bekannt: std::collections::HashSet<String> =
+            self.blob_list(db)?.into_iter().map(|m| m.storage_uri).collect();
         let prefix = blob_prefix(db);
         let keys = h.storage.list(&prefix).await?;
         let mut deleted = Vec::new();
         for key in keys {
-            let blob_id = key
+            let obj = key
                 .strip_prefix(&prefix)
                 .and_then(|rest| rest.split('/').next())
-                .unwrap_or_default()
-                .to_string();
-            if blob_id.is_empty() || known.contains(&blob_id) {
+                .unwrap_or_default();
+            if obj.is_empty() || bekannt.contains(&format!("{prefix}{obj}")) {
                 continue;
             }
             h.storage.delete(&key).await?;
@@ -160,16 +132,17 @@ impl DbNode {
     }
 }
 
-fn resolve_key(h: &DbHandle, db: &str, meta: &BlobMeta) -> DbResult<([u8; 32], String)> {
+fn resolve_key(h: &DbHandle, db: &str, meta: &BlobMeta) -> DbResult<([u8; 32], String, String)> {
     match (&meta.session_id, meta.chunk_index) {
         (Some(sid), Some(idx)) => {
             let sk = crate::dbnode::blob_stream::session_content_key(h, sid)?;
             let info = format!("chunk:{sid}:{idx}");
-            Ok((crate::dbnode::blob_io::derive(&sk, info.as_bytes()), info))
+            Ok((crate::dbnode::blob_io::derive(&sk, info.as_bytes()), info, meta.blob_id.clone()))
         }
         _ => {
-            let ck = open_db_key(h, &meta.blob_id, &meta.content_key_huellereferenz)?;
-            Ok((ck, format!("{db}:{}", meta.blob_id)))
+            let obj = objekt_id(&meta.storage_uri);
+            let ck = open_db_key(h, &obj, &meta.content_key_huellereferenz)?;
+            Ok((ck, format!("{db}:{obj}"), obj))
         }
     }
 }

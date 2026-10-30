@@ -67,8 +67,13 @@ impl Default for DbNodeConfig {
             snapshot_interval: Duration::from_secs(3600),
             write_timeout: Duration::from_secs(5),
             storage_timeout: Duration::from_secs(10),
-            zeilen_limit: 0,
-            code_docu_unterscheidung: false,
+            zeilen_limit: std::env::var("Z8_LINEFS_ZEILEN_LIMIT")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0),
+            code_docu_unterscheidung: std::env::var("Z8_LINEFS_CODE_DOCU")
+                .map(|v| matches!(v.trim(), "1" | "true" | "an" | "on"))
+                .unwrap_or(false),
         }
     }
 }
