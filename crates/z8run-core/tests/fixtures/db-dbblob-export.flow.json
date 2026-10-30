@@ -1,0 +1,255 @@
+{
+  "id": "12edd1bc-ef72-4c8c-b37b-6aa1024f1d2d",
+  "name": "DB-BLOB",
+  "description": "Blob-Export/CLI/Server Beweis",
+  "version": "0.1.0",
+  "nodes": [],
+  "edges": [],
+  "metadata": {
+    "positions": {
+      "canvas_nodes": [
+        {
+          "id": "in",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "unix-in",
+            "label": "POST /blobflow",
+            "config": {
+              "method": "POST",
+              "path": "/blobflow"
+            },
+            "inputs": [],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              }
+            ]
+          }
+        },
+        {
+          "id": "open",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "db-open",
+            "label": "DB Open",
+            "config": {
+              "dbId": "db-blob-export",
+              "clusterId": "bo",
+              "adapter": "fs",
+              "localDir": "/data/z8run-test/dbnode-blob-export",
+              "storageRoot": "/data/z8run-test/dbnode-blob-export/storage",
+              "masterKeyPath": "req.body.master_key_b64"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "put",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "blob-put",
+            "label": "Blob Put",
+            "config": {
+              "dbId": "db-blob-export",
+              "pfadPath": "req.body.datei_pfad",
+              "base64Path": "req.body.base64",
+              "sessionPath": "req.body.session_id",
+              "autoReserve": true
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "get",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "blob-get",
+            "label": "Blob Get",
+            "config": {
+              "dbId": "db-blob-export",
+              "blobIdPath": "blob.blob_id",
+              "zielPath": "req.body.ziel_adapter"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "list",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "blob-list",
+            "label": "Blob List",
+            "config": {
+              "dbId": "db-blob-export"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ]
+          }
+        },
+        {
+          "id": "out",
+          "type": "z8node",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "data": {
+            "type": "http-out",
+            "label": "200 OK",
+            "config": {
+              "statusCode": 200
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "outputs": []
+          }
+        }
+      ],
+      "canvas_edges": [
+        {
+          "id": "e-in-output-open",
+          "source": "in",
+          "sourceHandle": "output",
+          "target": "open",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-open-output-put",
+          "source": "open",
+          "sourceHandle": "output",
+          "target": "put",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-put-output-get",
+          "source": "put",
+          "sourceHandle": "output",
+          "target": "get",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-get-output-list",
+          "source": "get",
+          "sourceHandle": "output",
+          "target": "list",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-list-output-out",
+          "source": "list",
+          "sourceHandle": "output",
+          "target": "out",
+          "targetHandle": "input"
+        }
+      ]
+    },
+    "zoom": 1.0
+  },
+  "config": {
+    "credentials": [],
+    "env_vars": {},
+    "timeout_ms": 0,
+    "buffer_size": 0
+  },
+  "status": "idle",
+  "created_at": "2026-10-30T11:06:20.300061+00:00",
+  "updated_at": "2026-10-30T11:06:20.300061+00:00"
+}

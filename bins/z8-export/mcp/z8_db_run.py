@@ -50,6 +50,13 @@ def _payload(
     storage_root: str,
     bucket: str,
     prefix: str,
+    blob_id: str = "",
+    datei_pfad: str = "",
+    base64: str = "",
+    name: str = "",
+    mime: str = "",
+    owner: str = "mcp",
+    ziel_adapter: str = "",
 ) -> dict[str, Any]:
     return {
         "action": action,
@@ -64,6 +71,13 @@ def _payload(
         "storageRoot": storage_root,
         "bucket": bucket,
         "prefix": prefix,
+        "blob_id": blob_id,
+        "datei_pfad": datei_pfad,
+        "base64": base64,
+        "name": name,
+        "mime": mime,
+        "owner": owner,
+        "ziel_adapter": ziel_adapter,
     }
 
 
@@ -82,16 +96,27 @@ def register_db_tool(mcp) -> None:
         storage_root: str = "",
         bucket: str = "",
         prefix: str = "",
+        blob_id: str = "",
+        datei_pfad: str = "",
+        base64: str = "",
+        name: str = "",
+        mime: str = "",
+        owner: str = "mcp",
+        ziel_adapter: str = "",
     ) -> dict[str, Any]:
-        """DB-Node-Aktion: open|query|write|schema|status|sync.
+        """DB-Node-Aktion: open|query|write|schema|status|sync|
+        blob_put|blob_get|blob_list|blob_delete.
 
         master_key_b64 kommt aus dem Login/Proxy-Scope und wird NIE in der
-        Antwort ausgegeben. query ist readonly; write reserviert/released
-        selbst (Ein-Schreiber-Regel bleibt in der Engine).
+        Antwort ausgegeben. query ist readonly; write/blob_put/blob_delete
+        reservieren/releasen selbst (Ein-Schreiber-Regel bleibt in der
+        Engine). blob_get liefert Klartext nur an den authentisierten
+        Aufrufer: Datei-Ziel (ziel_adapter) oder base64 in der Antwort.
         """
         return _run(
             _payload(
                 action, db_id, master_key_b64, sql, params, session_id,
                 local_dir, cluster_id, adapter, storage_root, bucket, prefix,
+                blob_id, datei_pfad, base64, name, mime, owner, ziel_adapter,
             )
         )

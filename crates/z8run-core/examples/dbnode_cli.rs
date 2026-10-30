@@ -82,6 +82,64 @@ async fn run(v: &Value) -> Result<Value, (String, String)> {
             .await
             .map(|p| json!({"status": 200, "progress": p}))
             .map_err(|e| (e.code, e.message)),
+        "blob_put" => {
+            let session = v["session_id"].as_str().unwrap_or("mcp");
+            let owner = v["owner"].as_str().unwrap_or("mcp");
+            let name = v["name"].as_str().unwrap_or("blob.bin");
+            let mime = v["mime"].as_str().unwrap_or("application/octet-stream");
+            node.reserve(&db_id, session).map_err(|e| (e.code, e.message))?;
+            let pfad = v["datei_pfad"].as_str().unwrap_or("");
+            let res = if !pfad.is_empty() && std::path::Path::new(pfad).is_file() {
+                node.blob_put_file(&db_id, session, owner, name, mime, std::path::Path::new(pfad))
+                    .await
+            } else {
+                use base64::Engine;
+                let raw = v["base64"].as_str().unwrap_or("");
+                match base64::engine::general_purpose::STANDARD.decode(raw.trim()) {
+                    Ok(data) => node.blob_put_bytes(&db_id, session, owner, name, mime, &data).await,
+                    Err(e) => {
+                        let _ = node.release(&db_id, session);
+                        return Err(("BLOB_INPUT".into(), format!("base64: {e}")));
+                    }
+                }
+            };
+            let _ = node.release(&db_id, session);
+            res.map(|m| json!({"status": 200, "blob": m}))
+                .map_err(|e| (e.code, e.message))
+        }
+        "blob_get" => {
+            let blob_id = v["blob_id"].as_str().unwrap_or("");
+            if blob_id.is_empty() {
+                return Err(("BLOB_INPUT".into(), "blob_id fehlt".into()));
+            }
+            let ziel = v["ziel_adapter"].as_str().unwrap_or("");
+            if !ziel.is_empty() {
+                node.blob_get_to_file(&db_id, blob_id, std::path::Path::new(ziel))
+                    .await
+                    .map(|m| json!({"status": 200, "ziel": ziel, "blob": m}))
+                    .map_err(|e| (e.code, e.message))
+            } else {
+                use base64::Engine;
+                node.blob_get_bytes(&db_id, blob_id)
+                    .await
+                    .map(|d| json!({"status": 200, "blob_id": blob_id,
+                                    "base64": base64::engine::general_purpose::STANDARD.encode(&d)}))
+                    .map_err(|e| (e.code, e.message))
+            }
+        }
+        "blob_list" => node
+            .blob_list(&db_id)
+            .map(|b| json!({"status": 200, "blobs": b}))
+            .map_err(|e| (e.code, e.message)),
+        "blob_delete" => {
+            let blob_id = v["blob_id"].as_str().unwrap_or("");
+            let session = v["session_id"].as_str().unwrap_or("mcp");
+            node.reserve(&db_id, session).map_err(|e| (e.code, e.message))?;
+            let res = node.blob_delete(&db_id, session, blob_id).await;
+            let _ = node.release(&db_id, session);
+            res.map(|parts| json!({"status": 200, "blob_id": blob_id, "parts": parts}))
+                .map_err(|e| (e.code, e.message))
+        }
         other => Err(("ACTION".into(), format!("unbekannte Aktion: {other}"))),
     }
 }
