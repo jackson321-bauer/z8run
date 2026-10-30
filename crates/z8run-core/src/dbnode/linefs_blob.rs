@@ -100,6 +100,7 @@ impl DbNode {
                         Ok((r.get(0)?, r.get(1)?))
                     })
                     .map_err(|e| db_err(e.to_string()))?;
+                let ist = lese_ist(&conn, id).map_err(db_err)?;
                 drop(conn);
                 if status != "binaer" {
                     return Err(db_err("Datei ist nicht im Binaer-Status".into()));
@@ -115,7 +116,7 @@ impl DbNode {
                 let ziel: Vec<ZeileStand> = zerlege(&text).into_iter()
                     .map(|z| ZeileStand { schluessel: None, inhalt: z.inhalt, ende: z.ende, geloescht: false })
                     .collect();
-                let mut ops = plane_commit_daten(&k, id, k.fassung, &[], &ziel, "linefs", &t, &policy(&h.cfg))
+                let mut ops = plane_commit_daten(&k, id, k.fassung, &ist, &ziel, "linefs", &t, &policy(&h.cfg))
                     .map_err(db_err)?;
                 ops.push(Aktion {
                     sql: "UPDATE dateien SET status='text' WHERE datei_id=?1".into(),
