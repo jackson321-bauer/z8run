@@ -83,7 +83,7 @@ async fn bf2_fehlgeschlagenes_sql_hinterlaesst_kein_cloud_wal() {
     assert_eq!(e.code, "SQLITE");
     let keys = storage.keys();
     assert!(
-        !keys.iter().any(|k| k.contains("/wal/db-bf2/00000002.json")),
+        !keys.iter().any(|k| k.ends_with("wal/db-bf2/00000002.json")),
         "Cloud-WAL für fehlgeschlagenes SQL: {keys:?}"
     );
     assert_eq!(

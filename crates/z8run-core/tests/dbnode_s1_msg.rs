@@ -83,4 +83,22 @@ async fn nachrichten_interface_ueber_kanal() {
     } else {
         panic!("kein Rows-Event: {ev:?}");
     }
+
+    // readonly=false darf NICHT als Write durchrutschen.
+    let (cmd_tx, cmd_rx) = mpsc::channel(4);
+    let (ev_tx, mut ev_rx) = mpsc::channel(4);
+    let server = tokio::spawn(serve(node.clone(), cmd_rx, ev_tx));
+    cmd_tx
+        .send(DbNodeCommand::Query {
+            db_id: "db-m".into(),
+            sql: "INSERT INTO t VALUES (1)".into(),
+            params: vec![],
+            readonly: false,
+        })
+        .await
+        .unwrap();
+    drop(cmd_tx);
+    let ev = ev_rx.recv().await.unwrap();
+    server.await.unwrap();
+    assert!(matches!(&ev, DbNodeEvent::Error { code, .. } if code == "READONLY"), "{ev:?}");
 }

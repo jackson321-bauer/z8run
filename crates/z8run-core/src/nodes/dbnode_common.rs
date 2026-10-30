@@ -35,10 +35,12 @@ impl ClusterSpec {
                 .unwrap_or(d)
                 .to_string()
         };
-        let mut cluster_id = s("clusterId", "");
-        if cluster_id.is_empty() {
-            cluster_id = s("clusterRef", "default");
-        }
+        let cluster_ref = s("clusterRef", "");
+        let cluster_id = if cluster_ref.is_empty() {
+            s("clusterId", "default")
+        } else {
+            cluster_ref
+        };
         Self {
             cluster_id,
             adapter: s("adapter", "fs").to_lowercase(),
@@ -158,7 +160,6 @@ pub fn ok(msg: &FlowMessage, payload: Value) -> Vec<FlowMessage> {
     let merged = merge(&base, payload);
     vec![msg.derive(msg.source_node, "output", merged)]
 }
-
 /// Entfernt einen Punkt-Pfad (z. B. den Masterkey) aus dem Payload.
 pub fn strip_path(v: &mut Value, path: &str) {
     let parts: Vec<&str> = path.split('.').collect();
@@ -193,7 +194,6 @@ pub fn err_without(msg: &FlowMessage, code: &str, message: &str, strip: &str) ->
     );
     vec![msg.derive(msg.source_node, "error", merged)]
 }
-
 pub fn err(msg: &FlowMessage, code: &str, message: &str) -> Vec<FlowMessage> {
     let mut base = msg.payload.clone();
     strip_known_secrets(&mut base);

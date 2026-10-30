@@ -91,6 +91,14 @@ async fn b_reservierungspflicht_und_zweite_reservierung() {
     assert_eq!(node.release("db-b", "s1").unwrap_err().code, "NOT_OWNER");
 }
 
+#[test]
+fn cluster_ref_hat_vorrang_vor_cluster_id() {
+    let spec = z8run_core::nodes::dbnode_common::ClusterSpec::from_config(&json!({
+        "clusterId": "ignored", "clusterRef": "ref-cluster"
+    }));
+    assert_eq!(spec.cluster_id, "ref-cluster");
+}
+
 #[tokio::test]
 async fn b2_default_config_ist_flach() {
     let cfg = DbNodeConfig::default();

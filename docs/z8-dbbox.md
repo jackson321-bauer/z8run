@@ -94,7 +94,9 @@ Query{sql, params, readonly}              WalSync / Status / Schema
 Event: Ok | WriteOk | Rows | WalProgress | Status | Schema | Error{code}
 ```
 
-Beweis: `msg`-Test sendet Commands über den Kanal und prüft Events.
+`Query` ist hart readonly: `readonly=false` wird mit `READONLY`
+abgewiesen (kein versehentlicher Write über den Lese-Pfad). Beweis:
+`msg`-Test sendet Commands über den Kanal und prüft Events.
 
 ## Nodes (dünn, Kategorie data, eigene Farbe `#0E7490`)
 
@@ -115,6 +117,26 @@ von **jedem** DB-Node aus dem Payload entfernt (bekannte Pfade
 `masterKeyPath`) — er erscheint nie in Antworten oder Logs. `clusterRef`
 ist ein Alias für `clusterId`. Fehler gehen auf den `error`-Port
 (`{status: 400, code, error}`).
+
+## Dokumentierte Abweichungen
+
+- **rusqlite 0.32.1 statt 0.31** (Plan): 0.31 verlangt libsqlite3-sys 0.28,
+  der Workspace nutzt bereits 0.30.1 (sqlx) → zwei `links="sqlite3"` =
+  Buildfehler. 0.32.1 teilt denselben Versionsstrang.
+- **S3-Multi-Test mit EINEM Dev-Key** statt drei scoped Keys: Für
+  `dbs/test-a|b|c/` standen keine drei scoped DanubeData-Keys bereit; es
+  wird derselbe Dev-Key mit drei getrennten Präfixen benutzt, fremde
+  Präfixe (`sim2/`, `kronvault/`) werden nicht berührt. Die Engine
+  unterstützt je Cluster eigene Keys (`Adapter::S3` je ClusterConfig).
+- **WAL-Versiegelung** nutzt AES-256-GCM + HKDF + HMAC direkt (dieselben
+  Primitive wie `kette`/`umschlag`) statt der Passwort-Box
+  (`passbox_siegel`), weil Argon2id pro WAL-Write für einen
+  Hochfrequenz-Strom ungeeignet ist. Kein neuer Krypto-Stack.
+- **Crash-Fenster**: zwischen lokalem COMMIT und `state.json` bleibt ein
+  schmales Fenster; die Epochen-Prüfung verhindert Doppelanwendung. Bei
+  fehlgeschlagenem Upload und Crash vor dem lokalen WAL-File kann ein
+  kalter Client die letzte Änderung erst über den nächsten Snapshot
+  sehen (DB-Daten sind lokal vorhanden); dokumentiertes Restrisiko.
 
 ## Beweise (Rohlogs)
 

@@ -58,11 +58,20 @@ impl DbNode {
                 db_id,
                 sql,
                 params,
-                readonly: _,
-            } => match self.query(&db_id, &sql, &params) {
-                Ok(outcome) => vec![DbNodeEvent::Rows { db_id, outcome }],
-                Err(e) => vec![err(db_id, e)],
-            },
+                readonly,
+            } => {
+                if !readonly {
+                    return vec![DbNodeEvent::Error {
+                        db_id,
+                        code: "READONLY".into(),
+                        message: "Query ist readonly; Schreiben läuft über Write".into(),
+                    }];
+                }
+                match self.query(&db_id, &sql, &params) {
+                    Ok(outcome) => vec![DbNodeEvent::Rows { db_id, outcome }],
+                    Err(e) => vec![err(db_id, e)],
+                }
+            }
             DbNodeCommand::WalSync { db_id } => match self.wal_sync(&db_id).await {
                 Ok(progress) => vec![DbNodeEvent::WalProgress { progress }],
                 Err(e) => vec![err(db_id, e)],
