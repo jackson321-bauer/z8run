@@ -181,6 +181,11 @@ impl DbHandle {
         }
     }
 
+    /// Frische Readonly-Verbindung (parallel, ohne Reservierung).
+    pub fn readonly(&self) -> DbResult<Connection> {
+        open_readonly(&self.db_path, &self.key)
+    }
+
     pub fn persist(&self, st: &WriterState) -> DbResult<()> {
         wal::persist_state(&self.base_dir, &self.id, &st.state)
     }

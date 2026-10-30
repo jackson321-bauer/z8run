@@ -168,8 +168,7 @@ pub fn wende_wal_an(h: &DbHandle, ws: &mut WriterState, obj: &WalObject) -> DbRe
     }
     let plain = crypto::open(&h.key, &h.id, obj.nr, &obj.prev_hash, &sealed)?;
     let inner: WalInner = serde_json::from_slice(&plain)?;
-    wal::validate_sql(&inner.sql)?;
-    wal::exec_sql(&ws.conn, &inner.sql, &inner.params)?;
+    wal::apply_inner(&ws.conn, &inner)?;
     wal::record_epoch(&ws.conn, obj.nr, &obj.hash)?;
     Ok(())
 }

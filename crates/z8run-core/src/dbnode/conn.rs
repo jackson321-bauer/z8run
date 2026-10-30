@@ -35,7 +35,9 @@ pub fn prepare_writer(conn: &Connection, ram_budget: usize) -> DbResult<()> {
         ));
     }
     wal::ensure_epoch_table(conn)?;
-    ensure_blob_tables(conn)
+    ensure_blob_tables(conn)?;
+    crate::dbnode::linefs_rows::schema::initialisiere(conn)
+        .map_err(|e| DbError::new("SCHEMA", e))
 }
 
 /// Blob-Meta-/Session-Tabellen: Schema wie die Epochen-Tabelle direkt beim

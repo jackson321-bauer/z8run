@@ -84,6 +84,14 @@ impl DbNode {
                 Ok(schema) => vec![DbNodeEvent::Schema { schema }],
                 Err(e) => vec![err(db_id, e)],
             },
+            DbNodeCommand::Linefs(req) => {
+                let db_id = req.db_id.clone();
+                let op = req.aktion.op().to_string();
+                match self.linefs(req).await {
+                    Ok(ergebnis) => vec![DbNodeEvent::LinefsOk { db_id, op, ergebnis }],
+                    Err(e) => vec![err(db_id, e)],
+                }
+            }
         }
     }
 

@@ -52,6 +52,11 @@ pub struct DbNodeConfig {
     pub write_timeout: Duration,
     /// Timeout je Storage-Hop.
     pub storage_timeout: Duration,
+    /// Zeilen-Limit der Editor-Welt: 0 = unbegrenzt (Default), n = harte Grenze.
+    pub zeilen_limit: u32,
+    /// Code/Doku-Unterscheidung: aus (Default) = keine Sonderbehandlung,
+    /// an = 'code' unterliegt dem Limit, 'dokument' wird auto-gepagert.
+    pub code_docu_unterscheidung: bool,
 }
 
 impl Default for DbNodeConfig {
@@ -62,6 +67,8 @@ impl Default for DbNodeConfig {
             snapshot_interval: Duration::from_secs(3600),
             write_timeout: Duration::from_secs(5),
             storage_timeout: Duration::from_secs(10),
+            zeilen_limit: 0,
+            code_docu_unterscheidung: false,
         }
     }
 }

@@ -3,6 +3,7 @@
 
 use crate::dbnode::crypto;
 use crate::dbnode::handle::{open_readonly, DbHandle};
+use crate::dbnode::linefs_rows::Aktion;
 use crate::dbnode::restore::take_snapshot;
 use crate::dbnode::types::{DbError, DbResult, QueryOutcome, WalProgress, WriteOutcome};
 use crate::dbnode::wal::{self, WalInner, WalObject};
@@ -14,22 +15,48 @@ impl DbHandle {
     pub async fn write(&self, session: &str, sql: &str, params: Vec<Value>) -> DbResult<WriteOutcome> {
         wal::validate_sql(sql)?;
         self.begin_write(session)?;
-        let result = self.write_inner(sql, &params).await;
+        let inner = WalInner {
+            art: "sql".into(),
+            sql: sql.to_string(),
+            params,
+            ops: Vec::new(),
+            ts: chrono::Utc::now().to_rfc3339(),
+        };
+        let result = self.write_inner(inner).await;
         self.end_write();
         result
     }
 
-    async fn write_inner(&self, sql: &str, params: &[Value]) -> DbResult<WriteOutcome> {
+    /// Zeilen-/Ordner-Commit: EINE WAL-Nummer, EINE Transaktion.
+    /// Die Aktionen stammen aus der portierten Zeilen-Planung.
+    pub async fn write_ops(&self, session: &str, ops: Vec<Aktion>) -> DbResult<WriteOutcome> {
+        self.begin_write(session)?;
+        if ops.is_empty() {
+            self.end_write();
+            return Ok(WriteOutcome {
+                rows_affected: 0,
+                wal_nr: self.status().wal_stand,
+            });
+        }
+        let inner = WalInner {
+            art: "linefs".into(),
+            sql: String::new(),
+            params: Vec::new(),
+            ops,
+            ts: chrono::Utc::now().to_rfc3339(),
+        };
+        let result = self.write_inner(inner).await;
+        self.end_write();
+        result
+    }
+
+    async fn write_inner(&self, inner: WalInner) -> DbResult<WriteOutcome> {
+        wal::validate_inner(&inner)?;
         let mut ws = tokio::time::timeout(self.cfg.write_timeout, self.writer.lock())
             .await
             .map_err(|_| DbError::new("TIMEOUT", "Schreib-Warteschlange belegt"))?;
 
         let nr = ws.state.next_nr.max(1);
-        let inner = WalInner {
-            sql: sql.to_string(),
-            params: params.to_vec(),
-            ts: chrono::Utc::now().to_rfc3339(),
-        };
         let plain = serde_json::to_vec(&inner)?;
         let sealed = crypto::seal(&self.key, &self.id, nr, &ws.state.prev_hash, &plain)?;
         let seal_b64 = base64::engine::general_purpose::STANDARD.encode(sealed);
@@ -48,8 +75,8 @@ impl DbHandle {
         // (sonst blockiert es jeden Reopen). Cloud-Ack vor COMMIT hält die
         // Reihenfolge „Cloud zuerst" für die Dauerhaftigkeit.
         ws.conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let apply = wal::exec_sql(&ws.conn, sql, params)
-            .and_then(|(affected, _, _)| wal::record_epoch(&ws.conn, nr, &hash).map(|_| affected));
+        let apply = wal::apply_inner(&ws.conn, &inner)
+            .and_then(|affected| wal::record_epoch(&ws.conn, nr, &hash).map(|_| affected));
         let affected = match apply {
             Ok(a) => a,
             Err(e) => {

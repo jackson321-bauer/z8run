@@ -15,6 +15,16 @@ pub mod conn;
 pub mod crypto;
 pub mod db;
 mod dispatch;
+pub mod linefs;
+mod linefs_blob;
+mod linefs_common;
+mod linefs_edit;
+mod linefs_extras;
+mod linefs_ordner;
+mod linefs_ordner_read;
+mod linefs_pfad;
+mod linefs_read;
+pub mod linefs_rows;
 pub mod handle;
 pub mod msg;
 pub mod restore;
@@ -41,6 +51,10 @@ use std::sync::{Arc, Mutex};
 pub struct DbNode {
     pub config: DbNodeConfig,
     dbs: Mutex<HashMap<String, Arc<DbHandle>>>,
+    /// Editor-Sitzungen (RAM): je (db_id, session_id) hoechstens eine Datei.
+    sitzungen: Mutex<HashMap<String, linefs::Sitzung>>,
+    /// Laufzeit-Renderkopien fuer render_fuer_prozess (Prozess-Ende raeumt).
+    render_tmp: Mutex<HashMap<String, std::path::PathBuf>>,
 }
 
 impl DbNode {
@@ -48,6 +62,8 @@ impl DbNode {
         Self {
             config,
             dbs: Mutex::new(HashMap::new()),
+            sitzungen: Mutex::new(HashMap::new()),
+            render_tmp: Mutex::new(HashMap::new()),
         }
     }
 
@@ -125,6 +141,8 @@ impl DbNode {
         if removed.is_none() {
             return Err(DbError::new("NOT_OPEN", format!("DB {db_id} ist nicht offen")));
         }
+        let prefix = format!("{db_id}\u{0}");
+        self.sitzungen.lock().unwrap().retain(|k, _| !k.starts_with(&prefix));
         Ok(())
     }
 

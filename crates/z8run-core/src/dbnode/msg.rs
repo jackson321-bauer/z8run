@@ -49,6 +49,8 @@ pub enum DbNodeCommand {
     Schema {
         db_id: String,
     },
+    /// Vollstaendige LineFS-Befehlsmatrix (Zeilen + Ordner + Binaer).
+    Linefs(crate::dbnode::linefs_rows::LinefsRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +76,11 @@ pub enum DbNodeEvent {
     },
     Schema {
         schema: SchemaInfo,
+    },
+    LinefsOk {
+        db_id: String,
+        op: String,
+        ergebnis: Value,
     },
     Error {
         db_id: String,

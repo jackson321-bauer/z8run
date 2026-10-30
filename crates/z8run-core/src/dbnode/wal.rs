@@ -19,10 +19,22 @@ pub struct WalObject {
     pub hash: String,
 }
 
+fn default_art() -> String {
+    "sql".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalInner {
+    /// "sql" (ein Statement) oder "linefs" (Zeilen-/Ordner-Commit).
+    #[serde(default = "default_art")]
+    pub art: String,
+    #[serde(default)]
     pub sql: String,
+    #[serde(default)]
     pub params: Vec<Value>,
+    /// Zeilen-Welt-Aktionen (nur art = "linefs"); EINE WAL-Nummer.
+    #[serde(default)]
+    pub ops: Vec<crate::dbnode::linefs_rows::Aktion>,
     pub ts: String,
 }
 
@@ -118,6 +130,38 @@ pub fn exec_sql(
         rows_out.push(vals);
     }
     Ok((0, cols, rows_out))
+}
+
+/// Wendet eine WAL-Nutzlast an (SQL ODER Zeilen-Commit).
+/// Ein Zeilen-Commit fuehrt alle geplanten Aktionen in der bereits offenen
+/// Transaktion aus — atomar mit `record_epoch` des Aufrufers.
+pub fn apply_inner(conn: &Connection, inner: &WalInner) -> DbResult<u64> {
+    validate_inner(inner)?;
+    if inner.art == "linefs" {
+        let mut affected = 0u64;
+        for a in &inner.ops {
+            affected += conn.execute(
+                &a.sql,
+                params_from_iter(a.params.iter().map(json_to_sql)),
+            )? as u64;
+        }
+        return Ok(affected);
+    }
+    let (affected, _, _) = exec_sql(conn, &inner.sql, &inner.params)?;
+    Ok(affected)
+}
+
+/// DECKEL-Regel fuer beide WAL-Arten.
+pub fn validate_inner(inner: &WalInner) -> DbResult<()> {
+    match inner.art.as_str() {
+        "linefs" => {
+            for a in &inner.ops {
+                validate_sql(&a.sql)?;
+            }
+            Ok(())
+        }
+        _ => validate_sql(&inner.sql),
+    }
 }
 
 /// Zeilen-Epoche lückenlos: genau eine Zeile je WAL-Nummer.
