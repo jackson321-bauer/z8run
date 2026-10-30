@@ -21,6 +21,8 @@ NICHT im Flow.
   Reservierung = `BUSY`, `release` nur durch den Besitzer. Verschiedene
   DBs schreiben parallel; Lesen ist immer parallel (eigene Readonly-
   Verbindung, `PRAGMA query_only=ON`, WAL-Snapshot).
+- **RAM-Budget je DB** ist real: `ram_budget_per_db` setzt den
+  SQLite-Page-Cache (`PRAGMA cache_size=-<KiB>`), kein totes Config-Feld.
 - **Warteschlange ist DB-Node-Sache**: je DB eine FIFO-
   `tokio::sync::Mutex`-Warteschlange mit `write_timeout` (fail-fast
   `TIMEOUT`). Der Proxy stellt nur Anfragen.
@@ -58,10 +60,17 @@ NICHT im Flow.
    Lesen während des Schreibens (Innenleben, nicht der WAL-Strom).
 
 Snapshots (64 WALs oder 1 h) sind eine SQLCipher-verschlüsselte Kopie der
-DB-Datei (`snap/<db>/<nr>.db` + Meta mit Kettenstand). Restart: gültiger
+DB-Datei (`snap/<db>/<nr>.db` + **versiegeltes/signiertes** Meta
+`<nr>.meta` mit Kettenstand). Restart: gültiger
 lokaler Stand → nur der fehlende WAL-Schwanz wird gezogen; ohne lokalen
 Stand → Snapshot + WALs ab `snap+1` (Verhalten wie
 `wal_restart_sim.py`). Zähler `remote_wal_downloaded` beweist es.
+**Idempotenz**: `_z8_line_epochs` ist die Wahrheit — ein WAL, dessen
+Epoche bereits existiert, wird beim Restart NICHT erneut angewandt
+(Crash zwischen lokalem Commit und `state.json`). Fehlgeschlagenes SQL
+wird vor jedem Cloud-Upload erkannt (ROLLBACK), hinterlässt also kein
+totes Cloud-WAL. Beides ist als Regressionstest bewiesen
+(`s1-regression.log`).
 
 ## Storage-Adapter
 
@@ -100,8 +109,11 @@ Beweis: `msg`-Test sendet Commands über den Kanal und prüft Events.
 
 Payloads werden **gemerged**, nicht ersetzt: `req`, `params` und
 `session_id` bleiben für nachfolgende Nodes erhalten. Der Masterkey wird
-von `db-open` nach dem Öffnen aus dem Payload **entfernt** — er erscheint
-nie in Antworten oder Logs. Fehler gehen auf den `error`-Port
+von **jedem** DB-Node aus dem Payload entfernt (bekannte Pfade
+`master_key_b64`, `req.body.master_key_b64`, `master`,
+`req.body.master`; `db-open` zusätzlich den konfigurierten
+`masterKeyPath`) — er erscheint nie in Antworten oder Logs. `clusterRef`
+ist ein Alias für `clusterId`. Fehler gehen auf den `error`-Port
 (`{status: 400, code, error}`).
 
 ## Beweise (Rohlogs)
@@ -119,6 +131,8 @@ nie in Antworten oder Logs. Fehler gehen auf den `error`-Port
 - `s4-export-tree.log` — `cargo tree`: kv-store/kv-login als path-deps;
   `grep "fn process"` im Export leer.
 - `s4-offline.log` — Write überlebt Storage-Ausfall, `wal-sync` holt nach.
+- `s1-regression.log` — Audit-BF-1 (stale state → keine Doppelanwendung)
+  und BF-2 (fehlgeschlagenes SQL → kein Cloud-WAL, Reopen ok).
 - `s4-ram.log` — RSS leer **4.77 MB**, 1 DB 9.03 MB, 5 DBs 9.50 MB,
   je weitere DB 0.12 MB (Ziel: Grundlast <10 MB, je DB <5 MB — erfüllt).
   Der Boden kommt aus bundled SQLCipher+OpenSSL und ist gemessen, keine

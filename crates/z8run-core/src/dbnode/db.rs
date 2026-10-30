@@ -43,8 +43,21 @@ impl DbHandle {
         };
         let bytes = serde_json::to_vec(&obj)?;
 
-        // ZUERST Cloud (Quorum/Storage), DANN lokal. Fällt der Storage aus,
-        // bleibt das WAL lokal erhalten und wird beim Sync nachgeholt (S4).
+        // Lokal ausführen, aber erst NACH erfolgreichem SQL hochladen: ein
+        // fehlgeschlagenes Statement darf kein Cloud-WAL hinterlassen
+        // (sonst blockiert es jeden Reopen). Cloud-Ack vor COMMIT hält die
+        // Reihenfolge „Cloud zuerst" für die Dauerhaftigkeit.
+        ws.conn.execute_batch("BEGIN IMMEDIATE;")?;
+        let apply = wal::exec_sql(&ws.conn, sql, params)
+            .and_then(|(affected, _, _)| wal::record_epoch(&ws.conn, nr, &hash).map(|_| affected));
+        let affected = match apply {
+            Ok(a) => a,
+            Err(e) => {
+                let _ = ws.conn.execute_batch("ROLLBACK;");
+                return Err(e);
+            }
+        };
+
         let uploaded = matches!(
             tokio::time::timeout(
                 self.cfg.storage_timeout,
@@ -53,20 +66,10 @@ impl DbHandle {
             .await,
             Ok(Ok(()))
         );
-
-        ws.conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let apply = wal::exec_sql(&ws.conn, sql, params)
-            .and_then(|(affected, _, _)| wal::record_epoch(&ws.conn, nr, &hash).map(|_| affected));
-        let affected = match apply {
-            Ok(a) => {
-                ws.conn.execute_batch("COMMIT;")?;
-                a
-            }
-            Err(e) => {
-                let _ = ws.conn.execute_batch("ROLLBACK;");
-                return Err(e);
-            }
-        };
+        if let Err(e) = ws.conn.execute_batch("COMMIT;") {
+            let _ = ws.conn.execute_batch("ROLLBACK;");
+            return Err(e.into());
+        }
         wal::write_local_wal(&self.base_dir, &self.id, nr, &bytes)?;
 
         ws.state.next_nr = nr + 1;

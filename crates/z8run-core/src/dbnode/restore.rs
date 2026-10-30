@@ -15,7 +15,7 @@ use std::time::Instant;
 pub async fn open_handle(h: &DbHandle) -> DbResult<WriterState> {
     let mut state = if h.db_path.exists() {
         let conn = open_encrypted(&h.db_path, &h.key)?;
-        prepare_writer(&conn)?;
+        prepare_writer(&conn, h.cfg.ram_budget_per_db)?;
         let st = wal::load_state(&h.base_dir, &h.id)
             .unwrap_or_else(|| derive_state_from_local(h));
         WriterState {
@@ -35,7 +35,7 @@ pub async fn open_handle(h: &DbHandle) -> DbResult<WriterState> {
             restored = true;
         }
         let conn = open_encrypted(&h.db_path, &h.key)?;
-        prepare_writer(&conn)?;
+        prepare_writer(&conn, h.cfg.ram_budget_per_db)?;
         WriterState {
             conn,
             state: st,
@@ -81,7 +81,7 @@ async fn neuester_snapshot(h: &DbHandle) -> DbResult<Option<u64>> {
     let keys = h.storage.list(&format!("snap/{}/", h.id)).await?;
     let max = keys
         .iter()
-        .filter(|k| k.ends_with(".json"))
+        .filter(|k| k.ends_with(".meta"))
         .filter_map(|k| wal::nr_aus_key(k))
         .max();
     Ok(max)
@@ -100,7 +100,8 @@ async fn restore_snapshot(h: &DbHandle, nr: u64) -> DbResult<LocalState> {
         .read(&wal::snap_meta_key(&h.id, nr))
         .await?
         .ok_or_else(|| DbError::new("RESTORE", "Snapshot-Meta fehlt"))?;
-    let v: serde_json::Value = serde_json::from_slice(&meta)?;
+    let plain = crypto::open(&h.key, &h.id, nr, "", &meta)?;
+    let v: serde_json::Value = serde_json::from_slice(&plain)?;
     let last_wal = v["last_wal"].as_u64().unwrap_or(nr);
     Ok(LocalState {
         next_nr: last_wal + 1,
@@ -154,6 +155,17 @@ pub fn wende_wal_an(h: &DbHandle, ws: &mut WriterState, obj: &WalObject) -> DbRe
     let sealed = base64::engine::general_purpose::STANDARD
         .decode(&obj.seal)
         .map_err(|e| DbError::new("WAL", format!("seal base64: {e}")))?;
+    // Idempotenz: Commit und state.json sind nicht atomar. Existiert die
+    // Zeilen-Epoche bereits, wurde der WAL schon angewandt -> NICHT erneut
+    // ausführen (sonst Doppel-Insert nach Crash zwischen Commit und Persist).
+    let schon: i64 = ws.conn.query_row(
+        "SELECT count(*) FROM _z8_line_epochs WHERE nr = ?1",
+        rusqlite::params![obj.nr as i64],
+        |r| r.get(0),
+    )?;
+    if schon > 0 {
+        return Ok(());
+    }
     let plain = crypto::open(&h.key, &h.id, obj.nr, &obj.prev_hash, &sealed)?;
     let inner: WalInner = serde_json::from_slice(&plain)?;
     wal::validate_sql(&inner.sql)?;
@@ -178,8 +190,11 @@ pub async fn take_snapshot(h: &DbHandle, ws: &mut WriterState) -> DbResult<()> {
         "last_wal": nr,
         "prev_hash": ws.state.prev_hash,
     });
+    // Meta versiegelt+signiert (AEAD+HMAC) — kein unauthentifizierter
+    // Kettenstand aus dem Storage.
+    let sealed = crypto::seal(&h.key, &h.id, nr, "", &serde_json::to_vec(&meta)?)?;
     h.storage
-        .write(&wal::snap_meta_key(&h.id, nr), &serde_json::to_vec(&meta)?)
+        .write(&wal::snap_meta_key(&h.id, nr), &sealed)
         .await?;
     ws.state.snap_nr = nr;
     ws.since_snap = 0;

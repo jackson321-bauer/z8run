@@ -35,8 +35,12 @@ impl ClusterSpec {
                 .unwrap_or(d)
                 .to_string()
         };
+        let mut cluster_id = s("clusterId", "");
+        if cluster_id.is_empty() {
+            cluster_id = s("clusterRef", "default");
+        }
         Self {
-            cluster_id: s("clusterId", "default"),
+            cluster_id,
             adapter: s("adapter", "fs").to_lowercase(),
             local_dir: s("localDir", "/data/z8run/dbnode"),
             storage_root: s("storageRoot", ""),
@@ -96,7 +100,6 @@ pub fn at_str(payload: &Value, path: &str, default: &str) -> String {
         .unwrap_or(default)
         .to_string()
 }
-
 pub fn at_params(payload: &Value, path: &str) -> Vec<Value> {
     at(payload, path)
         .and_then(|v| v.as_array())
@@ -109,16 +112,33 @@ pub fn master_at(payload: &Value, path: &str) -> Result<Vec<u8>, String> {
     let raw = at(payload, path)
         .and_then(|v| v.as_str())
         .ok_or_else(|| format!("Masterkey fehlt ({path})"))?;
-    use base64::Engine;
-    if let Ok(v) = base64::engine::general_purpose::STANDARD.decode(raw) {
-        return Ok(v);
+    let t = raw.trim();
+    let hexs = t.strip_prefix("0x").unwrap_or(t);
+    // Hex (32-Byte-Key) zuerst; 64 Hex-Stellen sind auch Base64-Alphabet.
+    if hexs.len() == 64 && hexs.chars().all(|c| c.is_ascii_hexdigit()) {
+        if let Ok(v) = hex::decode(hexs) {
+            return Ok(v);
+        }
     }
-    let hexs = raw.strip_prefix("0x").unwrap_or(raw);
-    hex::decode(hexs).map_err(|e| format!("Masterkey weder Base64 noch Hex: {e}"))
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(t)
+        .map_err(|e| format!("Masterkey weder Base64 noch Hex: {e}"))
 }
 
-/// Merge: der Eingabe-Payload bleibt erhalten (req/params/session_id), die
-/// Node-Felder werden flach ergänzt — dünne Nodes, keine Payload-Vernichtung.
+/// Entfernt bekannte Masterkey-Pfade aus jedem Node-Output.
+fn strip_known_secrets(v: &mut Value) {
+    for p in [
+        "master_key_b64",
+        "req.body.master_key_b64",
+        "master",
+        "req.body.master",
+    ] {
+        strip_path(v, p);
+    }
+}
+
+/// Merge: Eingabe-Payload bleibt erhalten, Node-Felder werden flach ergänzt.
 pub fn merge(base: &Value, extra: Value) -> Value {
     let mut out = match base {
         Value::Object(m) => m.clone(),
@@ -133,7 +153,9 @@ pub fn merge(base: &Value, extra: Value) -> Value {
 }
 
 pub fn ok(msg: &FlowMessage, payload: Value) -> Vec<FlowMessage> {
-    let merged = merge(&msg.payload, payload);
+    let mut base = msg.payload.clone();
+    strip_known_secrets(&mut base);
+    let merged = merge(&base, payload);
     vec![msg.derive(msg.source_node, "output", merged)]
 }
 
@@ -154,16 +176,16 @@ pub fn strip_path(v: &mut Value, path: &str) {
         obj.remove(parts[parts.len() - 1]);
     }
 }
-
 pub fn ok_without(msg: &FlowMessage, payload: Value, strip: &str) -> Vec<FlowMessage> {
     let mut base = msg.payload.clone();
+    strip_known_secrets(&mut base);
     strip_path(&mut base, strip);
     let merged = merge(&base, payload);
     vec![msg.derive(msg.source_node, "output", merged)]
 }
-
 pub fn err_without(msg: &FlowMessage, code: &str, message: &str, strip: &str) -> Vec<FlowMessage> {
     let mut base = msg.payload.clone();
+    strip_known_secrets(&mut base);
     strip_path(&mut base, strip);
     let merged = merge(
         &base,
@@ -173,8 +195,10 @@ pub fn err_without(msg: &FlowMessage, code: &str, message: &str, strip: &str) ->
 }
 
 pub fn err(msg: &FlowMessage, code: &str, message: &str) -> Vec<FlowMessage> {
+    let mut base = msg.payload.clone();
+    strip_known_secrets(&mut base);
     let merged = merge(
-        &msg.payload,
+        &base,
         json!({"status": 400, "code": code, "error": message}),
     );
     vec![msg.derive(msg.source_node, "error", merged)]

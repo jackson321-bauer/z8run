@@ -422,6 +422,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     defaultConfig: {
       dbId: "",
       clusterId: "default",
+      clusterRef: "",
       adapter: "fs",
       localDir: "/data/z8run/dbnode",
       storageRoot: "",

@@ -58,10 +58,10 @@ def _payload(
         "sql": sql,
         "params": params or [],
         "session_id": session_id,
-        "local_dir": local_dir,
-        "cluster_id": cluster_id,
+        "localDir": local_dir,
+        "clusterId": cluster_id,
         "adapter": adapter,
-        "storage_root": storage_root,
+        "storageRoot": storage_root,
         "bucket": bucket,
         "prefix": prefix,
     }

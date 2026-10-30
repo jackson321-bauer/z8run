@@ -42,7 +42,7 @@ pub fn snap_key(db: &str, nr: u64) -> String {
     format!("snap/{db}/{nr:08}.db")
 }
 pub fn snap_meta_key(db: &str, nr: u64) -> String {
-    format!("snap/{db}/{nr:08}.json")
+    format!("snap/{db}/{nr:08}.meta")
 }
 
 pub fn nr_aus_key(key: &str) -> Option<u64> {

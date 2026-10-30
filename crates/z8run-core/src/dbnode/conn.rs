@@ -20,8 +20,13 @@ pub fn open_encrypted(path: &Path, key: &KeyEnvelope) -> DbResult<Connection> {
     Ok(conn)
 }
 
-pub fn prepare_writer(conn: &Connection) -> DbResult<()> {
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+/// `ram_budget` steuert den SQLite-Page-Cache dieser DB (echtes per-DB-
+/// Budget, kein totes Config-Feld). Negativer cache_size = KiB.
+pub fn prepare_writer(conn: &Connection, ram_budget: usize) -> DbResult<()> {
+    let cache_kb = (ram_budget / 1024).max(256) as i64;
+    conn.execute_batch(&format!(
+        "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-{cache_kb};"
+    ))?;
     let mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
     if !mode.eq_ignore_ascii_case("wal") {
         return Err(DbError::new(
