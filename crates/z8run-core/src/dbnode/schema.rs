@@ -11,6 +11,8 @@ impl DbHandle {
             "SELECT name FROM sqlite_master \
              WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_z8_%' \
              AND name NOT LIKE 'linefs_%' \
+             AND name NOT IN ('dateien','seiten','zeilen_epochen','ordner') \
+             AND name NOT GLOB 's_[0-9]*_[0-9]*' \
              ORDER BY name",
         )?;
         let names: Vec<String> = stmt
