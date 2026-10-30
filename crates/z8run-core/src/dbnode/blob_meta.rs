@@ -18,6 +18,9 @@ pub struct BlobMeta {
     pub mime: String,
     pub groesse: u64,
     pub sha256_klartext: String,
+    /// NUR Engine-intern: versiegelter Content-Key. Wird NIE serialisiert
+    /// (Node-/MCP-/CLI-Antworten und Logs sehen nur die Metadaten).
+    #[serde(skip_serializing, default)]
     pub content_key_huellereferenz: String,
     pub storage_uri: String,
     pub epoch: u64,

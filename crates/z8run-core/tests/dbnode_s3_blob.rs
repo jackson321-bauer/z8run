@@ -96,6 +96,17 @@ async fn s3_blobs_zwei_cluster_zwei_dbs_und_cleanup() {
             ids.push((db.to_string(), label.to_string(), m.blob_id));
         }
     }
+    // Chiffre-Beweis direkt am ECHTEN S3: Rohobjekt != Klartext.
+    {
+        let (db, label, blob_id) = &ids[0];
+        assert_eq!(label, "1k");
+        let roh_key = format!("dbs/test-blobs/a/blobs/{db}/{blob_id}/00000000.part");
+        let roh = ep.get_object(&c.bucket, &roh_key).await.unwrap();
+        let klar = &daten[0].1;
+        assert_ne!(&roh, klar, "S3 sieht Klartext!");
+        assert!(!roh.windows(klar.len()).any(|w| w == klar.as_slice()), "Klartext im S3-Objekt");
+        println!("S3_CIPHER_OK key={roh_key} roh_len={} klar_len={}", roh.len(), klar.len());
+    }
     // Download quer (andere DB, ggf. anderer Cluster): Inhalt + sha prüfen.
     for (db, label, blob_id) in &ids {
         let erwartet = &daten.iter().find(|(l, _)| l == label).unwrap().1;

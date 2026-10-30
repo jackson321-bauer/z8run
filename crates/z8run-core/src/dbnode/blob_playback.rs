@@ -7,7 +7,7 @@ use crate::dbnode::types::{DbError, DbResult};
 use crate::dbnode::DbNode;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::io::Write;
+use std::io::{self, Write};
 
 impl DbNode {
     /// Playlist: Chunks in Manifest-Reihenfolge, nahtlos entschlüsselt.
@@ -62,9 +62,11 @@ impl DbNode {
     pub async fn blob_session_finish(
         &self, db: &str, session: &str, sid: &str,
     ) -> DbResult<SessionManifest> {
-        let mut buf = Vec::new();
-        let mut m = self.blob_session_get_to_writer(db, sid, &mut buf).await?;
-        let sha = hex::encode(Sha256::digest(&buf));
+        // Kein Vollpuffer: die Wiedergabe fließt direkt in den Hash (RSS flach,
+        // auch bei 2-h-Aufnahmen).
+        let mut sink = HashSink(Sha256::new());
+        let mut m = self.blob_session_get_to_writer(db, sid, &mut sink).await?;
+        let sha = hex::encode(sink.0.finalize());
         let h = self.get(db)?;
         h.write(
             session,
@@ -113,5 +115,18 @@ impl DbNode {
             &[],
         )?;
         Ok(q.rows.iter().map(|r| row_to_session(&q.columns, r)).collect())
+    }
+}
+
+/// Write-Senke, die nur hasht (keine Datenhaltung im RAM).
+struct HashSink(Sha256);
+
+impl Write for HashSink {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }

@@ -20,6 +20,8 @@ pub struct SessionManifest {
     pub chunk_ids: Vec<String>,
     pub gesamt_sha256: String,
     pub dauer_ms: u64,
+    /// NUR Engine-intern: versiegelter Session-Key. Wird NIE serialisiert.
+    #[serde(skip_serializing, default)]
     pub session_key_huellereferenz: String,
     pub epoch: u64,
     pub created_at: String,
