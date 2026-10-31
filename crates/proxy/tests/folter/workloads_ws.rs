@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use futures_util::SinkExt;
 use proxy_kern::SessionState;
+use proxy_native::frame::{Frame, TYP_MEDIA};
 use proxy_native::ProxyService;
 use serde_json::json;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -59,7 +60,11 @@ pub async fn ws_streams(url: String, token: String, round: u64) -> usize {
             );
             let (mut ws, _) = tokio_tungstenite::connect_async(req).await.ok()?;
             for i in 0..5u8 {
-                ws.send(Message::Binary(vec![i; 64].into())).await.ok()?;
+                let framed = Frame::with_flags(TYP_MEDIA, 0, 1, 0, vec![i; 64])
+                    .ok()?
+                    .encode()
+                    .ok()?;
+                ws.send(Message::Binary(framed.into())).await.ok()?;
             }
             let _ = ws.close(None).await;
             Some(())

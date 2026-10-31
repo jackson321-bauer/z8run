@@ -55,6 +55,10 @@ pub trait FrameTap: Send + Sync {
     fn on_frame(&self, seq: u64, typ: u8, payload: &[u8]);
 }
 
+/// Overflow-Melder (G5): wird bei JEDEM Publish-Pfad ausgeloest, nicht nur
+/// im WebSocket-Pfad. Die Senke publiziert das Meta-Ereignis stream_overflow.
+pub type OverflowSink = Arc<dyn Fn(&str, u64) + Send + Sync>;
+
 pub(crate) struct Channel {
     pub(crate) id: u32,
     pub(crate) next_seq: u64,
@@ -73,6 +77,7 @@ pub struct ChannelRegistry {
     pub(crate) clock: Arc<dyn Clock>,
     next_id: AtomicU64,
     pub(crate) inner: Mutex<Inner>,
+    overflow_sink: Mutex<Option<OverflowSink>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,6 +101,22 @@ impl ChannelRegistry {
             clock,
             next_id: AtomicU64::new(1),
             inner: Mutex::new(Inner { channels: HashMap::new(), overflow_total: 0 }),
+            overflow_sink: Mutex::new(None),
+        }
+    }
+
+    pub fn set_overflow_sink(&self, sink: OverflowSink) {
+        *self.overflow_sink.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
+    }
+
+    pub(crate) fn notify_overflow(&self, channel: &str, dropped: u64) {
+        let sink = self
+            .overflow_sink
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(sink) = sink {
+            sink(channel, dropped);
         }
     }
 

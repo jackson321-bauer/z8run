@@ -2,7 +2,7 @@
 //! Head-of-Line-Isolation, Frame-Roundtrip.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use proxy_kern::{Clock, ProxyError};
@@ -101,6 +101,14 @@ async fn overflow_wirft_aelteste_und_meldet_meta() {
     let clock = ManualClock::new(1);
     let cfg = ChannelConfig { sub_queue: 3, ..Default::default() };
     let reg = registry(cfg, clock);
+    let seen: Arc<Mutex<Vec<(String, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink_seen = seen.clone();
+    reg.set_overflow_sink(Arc::new(move |channel, dropped| {
+        sink_seen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((channel.to_string(), dropped));
+    }));
     let ch = "app/overflow";
     let sub = reg.subscribe(ch, 1).unwrap();
 
@@ -119,9 +127,15 @@ async fn overflow_wirft_aelteste_und_meldet_meta() {
         kept.push(String::from_utf8(f.payload).unwrap());
     }
     assert_eq!(kept, vec!["7", "8", "9"]);
-    // Meta-Ereignis stream_overflow wird aus dem Zaehler abgeleitet.
-    assert!(sub.overflows() > 0);
-    println!("OVERFLOW verworfen={overflows} behalten={kept:?}");
+    // ECHTES Meta-Ereignis stream_overflow wurde zentral gemeldet.
+    let events = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let reported: u64 = events.iter().map(|(_, n)| *n).sum();
+    assert!(reported >= 7, "stream_overflow nicht gemeldet: {events:?}");
+    assert!(events.iter().all(|(c, _)| c == ch));
+    println!(
+        "OVERFLOW verworfen={overflows} behalten={kept:?} meta_events={} gemeldet={reported}",
+        events.len()
+    );
 }
 
 #[tokio::test]

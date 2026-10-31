@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use proxy_kern::SessionState;
+use proxy_native::frame::{Frame, TYP_MEDIA};
 use proxy_native::{http, ProxyConfig, ProxyService};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -69,7 +70,11 @@ async fn connect(
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn send_bin(ws: &mut Ws, bytes: &[u8]) {
-    ws.send(Message::Binary(bytes.to_vec().into())).await.unwrap();
+    let framed = Frame::with_flags(TYP_MEDIA, 0, 1, 0, bytes.to_vec())
+        .unwrap()
+        .encode()
+        .unwrap();
+    ws.send(Message::Binary(framed.into())).await.unwrap();
 }
 
 async fn recv_bin(ws: &mut Ws) -> Vec<u8> {
@@ -122,6 +127,10 @@ async fn token_rotation_im_socket_und_live_roundtrip() {
     let ack = recv_text(&mut ws).await;
     assert_eq!(ack["type"], "ack");
     assert_eq!(ack["seq"], 0);
+    // G2: Binaerrahmen OHNE 16-B-Header wird abgewiesen (kein Raten).
+    ws.send(Message::Binary(vec![0u8; 32].into())).await.unwrap();
+    let badframe = recv_text(&mut ws).await;
+    assert_eq!(badframe["code"], "BAD_FRAME");
 
     // Rotation IN der Socket (Control-Frame): Verbindung lebt weiter.
     let grant = svc.rotate(&token).unwrap();

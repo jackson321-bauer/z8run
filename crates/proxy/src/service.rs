@@ -64,7 +64,8 @@ impl ProxyService {
             clock.clone(),
             random,
         );
-        Self {
+        let hub = Arc::new(EventHub::default());
+        let svc = Self {
             cfg,
             clock,
             sessions: SessionStore::new(),
@@ -75,12 +76,43 @@ impl ProxyService {
             llm: Arc::new(MockLlm),
             otel: None,
             meta: None,
-            hub: Arc::new(EventHub::default()),
+            hub: hub.clone(),
             guard: WalGuard::new(wal_limit),
             secrets: SecretStore::new(),
             streams,
             recordings: std::sync::Mutex::new(std::collections::HashMap::new()),
-        }
+        };
+        // G5: Overflow wird zentral gemeldet (WS, Node, Playback, CTL gleich).
+        let cluster = svc.cfg.cluster_id.clone();
+        let sink_hub = hub;
+        svc.streams.set_overflow_sink(Arc::new(move |channel, dropped| {
+            let event = proxy_kern::meta::MetaEvent {
+                actor: "system".into(),
+                action: "stream_overflow".into(),
+                object_ref: channel.to_string(),
+                trace_id: String::new(),
+                session: "proxy".into(),
+                status: "ok".into(),
+                detail: format!("stream_overflow dropped={dropped}"),
+                ts_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            };
+            if event.validate().is_err() {
+                return;
+            }
+            let payload = serde_json::json!({
+                "meta": serde_json::to_value(&event).unwrap_or(serde_json::Value::Null)
+            });
+            let hub = sink_hub.clone();
+            let cluster = cluster.clone();
+            tokio::spawn(async move {
+                hub.publish(&cluster, "proxy", "meta:stream_overflow", "", payload)
+                    .await;
+            });
+        }));
+        svc
     }
 
     pub fn with_db(mut self, db: Arc<dyn DbPort>) -> Self {

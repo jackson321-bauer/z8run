@@ -11,27 +11,6 @@ use crate::channel::ChannelRegistry;
 use crate::service::ProxyService;
 use crate::stream::Setup;
 use crate::stream_conn::{send_err, send_json, spawn_forward};
-use proxy_kern::meta::MetaEvent;
-
-pub async fn record_overflow(svc: &ProxyService, channel: &str, session: &str, dropped: u64) {
-    let event = MetaEvent {
-        actor: "system".into(),
-        action: "stream_overflow".into(),
-        object_ref: channel.to_string(),
-        trace_id: String::new(),
-        session: session.to_string(),
-        status: "ok".into(),
-        detail: format!("stream_overflow dropped={dropped}"),
-        ts_ms: now_ms(),
-    };
-    if event.validate().is_err() {
-        return;
-    }
-    let payload = json!({"meta": serde_json::to_value(&event).unwrap_or(Value::Null)});
-    svc.hub
-        .publish(&svc.cfg.cluster_id, "proxy", "meta:stream_overflow", "", payload)
-        .await;
-}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_control(

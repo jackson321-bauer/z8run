@@ -46,7 +46,12 @@ impl ChannelRegistry {
         }
         let after: u64 = c.subs.iter().map(|s| s.overflows()).sum();
         inner.overflow_total = inner.overflow_total.saturating_add(after - before);
-        Ok(PublishOutcome { seq, delivered, overflowed: after - before })
+        let dropped = after - before;
+        drop(inner);
+        if dropped > 0 {
+            self.notify_overflow(name, dropped);
+        }
+        Ok(PublishOutcome { seq, delivered, overflowed: dropped })
     }
 
     pub fn overflow_total(&self) -> u64 {

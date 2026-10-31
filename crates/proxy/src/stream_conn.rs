@@ -6,13 +6,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
-use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use crate::channel::ChannelRegistry;
-use crate::frame::{Frame, FRAME_MAGIC, HEADER_LEN, TYP_MEDIA};
+use crate::frame::Frame;
 use crate::service::ProxyService;
 use crate::stream::Setup;
 use crate::stream_control::handle_control;
@@ -28,15 +27,6 @@ pub(crate) async fn send_json(tx: &mpsc::Sender<Message>, v: Value) -> bool {
 
 pub(crate) async fn send_err(tx: &mpsc::Sender<Message>, code: &str, message: &str) {
     let _ = send_json(tx, json!({"type": "err", "code": code, "error": message})).await;
-}
-
-fn unwrap_media(data: &Bytes) -> (u8, u8, Vec<u8>) {
-    if data.len() >= HEADER_LEN && u16::from_le_bytes([data[0], data[1]]) == FRAME_MAGIC {
-        if let Ok(f) = Frame::decode(data) {
-            return (f.typ, f.flags, f.payload);
-        }
-    }
-    (TYP_MEDIA, 0, data.to_vec())
 }
 
 pub(crate) async fn spawn_forward(
@@ -136,22 +126,19 @@ pub async fn handle(mut socket: WebSocket, svc: Arc<ProxyService>, setup: Setup)
                         let _ = send_err(&out_tx, "NOT_CLAIMED", "Socket haelt keinen Claim").await;
                         continue;
                     };
-                    let (typ, flags, payload) = unwrap_media(&data);
-                    match reg.publish_with_flags(&ch, typ, flags, payload) {
-                        Ok(out) => {
-                            let _ = send_json(&out_tx, json!({"type": "ack", "seq": out.seq})).await;
-                            if out.overflowed > 0 {
-                                let svc = svc.clone();
-                                let session = setup.session_id.clone();
-                                tokio::spawn(async move {
-                                    crate::stream_control::record_overflow(
-                                        &svc, &ch, &session, out.overflowed,
-                                    )
-                                    .await;
-                                });
+                    // G2: Medien-Frames sind Binaer MIT 16-B-Header. Es wird
+                    // NICHT geraten — ein Rahmen ohne gueltigen Header wird
+                    // abgewiesen (kein versehentliches Abschneiden von Inhalt).
+                    match Frame::decode(&data) {
+                        Ok(f) => match reg.publish_with_flags(&ch, f.typ, f.flags, f.payload) {
+                            Ok(out) => {
+                                let _ =
+                                    send_json(&out_tx, json!({"type": "ack", "seq": out.seq}))
+                                        .await;
                             }
-                        }
-                        Err(e) => send_err(&out_tx, e.code(), &e.to_string()).await,
+                            Err(e) => send_err(&out_tx, e.code(), &e.to_string()).await,
+                        },
+                        Err(e) => send_err(&out_tx, "BAD_FRAME", &e.to_string()).await,
                     }
                 }
                 Some(Ok(Message::Text(text))) => {
