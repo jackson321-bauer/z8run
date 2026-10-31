@@ -90,6 +90,16 @@ async fn logout(
         "logout",
     )
     .await;
+    svc.record_meta(
+        "system",
+        proxy_kern::meta::EventKind::ClusterClose,
+        &info.addr_space,
+        &ctx.trace_id,
+        &info.session_id,
+        "ok",
+        "cluster_close",
+    )
+    .await;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

@@ -12,7 +12,7 @@ use proxy_kern::{
 use crate::meta::MetaStore;
 use crate::secrets::SecretStore;
 use crate::otel::OtelStore;
-use crate::subscribe::EventHub;
+use crate::subscribe::{Event, EventHub, Filter, Sink};
 use crate::wal_guard::WalGuard;
 use serde_json::Value;
 
@@ -124,6 +124,50 @@ pub struct ProxyService {
     pub secrets: SecretStore,
 }
 
+/// Logging-Persistenz als Abonnent der Subscribe/Push-Naht.
+struct LoggingSink {
+    meta: Arc<MetaStore>,
+    otel: Arc<OtelStore>,
+}
+
+#[async_trait]
+impl Sink for LoggingSink {
+    async fn deliver(&self, event: &Event) -> bool {
+        if event.kind.starts_with("meta:") {
+            if let Some(v) = event.payload.get("meta") {
+                match serde_json::from_value::<MetaEvent>(v.clone()) {
+                    Ok(m) => {
+                        if let Err(e) = self.meta.record(&m).await {
+                            tracing::warn!(code = e.code(), art = m.action, "Meta-Schreiben fehlgeschlagen");
+                            return false;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Meta-Abonnent: Payload unlesbar");
+                        return false;
+                    }
+                }
+            }
+        } else if event.kind.starts_with("otel:") {
+            if let Some(v) = event.payload.get("span") {
+                match serde_json::from_value::<proxy_kern::Span>(v.clone()) {
+                    Ok(span) => {
+                        if let Err(e) = self.otel.write(&span).await {
+                            tracing::warn!(code = e.code(), "Span-Schreiben fehlgeschlagen");
+                            return false;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "OTel-Abonnent: Payload unlesbar");
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+}
+
 impl ProxyService {
     pub fn new(cfg: ProxyConfig) -> Self {
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -165,6 +209,15 @@ impl ProxyService {
             meta_dbs.push(self.cfg.cluster_meta_db.clone());
         }
         let meta = Arc::new(MetaStore::new(db.clone(), meta_dbs));
+        // Logging ist ein ECHTER Abonnent der Naht: jedes Meta-/OTel-Ereignis
+        // wird publiziert und von diesem Sink in die DB geschrieben.
+        self.hub.subscribe(
+            Filter::all(),
+            Arc::new(LoggingSink {
+                meta: meta.clone(),
+                otel: otel.clone(),
+            }),
+        );
         self.db = db;
         self.otel = Some(otel);
         self.meta = Some(meta);
@@ -229,7 +282,6 @@ impl ProxyService {
         status: &str,
         detail: &str,
     ) {
-        let Some(meta) = &self.meta else { return };
         let event = match MetaEvent::new(
             actor,
             kind,
@@ -247,16 +299,18 @@ impl ProxyService {
             }
         };
         // Logging ist erster Abonnent an der Naht (kein Sonderpfad).
-        self.hub.publish(
-            &self.cfg.cluster_id,
-            "proxy",
-            &format!("meta:{}", event.action),
-            trace_id,
-            serde_json::json!({"actor": event.actor, "status": event.status}),
-        );
-        if let Err(e) = meta.record(&event).await {
-            tracing::warn!(code = e.code(), art = event.action, "Meta-Schreiben fehlgeschlagen");
-        }
+        let payload = serde_json::json!({
+            "meta": serde_json::to_value(&event).unwrap_or(Value::Null)
+        });
+        self.hub
+            .publish(
+                &self.cfg.cluster_id,
+                "proxy",
+                &format!("meta:{}", event.action),
+                trace_id,
+                payload,
+            )
+            .await;
     }
 
     /// Proxy garantiert Trace: gueltiger eingehender Kontext wird
@@ -267,18 +321,18 @@ impl ProxyService {
     }
 
     pub async fn write_span(&self, span: proxy_kern::Span) {
-        self.hub.publish(
-            &self.cfg.cluster_id,
-            "proxy",
-            &format!("otel:{}", span.name),
-            &span.trace_id,
-            serde_json::json!({"span_id": span.span_id, "status": format!("{:?}", span.status)}),
-        );
-        if let Some(otel) = &self.otel {
-            if let Err(e) = otel.write(&span).await {
-                tracing::warn!(code = e.code(), "Span-Schreiben fehlgeschlagen");
-            }
-        }
+        let payload = serde_json::json!({
+            "span": serde_json::to_value(&span).unwrap_or(Value::Null)
+        });
+        self.hub
+            .publish(
+                &self.cfg.cluster_id,
+                "proxy",
+                &format!("otel:{}", span.name),
+                &span.trace_id,
+                payload,
+            )
+            .await;
     }
 
     /// Fail-closed: sobald die WAL nicht sicher ist, kein Verkehr mehr.

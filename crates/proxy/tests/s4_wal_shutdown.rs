@@ -101,8 +101,9 @@ async fn wal_fehler_stoppt_proxy_und_lehnt_aktionen_ab() {
 }
 
 struct Collect(std::sync::Mutex<Vec<u64>>);
+#[async_trait]
 impl Sink for Collect {
-    fn deliver(&self, e: &proxy_native::Event) -> bool {
+    async fn deliver(&self, e: &proxy_native::Event) -> bool {
         self.0.lock().unwrap().push(e.seq);
         true
     }
@@ -115,7 +116,7 @@ async fn cursor_holt_nach_und_nur_wal_bestaetigte_aktionen() {
     let c = Arc::new(Collect(std::sync::Mutex::new(Vec::new())));
     hub.subscribe(Filter::all(), c.clone());
     for i in 0..5 {
-        hub.publish("c", "proxy", "meta:x", "trace", json!({"i": i}));
+        hub.publish("c", "proxy", "meta:x", "trace", json!({"i": i})).await;
     }
     let cursor = 2;
     let missed = hub.since(cursor);

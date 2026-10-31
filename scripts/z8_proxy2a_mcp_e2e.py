@@ -4,6 +4,7 @@ export_otel) gegen den laufenden Proxy; EIN Trace Login->Proxy->Engine."""
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -13,8 +14,8 @@ sys.path.insert(0, MCP_DIR)
 import z8_proxy_run  # noqa: E402
 
 MASTER = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="
-TRACE = "aabbccddeeff00112233445566778899"
-TP = f"00-{TRACE}-0011223344556677-01"
+TRACE = secrets.token_hex(16)
+TP = f"00-{TRACE}-{secrets.token_hex(8)}-01"
 
 
 class FakeMCP:

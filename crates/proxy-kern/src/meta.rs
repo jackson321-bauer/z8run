@@ -43,6 +43,24 @@ impl EventKind {
         }
     }
 
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "login" => Some(Self::Login),
+            "logout" => Some(Self::Logout),
+            "flow_start" => Some(Self::FlowStart),
+            "flow_end" => Some(Self::FlowEnd),
+            "app_call" => Some(Self::AppCall),
+            "call_happened" => Some(Self::CallHappened),
+            "export" => Some(Self::Export),
+            "blob_upload" => Some(Self::BlobUpload),
+            "delete" => Some(Self::Delete),
+            "reservation_change" => Some(Self::ReservationChange),
+            "cluster_open" => Some(Self::ClusterOpen),
+            "cluster_close" => Some(Self::ClusterClose),
+            _ => None,
+        }
+    }
+
     /// Alle 12 Ereignis-Arten (Decke: kein Ereignis ist kein Ereignis).
     pub fn all() -> [EventKind; 12] {
         [

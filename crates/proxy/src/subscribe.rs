@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -42,17 +43,10 @@ pub struct Event {
 }
 
 /// Senke: liefert `true` bei Zustellung, `false` bei Absturz/Ablehnung.
+/// Async, damit die Logging-Persistenz ein echter Abonnent sein kann.
+#[async_trait]
 pub trait Sink: Send + Sync {
-    fn deliver(&self, event: &Event) -> bool;
-}
-
-impl<F> Sink for F
-where
-    F: Fn(&Event) -> bool + Send + Sync,
-{
-    fn deliver(&self, event: &Event) -> bool {
-        self(event)
-    }
+    async fn deliver(&self, event: &Event) -> bool;
 }
 
 struct Sub {
@@ -97,8 +91,9 @@ impl EventHub {
         inner.subs.len() - 1
     }
 
-    /// Fire-and-forget Push. Liefert das Event mit vergebener Sequenz.
-    pub fn publish(
+    /// Fire-and-forget Push (an alle passenden Senken). Liefert das Event
+    /// mit vergebener Sequenz. Der Hub-Lock wird vor dem await freigegeben.
+    pub async fn publish(
         &self,
         cluster: &str,
         source: &str,
@@ -106,27 +101,38 @@ impl EventHub {
         trace_id: &str,
         payload: Value,
     ) -> Event {
-        let mut inner = self.lock();
-        let event = Event {
-            seq: inner.next_seq,
-            cluster: cluster.to_string(),
-            source: source.to_string(),
-            kind: kind.to_string(),
-            trace_id: trace_id.to_string(),
-            payload,
+        let (event, sinks) = {
+            let mut inner = self.lock();
+            let event = Event {
+                seq: inner.next_seq,
+                cluster: cluster.to_string(),
+                source: source.to_string(),
+                kind: kind.to_string(),
+                trace_id: trace_id.to_string(),
+                payload,
+            };
+            inner.next_seq += 1;
+            inner.log.push_back(event.clone());
+            while inner.log.len() > self.capacity {
+                inner.log.pop_front();
+            }
+            let sinks: Vec<Arc<dyn Sink>> = inner
+                .subs
+                .iter()
+                .filter(|s| s.filter.matches(&event))
+                .map(|s| s.sink.clone())
+                .collect();
+            (event, sinks)
         };
-        inner.next_seq += 1;
-        inner.log.push_back(event.clone());
-        while inner.log.len() > self.capacity {
-            inner.log.pop_front();
-        }
         let mut dropped = 0u64;
-        for sub in &inner.subs {
-            if sub.filter.matches(&event) && !sub.sink.deliver(&event) {
+        for sink in sinks {
+            if !sink.deliver(&event).await {
                 dropped += 1;
             }
         }
-        inner.dropped += dropped;
+        if dropped > 0 {
+            self.lock().dropped += dropped;
+        }
         self.pushed.fetch_add(1, Ordering::Relaxed);
         event
     }

@@ -175,9 +175,13 @@ pub fn child_span(
     }
 }
 
+/// Bekannte Built-in-Engines, deren OTel-Faehigkeit im Engine-Register
+/// deklariert ist. Unbekannte String-Engines werden NICHT pauschal erlaubt.
+pub const BUILTIN_OTEL_ENGINES: &[&str] = &["demo", "fts5", "vec0"];
+
 /// Engine-Plugin-Gate: Jede Engine muss OTel-Faehigkeit deklarieren.
-/// Legacy-Namen (Strings in der Login-Payload) gelten als deklariert;
-/// Objekt-Engines MUESSEN `otel` oder `spans` wahr setzen.
+/// Strings sind nur fuer die bekannten Built-ins zugelassen; Objekt-Engines
+/// MUESSEN `otel` oder `spans` wahr setzen. Alles andere = abgelehnt.
 pub fn check_engine_otel(engines: &serde_json::Value) -> Result<(), ProxyError> {
     let list = match engines {
         serde_json::Value::Null => return Ok(()),
@@ -186,7 +190,7 @@ pub fn check_engine_otel(engines: &serde_json::Value) -> Result<(), ProxyError> 
     };
     for engine in list {
         let ok = match engine {
-            serde_json::Value::String(_) => true,
+            serde_json::Value::String(name) => BUILTIN_OTEL_ENGINES.contains(&name.as_str()),
             serde_json::Value::Object(o) => {
                 o.get("otel").and_then(|v| v.as_bool()).unwrap_or(false)
                     || o.get("spans").and_then(|v| v.as_bool()).unwrap_or(false)
@@ -247,6 +251,10 @@ mod tests {
     #[test]
     fn gate_lehnt_engine_ohne_otel_ab() {
         assert!(check_engine_otel(&serde_json::json!(["demo", "fts5"])).is_ok());
+        assert!(
+            check_engine_otel(&serde_json::json!(["unbekannt"])).is_err(),
+            "Unbekannte String-Engine ohne OTel-Deklaration muss abgelehnt werden"
+        );
         assert!(
             check_engine_otel(&serde_json::json!([{"name": "neu"}])).is_err(),
             "Engine ohne OTel-Deklaration muss abgelehnt werden"

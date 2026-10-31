@@ -74,8 +74,21 @@ impl NodeExecutor for BlobPutNode {
             let _ = node.release(&db, &session);
         }
         match result {
-            Ok(meta) => Ok(ok(&msg, json!({"status": 200, "db": db, "blob": meta}))),
-            Err(e) => Ok(err(&msg, &e.code, &e.message)),
+            Ok(meta) => {
+                let bid = meta.blob_id.clone();
+                crate::nodes::kv_proxy_node::report_meta_event(
+                    "blob_upload", "engine", &bid, "ok",
+                )
+                .await;
+                Ok(ok(&msg, json!({"status": 200, "db": db, "blob": meta})))
+            }
+            Err(e) => {
+                crate::nodes::kv_proxy_node::report_meta_event(
+                    "blob_upload", "engine", &db, "fail",
+                )
+                .await;
+                Ok(err(&msg, &e.code, &e.message))
+            }
         }
     }
 
@@ -145,9 +158,21 @@ impl NodeExecutor for BlobDeleteNode {
             let _ = node.release(&db, &session);
         }
         match result {
-            Ok(parts) => Ok(ok(&msg, json!({"status": 200, "db": db,
-                                           "blob_id": blob_id, "parts": parts}))),
-            Err(e) => Ok(err(&msg, &e.code, &e.message)),
+            Ok(parts) => {
+                crate::nodes::kv_proxy_node::report_meta_event(
+                    "delete", "engine", &blob_id, "ok",
+                )
+                .await;
+                Ok(ok(&msg, json!({"status": 200, "db": db,
+                                   "blob_id": blob_id, "parts": parts})))
+            }
+            Err(e) => {
+                crate::nodes::kv_proxy_node::report_meta_event(
+                    "delete", "engine", &blob_id, "fail",
+                )
+                .await;
+                Ok(err(&msg, &e.code, &e.message))
+            }
         }
     }
 

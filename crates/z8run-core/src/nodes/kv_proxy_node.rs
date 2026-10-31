@@ -129,6 +129,21 @@ impl KvProxyNode {
 
 /// Entfernt Master/Login-Body auch aus verschachtelten Trigger-Payloads
 /// (unix-in/http-in legen den Body unter `req.body` ab).
+/// Best-effort Meta-Meldung an den Proxy (Admin-UDS). Wird von echten
+/// Aktionen (Blob-Upload/Delete, Flow-Start/-Ende) gerufen; nie Inhalt.
+pub async fn report_meta_event(action: &str, actor: &str, object_ref: &str, status: &str) {
+    let sock = std::env::var("KV_PROXY_ADMIN_SOCK")
+        .unwrap_or_else(|_| "/data/z8run/kv-proxy-admin.sock".to_string());
+    let body = serde_json::json!({
+        "action": action,
+        "actor": actor,
+        "object_ref": object_ref,
+        "status": status,
+        "detail": action,
+    });
+    let _ = uds_call(&sock, "POST", "/v1/admin/meta/event", Some(body), None).await;
+}
+
 fn scrub(out: &mut Value) {
     for p in [
         "master_key_b64",

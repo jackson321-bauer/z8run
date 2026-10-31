@@ -479,6 +479,10 @@ async fn start_flow(
 
         let registered_routes = hook_route_urls(&hook_routes, id);
         info!(flow_id = %id, routes = hook_routes.len(), "Flow deployed - waiting for hook triggers");
+        z8run_core::nodes::kv_proxy_node::report_meta_event(
+            "flow_start", "user", &id.to_string(), "ok",
+        )
+        .await;
         Ok(Json(serde_json::json!({
             "flow_id": id.to_string(),
             "status": "deployed",
@@ -501,6 +505,10 @@ async fn start_flow(
             .execute(exec_flow)
             .await
             .map_err(ApiError::from)?;
+        z8run_core::nodes::kv_proxy_node::report_meta_event(
+            "flow_start", "user", &id.to_string(), "ok",
+        )
+        .await;
         Ok(Json(serde_json::json!({
             "flow_id": id.to_string(),
             "trace_id": trace_id.to_string(),
@@ -783,6 +791,10 @@ async fn stop_flow(
         .await
         .map_err(ApiError::from)?;
     state.hook_limits.release(id);
+    z8run_core::nodes::kv_proxy_node::report_meta_event(
+        "flow_end", "user", &id.to_string(), "ok",
+    )
+    .await;
     Ok(Json(serde_json::json!({
         "flow_id": id.to_string(),
         "status": "stopped",

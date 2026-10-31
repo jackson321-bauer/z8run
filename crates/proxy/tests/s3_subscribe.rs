@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use proxy_native::{Event, EventHub, Filter, Sink};
 use serde_json::json;
 
@@ -30,8 +31,9 @@ impl Counter {
     }
 }
 
+#[async_trait]
 impl Sink for Counter {
-    fn deliver(&self, event: &Event) -> bool {
+    async fn deliver(&self, event: &Event) -> bool {
         if let Some(start) = *self.started.lock().unwrap() {
             let d = start.elapsed();
             let mut m = self.max_latency.lock().unwrap();
@@ -47,8 +49,8 @@ impl Sink for Counter {
     }
 }
 
-#[test]
-fn fanout_filter_latenz_und_cursor() {
+#[tokio::test]
+async fn fanout_filter_latenz_und_cursor() {
     let hub = EventHub::new(1000);
     let a = Counter::new(None);
     let b = Counter::new(None);
@@ -59,7 +61,7 @@ fn fanout_filter_latenz_und_cursor() {
     // Latenz Aktion -> Senke (lokal, messbar).
     a.mark();
     for i in 0..50 {
-        hub.publish("c-a", "proxy", "meta:login", "trace", json!({"i": i}));
+        hub.publish("c-a", "proxy", "meta:login", "trace", json!({"i": i})).await;
     }
     let lat = *a.max_latency.lock().unwrap();
     println!("PUSH_LATENZ max={:?}", lat);
@@ -73,15 +75,15 @@ fn fanout_filter_latenz_und_cursor() {
         Filter { cluster: Some("c-a".into()), ..Filter::all() },
         only_a.clone(),
     );
-    hub.publish("c-b", "proxy", "meta:login", "t", json!({}));
-    hub.publish("c-a", "proxy", "meta:login", "t", json!({}));
+    hub.publish("c-b", "proxy", "meta:login", "t", json!({})).await;
+    hub.publish("c-a", "proxy", "meta:login", "t", json!({})).await;
     assert_eq!(only_a.seqs(), vec![52], "Filter Cluster greift nicht");
 
     // Absturz: Senke faellt bei seq 53 aus, Cursor-Wiederaufnahme holt nach.
     let crash = Counter::new(Some(53));
     hub.subscribe(Filter::all(), crash.clone());
     for _ in 0..3 {
-        hub.publish("c-a", "proxy", "meta:x", "trace-resume", json!({}));
+        hub.publish("c-a", "proxy", "meta:x", "trace-resume", json!({})).await;
     }
     let seen = crash.seqs();
     assert!(!seen.contains(&53), "Absturz-Sink hat 53 trotzdem gesehen");
@@ -91,7 +93,7 @@ fn fanout_filter_latenz_und_cursor() {
     // Wiederaufnahme (Restart): alle fehlenden sequenziell zustellen.
     let replay = Counter::new(None);
     for e in &missed {
-        replay.deliver(e);
+        replay.deliver(e).await;
     }
     let restored = replay.seqs();
     assert_eq!(restored, vec![53, 54, 55], "Cursor-Wiederaufnahme unvollstaendig");
