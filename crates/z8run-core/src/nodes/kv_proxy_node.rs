@@ -131,7 +131,14 @@ impl KvProxyNode {
 /// (unix-in/http-in legen den Body unter `req.body` ab).
 /// Best-effort Meta-Meldung an den Proxy (Admin-UDS). Wird von echten
 /// Aktionen (Blob-Upload/Delete, Flow-Start/-Ende) gerufen; nie Inhalt.
-pub async fn report_meta_event(action: &str, actor: &str, object_ref: &str, status: &str) {
+/// Fire-and-forget: der Hot-Path wartet NIE auf den Admin-UDS (F-Audit).
+pub async fn report_meta_event(
+    action: &str,
+    actor: &str,
+    object_ref: &str,
+    status: &str,
+    trace_id: Option<&str>,
+) {
     let sock = std::env::var("KV_PROXY_ADMIN_SOCK")
         .unwrap_or_else(|_| "/data/z8run/kv-proxy-admin.sock".to_string());
     let body = serde_json::json!({
@@ -140,8 +147,11 @@ pub async fn report_meta_event(action: &str, actor: &str, object_ref: &str, stat
         "object_ref": object_ref,
         "status": status,
         "detail": action,
+        "trace_id": trace_id,
     });
-    let _ = uds_call(&sock, "POST", "/v1/admin/meta/event", Some(body), None).await;
+    tokio::spawn(async move {
+        let _ = uds_call(&sock, "POST", "/v1/admin/meta/event", Some(body), None).await;
+    });
 }
 
 fn scrub(out: &mut Value) {

@@ -438,6 +438,34 @@ async fn start_flow(
     axum::Extension(claims): axum::Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let id_str = id.to_string();
+    let result = start_flow_impl(state, claims, id).await;
+    let (status, trace) = match &result {
+        Ok(json) => (
+            "ok",
+            json.0
+                .get("trace_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.replace('-', "")),
+        ),
+        Err(_) => ("fail", None),
+    };
+    z8run_core::nodes::kv_proxy_node::report_meta_event(
+        "flow_start",
+        "user",
+        &id_str,
+        status,
+        trace.as_deref(),
+    )
+    .await;
+    result
+}
+
+async fn start_flow_impl(
+    state: Arc<AppState>,
+    claims: Claims,
+    id: Uuid,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let stored_flow = state
         .storage
         .get_flow_for_user(id, claims.sub)
@@ -479,10 +507,6 @@ async fn start_flow(
 
         let registered_routes = hook_route_urls(&hook_routes, id);
         info!(flow_id = %id, routes = hook_routes.len(), "Flow deployed - waiting for hook triggers");
-        z8run_core::nodes::kv_proxy_node::report_meta_event(
-            "flow_start", "user", &id.to_string(), "ok",
-        )
-        .await;
         Ok(Json(serde_json::json!({
             "flow_id": id.to_string(),
             "status": "deployed",
@@ -505,10 +529,6 @@ async fn start_flow(
             .execute(exec_flow)
             .await
             .map_err(ApiError::from)?;
-        z8run_core::nodes::kv_proxy_node::report_meta_event(
-            "flow_start", "user", &id.to_string(), "ok",
-        )
-        .await;
         Ok(Json(serde_json::json!({
             "flow_id": id.to_string(),
             "trace_id": trace_id.to_string(),
@@ -773,6 +793,21 @@ async fn stop_flow(
     axum::Extension(claims): axum::Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let id_str = id.to_string();
+    let result = stop_flow_impl(state, claims, id).await;
+    let status = if result.is_ok() { "ok" } else { "fail" };
+    z8run_core::nodes::kv_proxy_node::report_meta_event(
+        "flow_end", "user", &id_str, status, None,
+    )
+    .await;
+    result
+}
+
+async fn stop_flow_impl(
+    state: Arc<AppState>,
+    claims: Claims,
+    id: Uuid,
+) -> Result<Json<serde_json::Value>, ApiError> {
     // Only the owner may stop a flow (A-02): another user's id 404s exactly
     // like a missing flow, so ownership can't be probed.
     state
@@ -791,10 +826,6 @@ async fn stop_flow(
         .await
         .map_err(ApiError::from)?;
     state.hook_limits.release(id);
-    z8run_core::nodes::kv_proxy_node::report_meta_event(
-        "flow_end", "user", &id.to_string(), "ok",
-    )
-    .await;
     Ok(Json(serde_json::json!({
         "flow_id": id.to_string(),
         "status": "stopped",

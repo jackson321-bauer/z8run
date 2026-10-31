@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use proxy_kern::{DbPort, LlmPort, ProxyError, SessionState};
+use proxy_kern::{DbPort, EventKind, LlmPort, ProxyError, SessionState};
 use proxy_native::{ProxyConfig, ProxyService, UdsDbClient};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -93,6 +93,19 @@ async fn secret_injektion_export_und_ein_trace() {
     let out_text = out.to_string();
     assert!(!out_text.contains(SECRET), "Secret in Antwort: {out_text}");
     println!("ANTWORT_REDIGIERT ok trace={}", out["trace_id"]);
+
+    // Echter Logging-Sink (DB-Persistenz) Latenz: Aktion -> Senke.
+    let t = std::time::Instant::now();
+    svc.record_meta(
+        "system", EventKind::FlowStart, "bench", TRACE, "sess-s6", "ok", "bench",
+    )
+    .await;
+    let d = t.elapsed();
+    println!("META_SINK_LATENZ_US {}", d.as_micros());
+    assert!(
+        d < std::time::Duration::from_millis(10),
+        "Logging-Sink-Latenz {d:?} >= 10 ms"
+    );
 
     // Spans + Meta im selben Trace, ohne Secret.
     let spans = svc.span_query(TRACE).await.unwrap();

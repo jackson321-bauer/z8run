@@ -76,15 +76,17 @@ impl NodeExecutor for BlobPutNode {
         match result {
             Ok(meta) => {
                 let bid = meta.blob_id.clone();
+                let tid = msg.trace_id.to_string().replace('-', "");
                 crate::nodes::kv_proxy_node::report_meta_event(
-                    "blob_upload", "engine", &bid, "ok",
+                    "blob_upload", "engine", &bid, "ok", Some(&tid),
                 )
                 .await;
                 Ok(ok(&msg, json!({"status": 200, "db": db, "blob": meta})))
             }
             Err(e) => {
+                let tid = msg.trace_id.to_string().replace('-', "");
                 crate::nodes::kv_proxy_node::report_meta_event(
-                    "blob_upload", "engine", &db, "fail",
+                    "blob_upload", "engine", &db, "fail", Some(&tid),
                 )
                 .await;
                 Ok(err(&msg, &e.code, &e.message))
@@ -159,16 +161,18 @@ impl NodeExecutor for BlobDeleteNode {
         }
         match result {
             Ok(parts) => {
+                let tid = msg.trace_id.to_string().replace('-', "");
                 crate::nodes::kv_proxy_node::report_meta_event(
-                    "delete", "engine", &blob_id, "ok",
+                    "delete", "engine", &blob_id, "ok", Some(&tid),
                 )
                 .await;
                 Ok(ok(&msg, json!({"status": 200, "db": db,
                                    "blob_id": blob_id, "parts": parts})))
             }
             Err(e) => {
+                let tid = msg.trace_id.to_string().replace('-', "");
                 crate::nodes::kv_proxy_node::report_meta_event(
-                    "delete", "engine", &blob_id, "fail",
+                    "delete", "engine", &blob_id, "fail", Some(&tid),
                 )
                 .await;
                 Ok(err(&msg, &e.code, &e.message))
