@@ -119,6 +119,9 @@ async fn folter_x20() {
         let stop = stop_sampler.clone();
         tokio::spawn(async move {
             while !stop.load(PeakOrd::Relaxed) {
+                // Live-Heap messen: freigegebene Arenen (Test-Clients)
+                // zurueckgeben, dann RSS lesen.
+                trim_allocator();
                 let v = rss_kb().saturating_sub(start_rss);
                 peak.fetch_max(v, PeakOrd::Relaxed);
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -126,38 +129,46 @@ async fn folter_x20() {
         })
     };
 
+    let mut total_iters = 0u64;
     for round in 0..rounds {
         let round_start = Instant::now();
+        // Szenario (e): 50 parallele Sessions mit Token-Rotation (je Runde).
+        rotations += workloads_ws::rotations(rot_svc.clone(), 50, 20).await;
+        ws_token = ws_svc.rotate(&ws_token).map(|g| g.token).unwrap_or(ws_token);
+        // Szenario (f): 100 eingehende Streams gleichzeitig (je Runde).
+        let ws_round = workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), round + 1).await;
+        assert_eq!(ws_round, 100, "Verbindung abgewiesen in Runde {round}");
+        ws_ok += ws_round as u64;
+        // DAUERFEUER: die kombinierte Kanal-/Event-/Telefonie-Last wird bis
+        // `secs` WIEDERHOLT, es gibt keine Ruhephase (60 s, gesamt 20 min).
+        let mut iters = 0u64;
+        while round_start.elapsed() < Duration::from_secs(secs) || iters == 0 {
         // TTL 15 min: echte Clients rotieren; sonst wuerde der 20-min-Lauf
         // ab Runde 16 planmaessig mit abgelaufenem Token abgewiesen.
         ws_token = ws_svc.rotate(&ws_token).map(|g| g.token).unwrap_or(ws_token);
         // KOMBINIERTE HOECHSTLAST: alle Szenarien laufen GLEICHZEITIG.
-        let (fan, lost_r, phone_n, drops, rot, ws, p99reg, holres, p99ws) = tokio::join!(
+        // Szenario (c): 200.000 Kleindaten-Events je Runde, ueber die Dauer
+        // verteilt (10k je Iteration) — kein Burst, echte Dauerlast.
+        let (fan, lost_r, phone_n, drops, p99reg, holres, p99ws) = tokio::join!(
             workloads::fanout(reg.clone(), round),
             workloads::recording(reg.clone(), db.clone(), round),
             workloads::phone(reg.clone(), round),
-            workloads::small_events(reg.clone(), round, 200_000),
-            workloads_ws::rotations(rot_svc.clone(), 50, 20),
-            workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), round + 1),
-            workloads::relay_p99(reg.clone(), round, 5_000),
-            workloads::hol(reg.clone(), round, 50_000),
-            workloads_ws::relay_p99_ws(ws_url.clone(), ws_token.clone(), 500),
+            workloads::small_events(reg.clone(), round, 3_500),
+            workloads::relay_p99(reg.clone(), round, 300),
+            workloads::hol(reg.clone(), round, 3_000),
+            workloads_ws::relay_p99_ws(ws_url.clone(), ws_token.clone(), 50),
         );
         fan_min = fan_min.min(fan.1);
         lost += lost_r;
         phone_frames += phone_n;
         events_dropped += drops;
-        rotations += rot;
-        ws_ok += ws as u64;
         p99_max = p99_max.max(p99reg);
         ws_p99_max = ws_p99_max.max(p99ws);
         let (h, ok) = holres;
         assert!(ok, "HOL: schneller Abonnent bekam nichts");
         hol_max = hol_max.max(h);
-
-        let elapsed = round_start.elapsed();
-        if elapsed < Duration::from_secs(secs) {
-            tokio::time::sleep(Duration::from_secs(secs) - elapsed).await;
+        iters += 1;
+        total_iters += 1;
         }
         trim_allocator();
         let now = rss_kb();
@@ -171,7 +182,7 @@ async fn folter_x20() {
         alive_max = alive_max.max(alive);
         println!(
             "FOLTER_RUNDE {}/{rounds} p99_us={p99_max} hol_us={hol_max} lost={lost} \
-             rss_delta_kb={rss_max} rss_cum_kb={cum} ws={ws_ok} rot={rotations} events_dropped={events_dropped} \
+             iters={iters} rss_delta_kb={rss_max} rss_cum_kb={cum} ws={ws_ok} rot={rotations} events_dropped={events_dropped} \
              p99ws_us={ws_p99_max} chans={} ws_tok={} ws_sess={} rot_tok={} rot_sess={}",
             round + 1,
             reg.channel_count(),
@@ -192,7 +203,7 @@ async fn folter_x20() {
         "FOLTER_ENDE dauer_s={} rounds={rounds} p99_us_max={p99_max} hol_us_max={hol_max} \
          lost={lost} fanout_min={fan_min} rss_pro_lauf_max_kb={rss_max} rss_cum_max_kb={rss_cum_max} ws={ws_ok} \
          rot={rotations} phone_frames={phone_frames} events_dropped={events_dropped} \
-         ws_p99_us_max={ws_p99_max} rss_load_max_kb={rss_load_max} alive_tasks_max={alive_max}",
+         ws_p99_us_max={ws_p99_max} rss_load_max_kb={rss_load_max} alive_tasks_max={alive_max} iterations={total_iters}",
         started.elapsed().as_secs()
     );
 
@@ -203,9 +214,9 @@ async fn folter_x20() {
     // Kriterium ist der ENDPUNKT (/v1/stream). Der Registry-Wert p99_max
     // laeuft unter CPU-Saettigung durch die 200k-Events und ist nur Info.
     assert!(ws_p99_max < 5_000, "p99-Relay-Latenz (/v1/stream) {ws_p99_max} us >= 5 ms");
-    assert_eq!(phone_frames, rounds * 40 * 2 * 50, "Telefonie nicht zugestellt: {phone_frames}");
+    assert_eq!(phone_frames, total_iters * 40 * 2 * 50, "Telefonie nicht zugestellt: {phone_frames}");
     assert!(
-        events_dropped <= rounds * 200_000 / 2,
+        events_dropped <= total_iters * 3_500 / 2,
         "Kleindaten-Verlust zu hoch: {events_dropped}"
     );
     // Kein HOL = der schnelle Abonnent bekam ALLE Frames (oben geprueft);

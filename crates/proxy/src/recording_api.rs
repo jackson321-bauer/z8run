@@ -22,7 +22,7 @@ impl ProxyService {
         let rec = Recording::start(
             self.db.clone(),
             db_id.to_string(),
-            self.cfg.cluster_id.clone(),
+            format!("record:{channel}"),
             owner.to_string(),
             mime.to_string(),
         );

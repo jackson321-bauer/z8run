@@ -18,7 +18,7 @@ pub struct AppInfo {
 #[derive(Debug, Clone)]
 pub struct AppReply {
     pub payload: Value,
-    /// Optionaler Stream-Port: Rohbytes, die der Proxy chunked/SSE ausgibt.
+    /// Optionaler App-Stream-Port (Rohbytes der App; KEIN SSE-Pfad mehr).
     pub stream: Option<Vec<u8>>,
 }
 

@@ -102,19 +102,22 @@ Antwort: `{"manifest": {...}, "container_b64": "..."}`.
 (Dauer per `Z8_FOLTER_SECS`, Standard 60 s; Gesamt 20 min). Gemessen am
 Endpunkt (Release, 60-s-Runden):
 
-Alle Szenarien laufen je Runde GLEICHZEITIG (kombinierte Hoechstlast).
+Alle Szenarien laufen je Runde GLEICHZEITIG und werden bis zur Rundendauer
+WIEDERHOLT (60 s Dauerfeuer, keine Ruhephase; 56 Last-Iterationen/Runde,
+gesamt 1120 Iterationen / 20 min). Die Kanal-/Telefonie-/Event-Last ist
+durchgehend; die 100 eingehenden WS-Streams und 50 Rotationen laufen je Runde.
 
 | Grenze | Ergebnis |
 |---|---|
-| p99 Relay-Latenz am `/v1/stream`-Endpunkt < 5 ms | **1.286 ms** |
+| p99 Relay-Latenz am `/v1/stream`-Endpunkt < 5 ms | **3.121 ms** |
 | Head-of-Line | **kein HOL**: schneller Abonnent bekam alle Frames (per-Sub-Ring) |
 | Verlorene Aufnahme-Chunks | **0** |
-| Telefonie-Zustellung (40 Gespraeche × 2 Richtungen) | **80.000/80.000** |
+| Telefonie-Zustellung (40 Gespraeche × 2 Richtungen, 20-ms-Takt) | **4.480.000** Frames |
+| Kleindaten-Events pro Runde | ~196.000 (56 × 3.500), 0 verworfen |
 | Connection-Ablehnung | **0** (2000/2000 WS) |
-| Proxy-RSS ueber Startwert < 15 MB | **11.5 MB** waehrend Last (5.3 MB am Rundenende) |
-| Live-Event-Overflow (erlaubt, Live schlaegt Vollstaendigkeit) | 24.9 %, Aufnahme 0 |
+| Proxy-RSS ueber Startwert < 15 MB | **9.1 MB** waehrend Last (8.5 MB am Rundenende) |
 | Token-Rotationen | **20.000** |
-| Task-Stau | keine (Sampler waehrend Last, max 438 Tasks) |
+| Task-Stau | keine (Sampler waehrend Last, max 271 Tasks) |
 
 Szenarien: 20 VNC-Streams, 40 Telefon-Sims, 200.000 Kleindaten-Events,
 100 Abonnenten Fan-out, 50 parallele Rotationen, 100 eingehende Streams.
@@ -122,7 +125,7 @@ Die Kanaele sind ueber die Runden FEST (Steady-State-Messung). Der
 Test-Prozess enthaelt die Clients; `malloc_trim` gibt nur freigegebene
 Arenen an das OS zurueck, der LIVE-Heap wird weiter gemessen. Der
 Registry-interne p99/HOL-Wert liegt unter CPU-Saettigung durch die
-200.000 Events hoeher und ist nur Info — das Kriterium ist der Endpunkt.
+Events hoeher und ist nur Info — das Kriterium ist der Endpunkt.
 Rohlog: `/data/z8run-test/verify-logs/z8-proxy2b/s4-folter-x20-final.log`.
 
 ## Custom Nodes / MCP / Demo

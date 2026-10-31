@@ -2,7 +2,7 @@
 //! append/finish/get) ohne Platte, damit die Aufnahme-Kanäle verlustfrei
 //! nachgewiesen werden koennen.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -15,6 +15,7 @@ pub struct MemDb {
     next: Mutex<u64>,
     sessions: Mutex<HashMap<String, Vec<u8>>>,
     frames: Mutex<HashMap<String, u64>>,
+    reserved: Mutex<HashSet<String>>,
 }
 
 #[async_trait]
@@ -25,10 +26,18 @@ impl DbPort for MemDb {
     async fn close_db(&self, _: &str) -> Result<Value, ProxyError> {
         Ok(json!({"ok": true}))
     }
-    async fn reserve(&self, _: &str, _: &str) -> Result<Value, ProxyError> {
+    async fn reserve(&self, db: &str, session: &str) -> Result<Value, ProxyError> {
+        // Echte Ein-Schreiber-Semantik: je DB nur EINE Reservierung.
+        let key = format!("{db}|{session}");
+        let mut r = self.reserved.lock().unwrap();
+        if !r.is_empty() && !r.contains(&key) {
+            return Err(ProxyError::Db("BUSY".into()));
+        }
+        r.insert(key);
         Ok(json!({"ok": true}))
     }
-    async fn release(&self, _: &str, _: &str) -> Result<Value, ProxyError> {
+    async fn release(&self, db: &str, session: &str) -> Result<Value, ProxyError> {
+        self.reserved.lock().unwrap().remove(&format!("{db}|{session}"));
         Ok(json!({"ok": true}))
     }
     async fn query(&self, _: &str, _: &str, _: Vec<Value>, _: bool) -> Result<Value, ProxyError> {

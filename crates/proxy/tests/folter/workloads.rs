@@ -176,7 +176,7 @@ pub async fn relay_p99(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> u6
 pub async fn hol(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> (u64, bool) {
     let ch = "folter/hol".to_string();
     reg.open(&ch).unwrap();
-    let _slow = reg.subscribe(&ch, 1).unwrap();
+    let slow = reg.subscribe(&ch, 1).unwrap();
     let fast = reg.subscribe(&ch, 2).unwrap();
     let r = reg.clone();
     let base = Instant::now();
@@ -207,6 +207,8 @@ pub async fn hol(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> (u64, bo
         }
     }
     reg.unsubscribe(&ch, 2);
+    reg.unsubscribe(&ch, 1);
+    drop(slow);
     let mut lat = reader.await.unwrap();
     if lat.is_empty() {
         return (u64::MAX, false);

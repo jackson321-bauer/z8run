@@ -140,53 +140,6 @@ def main() -> int:
     assert PROMPT not in json.dumps(llm), "Prompt in LLM-Antwort"
     print(f"LLM system_injected=1 chars={llm['system_chars']} prompt_visible=0")
 
-    status, meta = api("GET", "/v1/stream/blob/meta", token)
-    assert status == 200 and meta["chunks"] == CHUNKS, meta
-    pid = proxy_pid()
-    before = rss_kb(pid)
-    peak = {"kb": before}
-    stop = threading.Event()
-
-    def sample() -> None:
-        while not stop.is_set():
-            peak["kb"] = max(peak["kb"], rss_kb(pid))
-            time.sleep(0.01)
-
-    th = threading.Thread(target=sample, daemon=True)
-    th.start()
-    conn = http.client.HTTPConnection(HOST, PORT, timeout=120)
-    conn.request("GET", "/v1/stream/blob", headers={"authorization": f"Bearer {token}"})
-    resp = conn.getresponse()
-    assert resp.status == 200
-    body = bytearray()
-    while True:
-        part = resp.read(65536)
-        if not part:
-            break
-        body += part
-    conn.close()
-    stop.set()
-    th.join(timeout=1)
-    growth = peak["kb"] - before
-    assert hashlib.sha256(body).hexdigest() == meta["sha256"], "sha ungleich"
-    order = [int.from_bytes(body[i * STRIDE : i * STRIDE + 4], "little") for i in range(CHUNKS)]
-    assert order == list(range(1, CHUNKS + 1)), order
-    assert growth < 5 * 1024, growth
-    print(f"BLOB sha_ok=1 order={order} rss_growth_kb={growth}")
-
-    conn = http.client.HTTPConnection(HOST, PORT, timeout=60)
-    conn.request("GET", "/v1/stream/events", headers={"authorization": f"Bearer {token}"})
-    resp = conn.getresponse()
-    raw = resp.read().decode()
-    conn.close()
-    seqs = [
-        json.loads(line[len("data: ") :])["seq"]
-        for line in raw.splitlines()
-        if line.startswith("data: ")
-    ]
-    assert seqs == list(range(1, CHUNKS + 1)), seqs
-    print(f"SSE seqs={seqs}")
-
     status, _ = api("POST", "/v1/session/logout", token)
     assert status == 200, status
     status, _ = api("GET", "/v1/session", token)

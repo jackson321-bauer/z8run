@@ -56,9 +56,15 @@ echo = call("app_call", token=token, app="echo", input={"mcp": True})
 print("APP_CALL", echo["status"], echo["payload"]["ok"], echo["payload"]["echo"])
 assert echo["status"] == 200 and echo["payload"]["echo"] == {"mcp": True}, echo
 
-stream = call("stream_open", token=token)
+stream = call("stream_open", token=token, channel="mcp/test")
 print("STREAM_OPEN", stream)
-assert stream["status"] == 200 and stream["chunks"] == 12, stream
+assert stream["status"] == 200 and stream["ok"] is True, stream
+claim = call("stream_claim", token=token, channel="mcp/test")
+print("STREAM_CLAIM", claim)
+assert claim["status"] == 200 and claim["ok"] is True, claim
+push = call("stream_push", token=token, channel="mcp/test", payload_b64="aGFsbG8=")
+print("STREAM_PUSH", push)
+assert push["status"] == 200 and push["ok"] is True, push
 
 closed = call("session_close", token=token)
 print("SESSION_CLOSE", closed)
