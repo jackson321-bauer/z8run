@@ -43,7 +43,7 @@ async fn folter_x20() {
         "folter-ws".into(), "space".into(), "user".into(), "ws/".into(),
         json!([]), vec!["demo".into()], b"master".to_vec(), 1,
     );
-    let ws_token = ws_svc.open_session(ws_state).token;
+    let mut ws_token = ws_svc.open_session(ws_state).token;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = proxy_native::http::router(ws_svc.clone());
@@ -77,6 +77,9 @@ async fn folter_x20() {
         phone_frames += workloads::phone(reg.clone(), round).await;
         events_dropped += workloads::small_events(reg.clone(), round, 200_000).await;
         rotations += workloads_ws::rotations(rot_svc.clone(), 50, 20).await;
+        // TTL 15 min: echte Clients rotieren; sonst wuerde der 20-min-Lauf
+        // ab Runde 16 planmaessig mit abgelaufenem Token abgewiesen.
+        ws_token = ws_svc.rotate(&ws_token).map(|g| g.token).unwrap_or(ws_token);
         ws_ok += workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), round + 1).await as u64;
         p99_max = p99_max.max(workloads::relay_p99(reg.clone(), round, 5_000).await);
         let (h, ok) = workloads::hol(reg.clone(), round, 50_000).await;

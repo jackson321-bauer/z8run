@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use proxy_native::channel::{ChannelConfig, ChannelRegistry};
 use proxy_native::frame::TYP_MEDIA;
@@ -155,24 +155,50 @@ pub async fn relay_p99(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> u6
     lat[idx.saturating_sub(1).min(lat.len() - 1)] / 1000
 }
 
-/// Head-of-Line: ein nie leerender Abonnent darf den schnellen nicht bremsen.
+/// Head-of-Line: ein nie leerender Abonnent darf den schnellen NICHT
+/// bremsen. Gemessen wird die Zustell-Latenz AM SCHNELLEN Abonnenten
+/// (publish -> Empfang), kanalisoliert je Runde.
 pub async fn hol(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> (u64, bool) {
     let ch = format!("folter/hol-{round}");
     reg.open(&ch).unwrap();
     let _slow = reg.subscribe(&ch, 1).unwrap();
     let fast = reg.subscribe(&ch, 2).unwrap();
-    let mut max = Duration::ZERO;
+    let r = reg.clone();
+    let base = Instant::now();
+    let reader_base = base;
+    let reader = tokio::spawn(async move {
+        let mut lat = Vec::new();
+        while let Some(raw) = r.recv(&fast).await {
+            let f = proxy_native::Frame::decode(&raw).unwrap();
+            if f.payload.len() < 8 {
+                continue;
+            }
+            let sent_ns = u64::from_le_bytes(f.payload[..8].try_into().unwrap());
+            lat.push(reader_base.elapsed().as_nanos() as u64 - sent_ns);
+        }
+        lat
+    });
     let mut ok = true;
     for i in 0..frames {
-        let t = Instant::now();
-        reg.publish(&ch, TYP_MEDIA, (i as u32).to_be_bytes().to_vec()).unwrap();
-        max = max.max(t.elapsed());
-        if i % 10 == 0 {
-            if reg.recv(&fast).await.is_none() {
-                ok = false;
-                break;
-            }
+        let ns = base.elapsed().as_nanos() as u64;
+        let mut p = ns.to_le_bytes().to_vec();
+        p.extend_from_slice(&(i as u32).to_le_bytes());
+        if reg.publish(&ch, TYP_MEDIA, p).is_err() {
+            ok = false;
+            break;
+        }
+        if i % 32 == 0 {
+            tokio::task::yield_now().await;
         }
     }
-    (max.as_micros() as u64, ok)
+    reg.unsubscribe(&ch, 2);
+    let mut lat = reader.await.unwrap();
+    if lat.is_empty() {
+        return (u64::MAX, false);
+    }
+    lat.sort_unstable();
+    let idx = (lat.len() as f64 * 0.99).ceil() as usize;
+    let p99 = lat[idx.saturating_sub(1).min(lat.len() - 1)] / 1000;
+    (p99, ok)
 }
+
