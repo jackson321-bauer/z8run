@@ -85,12 +85,17 @@ def register_proxy_tool(mcp) -> None:
         token: str = "",
         app: str = "",
         input: Any = None,
+        trace_id: str = "",
+        action_filter: str = "",
+        limit: int = 1000,
     ) -> dict:
         """Proxy-Aktion: status|session_open|session_close|app_list|app_call|
-        stream_open. session_open braucht addr_space + master_key_b64 (Login-
-        Scope); der Master wird nie in der Antwort ausgegeben. app_call nutzt
-        Token + App-Name + input. stream_open liefert Metadaten des 12-Chunk-
-        Blobs (sha256, Chunks) fuer den SSE/chunked-Endpunkt.
+        stream_open|span_query|meta_query|export_otel|trace_full.
+        session_open braucht addr_space + master_key_b64 (Login-Scope); der
+        Master wird nie in der Antwort ausgegeben. app_call nutzt Token +
+        App-Name + input. trace_full liefert ALLE Spans+Metas eines Traces
+        (beide Welten). span_query/meta_query filtern nach trace_id;
+        export_otel schreibt JSONL + gesiegeltes MANIFEST.
         """
         if action == "status":
             return _admin("GET", "/v1/status")
@@ -119,4 +124,22 @@ def register_proxy_tool(mcp) -> None:
             )
         if action == "stream_open":
             return _admin("GET", "/v1/stream/blob/meta", token=token)
+        if action == "span_query":
+            return _admin("GET", f"/v1/spans?trace_id={trace_id}", token=token)
+        if action == "trace_full":
+            return _admin("GET", f"/v1/trace/full?trace_id={trace_id}", token=token)
+        if action == "meta_query":
+            body: dict[str, Any] = {"limit": limit}
+            if trace_id:
+                body["trace_id"] = trace_id
+            if action_filter:
+                body["action"] = action_filter
+            return _admin("POST", "/v1/meta/query", body, token=token)
+        if action == "export_otel":
+            return _admin(
+                "POST",
+                "/v1/export/otel",
+                {"trace_id": trace_id} if trace_id else {},
+                token=token,
+            )
         return {"status": 400, "code": "ACTION", "error": f"unbekannt: {action}"}

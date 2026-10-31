@@ -106,7 +106,16 @@ impl ProxyService {
         let system = self.prompts.get(prompt_name)?;
         let text = core::str::from_utf8(&system)
             .map_err(|e| ProxyError::Internal(format!("Prompt kein UTF-8: {e}")))?;
-        let result = self.llm.complete(text, user_msg).await;
+        // Secret-Injektion NUR am Ausgang; Logs sehen Ref+Hash.
+        let injected = self.secrets.inject(text)?;
+        if !injected.refs.is_empty() {
+            tracing::info!(
+                refs = ?injected.refs,
+                hashes = ?injected.hashes,
+                "Secret-Injektion am Ausgang (nur Referenz+Hash)"
+            );
+        }
+        let result = self.llm.complete(injected.text.as_str(), user_msg).await;
         let status = if result.is_ok() { "ok" } else { "fail" };
         self.record_meta(
             "engine", EventKind::CallHappened, prompt_name, &ctx.trace_id,
@@ -124,6 +133,11 @@ impl ProxyService {
         self.write_span(span).await;
         let mut out = result?;
         redact_value(&mut out, text);
+        for r in &injected.refs {
+            if let Some(v) = self.secrets.get(r) {
+                redact_value(&mut out, v.as_str());
+            }
+        }
         if let Value::Object(map) = &mut out {
             map.insert("trace_id".into(), Value::from(ctx.trace_id));
         }

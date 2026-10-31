@@ -10,6 +10,7 @@ use proxy_kern::{
 };
 
 use crate::meta::MetaStore;
+use crate::secrets::SecretStore;
 use crate::otel::OtelStore;
 use crate::subscribe::EventHub;
 use crate::wal_guard::WalGuard;
@@ -34,6 +35,8 @@ pub struct ProxyConfig {
     pub meta_db: String,
     pub cluster_meta_db: String,
     pub wal_pending_limit: u64,
+    pub export_dir: PathBuf,
+    pub export_key: String,
 }
 
 impl Default for ProxyConfig {
@@ -56,6 +59,8 @@ impl Default for ProxyConfig {
             wal_pending_limit: env("KV_PROXY_WAL_PENDING_LIMIT", "1000")
                 .parse()
                 .unwrap_or(1000),
+            export_dir: PathBuf::from(env("KV_PROXY_EXPORT_DIR", "/data/z8run/exports/otel")),
+            export_key: env("KV_PROXY_EXPORT_KEY", ""),
         }
     }
 }
@@ -116,6 +121,7 @@ pub struct ProxyService {
     pub meta: Option<Arc<MetaStore>>,
     pub hub: Arc<EventHub>,
     pub guard: Arc<WalGuard>,
+    pub secrets: SecretStore,
 }
 
 impl ProxyService {
@@ -148,6 +154,7 @@ impl ProxyService {
             meta: None,
             hub: Arc::new(EventHub::default()),
             guard: WalGuard::new(wal_limit),
+            secrets: SecretStore::new(),
         }
     }
 
