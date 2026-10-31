@@ -7,10 +7,12 @@
 pub mod auth;
 pub mod error;
 pub mod execution_recorder;
+pub mod front;
 pub mod hook_limits;
 pub mod rate_limit;
 pub mod routes;
 pub mod state;
+pub mod tls;
 pub mod ui;
 pub mod ws;
 

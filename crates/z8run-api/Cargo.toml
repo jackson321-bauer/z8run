@@ -39,6 +39,18 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 ipnet = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+rustls-acme = { workspace = true }
+futures-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
 sqlx = { workspace = true }
+rcgen = "0.13"
+tempfile = "3"
+webpki-roots = { workspace = true }
