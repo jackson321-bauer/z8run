@@ -86,6 +86,10 @@ pub trait DbPort: Send + Sync {
     ) -> Result<Vec<u8>, ProxyError> {
         Err(ProxyError::Db("Blob-Session nicht konfiguriert".into()))
     }
+    /// Liste aller Aufnahmen (Blob-Sessions) einer DB (Export/UI).
+    async fn blob_session_list(&self, _db_id: &str) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("Blob-Session nicht konfiguriert".into()))
+    }
 }
 
 /// LLM-Port. In PROXY-1 eine Attrappe (Mock); echte Endpoints erst PROXY-2/3.

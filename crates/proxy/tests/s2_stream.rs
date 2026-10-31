@@ -95,7 +95,11 @@ async fn recv_text(ws: &mut Ws) -> Value {
             .expect("Socket zu")
             .expect("WS-Fehler");
         if let Message::Text(t) = msg {
-            return serde_json::from_str(&t).unwrap();
+            if let Ok(v) = serde_json::from_str::<Value>(&t) {
+                if v["type"] != "heartbeat" {
+                    return v;
+                }
+            }
         }
     }
 }

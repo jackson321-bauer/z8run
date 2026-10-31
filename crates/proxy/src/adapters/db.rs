@@ -174,4 +174,7 @@ impl DbPort for UdsDbClient {
         use base64::Engine as _;
         base64::engine::general_purpose::STANDARD.decode(v.get("bytes_b64").and_then(Value::as_str).unwrap_or("")).map_err(|e| ProxyError::Db(format!("blob_session_get: {e}")))
     }
+    async fn blob_session_list(&self, db_id: &str) -> Result<Value, ProxyError> {
+        self.one(DbNodeCommand::BlobSessionList { db_id: db_id.into() }).await
+    }
 }
