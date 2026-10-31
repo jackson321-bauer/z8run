@@ -13,6 +13,7 @@ z8run-runtime = { workspace = true }
 wasmtime = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+futures-util = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 hyper = { workspace = true }

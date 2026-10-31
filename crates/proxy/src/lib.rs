@@ -7,9 +7,11 @@ pub mod apps;
 pub mod bundle;
 pub mod db_api;
 pub mod http;
+pub mod http_admin;
 pub mod http_app;
 pub mod http_db;
 pub mod service;
+pub mod stream_api;
 
 pub use adapters::db::UdsDbClient;
 pub use adapters::wasm::WasmKvApp;

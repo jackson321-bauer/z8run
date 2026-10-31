@@ -146,20 +146,32 @@ async fn write_reply(
 pub async fn process(svc: &ProxyService, body: &[u8]) -> Result<Value, ProxyError> {
     let payload: Value = serde_json::from_slice(body)
         .map_err(|e| ProxyError::BadRequest(format!("kein JSON: {e}")))?;
-    let master = extract_master(&payload)?;
-    let addr_space = text(&payload, "addr_space");
-    let addr_user = text(&payload, "addr_user");
-    let workspace_bucket = text(&payload, "workspace_bucket");
+    open_session(svc, &payload, true).await
+}
+
+/// Session aus einem bereits geparsten Payload. `open_dbs=false` fuer
+/// reine App-/Stream-Sessions (z.B. Admin/MCP-Test), ohne DB-Zugriff.
+pub async fn open_session(
+    svc: &ProxyService,
+    payload: &Value,
+    open_dbs: bool,
+) -> Result<Value, ProxyError> {
+    let master = extract_master(payload)?;
+    let addr_space = text(payload, "addr_space");
+    let addr_user = text(payload, "addr_user");
+    let workspace_bucket = text(payload, "workspace_bucket");
     let engines = payload.get("engines").cloned().unwrap_or(Value::Null);
-    let dbs = scope(&payload, &addr_space)?;
+    let dbs = scope(payload, &addr_space)?;
     let master_b64 = base64::engine::general_purpose::STANDARD.encode(&master);
     let cluster = cluster_value(svc, &addr_space)?;
 
-    for db in &dbs {
-        svc.db
-            .open_db(db, &master_b64, cluster.clone())
-            .await
-            .map_err(|e| ProxyError::Db(format!("open {db}: {e}")))?;
+    if open_dbs {
+        for db in &dbs {
+            svc.db
+                .open_db(db, &master_b64, cluster.clone())
+                .await
+                .map_err(|e| ProxyError::Db(format!("open {db}: {e}")))?;
+        }
     }
 
     let session_id = uuid::Uuid::now_v7().to_string();

@@ -79,7 +79,7 @@ async fn logout(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-pub fn router(svc: Arc<ProxyService>) -> Router {
+pub fn public_routes() -> Router<Arc<ProxyService>> {
     Router::new()
         .route("/v1/status", get(status))
         .route("/v1/session", get(session))
@@ -87,6 +87,17 @@ pub fn router(svc: Arc<ProxyService>) -> Router {
         .route("/v1/session/logout", post(logout))
         .merge(crate::http_db::router())
         .merge(crate::http_app::router())
+        .merge(crate::stream_api::router())
+}
+
+pub fn router(svc: Arc<ProxyService>) -> Router {
+    public_routes().with_state(svc)
+}
+
+/// Admin-Router (nur Admin-UDS): oeffentliche Routen + Session-Erzeugung.
+pub fn admin_router(svc: Arc<ProxyService>) -> Router {
+    public_routes()
+        .merge(crate::http_admin::router())
         .with_state(svc)
 }
 
@@ -113,7 +124,7 @@ pub async fn serve_uds(svc: Arc<ProxyService>, path: std::path::PathBuf) -> anyh
     tracing::info!(path = %path.display(), "Proxy-Admin-UDS bereit");
     loop {
         let (stream, _) = uds.accept().await?;
-        let app = router(svc.clone());
+        let app = admin_router(svc.clone());
         tokio::spawn(async move {
             let io = hyper_util::rt::TokioIo::new(stream);
             let service = hyper::service::service_fn(
