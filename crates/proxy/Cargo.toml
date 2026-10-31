@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+folter = []
+
 [dependencies]
 proxy-kern = { workspace = true }
 z8run-core = { workspace = true }
