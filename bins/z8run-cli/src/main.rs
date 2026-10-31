@@ -458,6 +458,17 @@ async fn cmd_serve(
     let app = z8run_api::build_router(state);
     let uds_app = app.clone();
 
+    // EIN PORT (F20): optionaler PQC-TLS-Front auf 443 mit Pfad-Routing.
+    // Nur aktiv, wenn Z8_HTTPS_PORT + Z8_TLS_CERT + Z8_TLS_KEY gesetzt sind.
+    if let Some(front_cfg) = z8run_api::front::FrontConfig::from_env() {
+        let front_app = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = z8run_api::front::serve(front_app, front_cfg).await {
+                tracing::error!(error = %e, "Ein-Port-Front (443) beendet");
+            }
+        });
+    }
+
     // DB-Node Message-Naht (Ein-Schreiber bleibt in diesem Prozess): der
     // Proxy verbindet sich als Client, oeffnet aber keine DB-Dateien selbst.
     let dbnode_path = std::env::var("Z8_DBNODE_SOCK")
