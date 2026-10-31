@@ -52,14 +52,18 @@ async fn claim_streit_reconnect_grace_release() {
     clock.set(2_500);
     assert!(matches!(reg.claim(ch, "ident-b", 4), Err(ProxyError::Stream(_))));
 
-    // Nach Ablauf des Grace-Fensters darf die fremde Identitaet uebernehmen.
+    // Auch nach Ablauf des Grace-Fensters: fremde Identitaet abgewiesen
+    // (kein automatischer Diebstahl — nur explizit).
     clock.set(8_000);
-    assert!(reg.claim(ch, "ident-b", 5).is_ok());
-
-    // Explizite Freigabe gibt den Kanal sofort fuer den Naechsten frei.
-    reg.release(ch, "ident-b").unwrap();
+    assert!(matches!(reg.claim(ch, "ident-b", 5), Err(ProxyError::Stream(_))));
+    // Hoehere Instanz (Admin) gibt frei; danach darf der Naechste.
+    assert!(reg.force_release(ch));
     assert!(reg.claim(ch, "ident-c", 6).is_ok());
-    println!("CLAIM streit=ok reconnect=ok grace=ok release=ok");
+
+    // Explizite Freigabe durch den Inhaber gibt sofort frei.
+    reg.release(ch, "ident-c").unwrap();
+    assert!(reg.claim(ch, "ident-d", 7).is_ok());
+    println!("CLAIM streit=ok reconnect=ok grace=ok force_release=ok release=ok");
 }
 
 #[tokio::test]

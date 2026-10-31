@@ -62,8 +62,34 @@ async fn admin_meta(
     Ok(Json(serde_json::json!({"ok": true, "action": req.action, "trace_id": trace_id})))
 }
 
+#[derive(Deserialize)]
+struct ForceReleaseReq {
+    channel: String,
+}
+
+/// Hoehere Instanz: Claim eines haengenden Clients freigeben (nur Admin-UDS).
+async fn admin_force_release(
+    State(svc): State<Arc<ProxyService>>,
+    Json(req): Json<ForceReleaseReq>,
+) -> Result<Json<Value>, ApiError> {
+    let freed = svc.streams.force_release(&req.channel);
+    svc.record_meta(
+        "system",
+        EventKind::ReservationChange,
+        &req.channel,
+        "",
+        "admin",
+        "ok",
+        "stream_force_release",
+    )
+    .await;
+    Ok(Json(serde_json::json!({"ok": true, "released": req.channel, "found": freed})
+        .to_owned()))
+}
+
 pub fn router() -> Router<Arc<ProxyService>> {
     Router::new()
         .route("/v1/admin/session", post(admin_session))
         .route("/v1/admin/meta/event", post(admin_meta))
+        .route("/v1/admin/stream/release", post(admin_force_release))
 }

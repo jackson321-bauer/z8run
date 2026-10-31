@@ -17,7 +17,6 @@ impl ChannelRegistry {
         if identity.is_empty() {
             return Err(ProxyError::BadRequest("Claim ohne Identitaet".into()));
         }
-        let now = self.clock.now_ms();
         let mut inner = self.lock();
         // G18: Kanaele je Identitaet begrenzen (nur Schreib-Kanaele zaehlen).
         let eigene = inner
@@ -38,15 +37,12 @@ impl ChannelRegistry {
             return Err(ProxyError::BadRequest("Kanal-Limit je Identitaet".into()));
         }
         let c = inner.channels.get_mut(name).expect("gerade geoeffnet");
+        // G3: fremde Identitaet wird IMMER abgewiesen — auch nach dem
+        // Grace-Fenster. Ein Wechsel geht nur explizit (release oder
+        // force_release durch die hoehere Instanz/Admin-UDS).
         if let Some(claim) = &c.claim {
             if claim.identity != identity {
-                let grace_active = claim
-                    .disconnected_at_ms
-                    .map(|t| now.saturating_sub(t) < self.cfg.claim_grace_ms)
-                    .unwrap_or(true);
-                if grace_active {
-                    return Err(ProxyError::Stream("Claim gehoert fremder Identitaet".into()));
-                }
+                return Err(ProxyError::Stream("Claim gehoert fremder Identitaet".into()));
             }
         }
         c.claim = Some(Claim {
@@ -87,7 +83,19 @@ impl ChannelRegistry {
         }
     }
 
-    /// Socket weg: Claim bleibt mit Grace-Fenster fuer dieselbe Identitaet.
+    /// Hoehere Instanz (Admin-UDS): Claim explizit freigeben.
+    pub fn force_release(&self, name: &str) -> bool {
+        let mut inner = self.lock();
+        match inner.channels.get_mut(name) {
+            Some(c) => {
+                c.claim = None;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Socket weg: Claim bleibt fuer dieselbe Identitaet (Reconnect).
     pub fn disconnect(&self, name: &str, socket_id: u64) {
         let now = self.clock.now_ms();
         let mut inner = self.lock();

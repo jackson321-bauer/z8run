@@ -70,7 +70,11 @@ async fn connect(
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn send_bin(ws: &mut Ws, bytes: &[u8]) {
-    let framed = Frame::with_flags(TYP_MEDIA, 0xA5, 1, 0, bytes.to_vec())
+    send_frame(ws, 1, bytes).await;
+}
+
+async fn send_frame(ws: &mut Ws, stream_id: u32, bytes: &[u8]) {
+    let framed = Frame::with_flags(TYP_MEDIA, 0xA5, stream_id, 0, bytes.to_vec())
         .unwrap()
         .encode()
         .unwrap();
@@ -243,4 +247,54 @@ async fn fremde_identitaet_claim_abgewiesen() {
     assert_eq!(err["type"], "err");
     assert_eq!(err["code"], "CLAIM_DENIED");
     println!("WS_CLAIM fremde_identitaet=abgewiesen");
+}
+
+#[tokio::test]
+async fn multi_claim_routing_ueber_stream_id() {
+    let (svc, token) = service();
+    let url = server(svc.clone()).await;
+    let mut sock = connect(&url, Some(&token), "subscribe", "multi/a", None, "x")
+        .await
+        .unwrap();
+    for ch in ["multi/a", "multi/b"] {
+        sock.send(Message::Text(
+            json!({"type": "claim", "channel": ch}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+        let ack = recv_text(&mut sock).await;
+        assert_eq!(ack["type"], "ack", "{ack}");
+    }
+    let mut obs_b = connect(&url, Some(&token), "subscribe", "multi/b", None, "y")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // stream_id = Kanal-A: landet bei A-Abonnenten (sock), NICHT bei B.
+    // stream_id = Kanal-B: landet bei B.
+    // IDs ueber die Registry holen (derselbe Prozess).
+    let id_a = svc.streams.stream_id("multi/a").unwrap();
+    let id_b = svc.streams.stream_id("multi/b").unwrap();
+    send_frame(&mut sock, id_a, b"AAA").await;
+    let got = recv_bin(&mut sock).await;
+    assert_eq!(&got[16..], b"AAA");
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    let mut falsch = None;
+    while tokio::time::Instant::now() < deadline {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(left, obs_b.next()).await {
+            Ok(Some(Ok(Message::Binary(b)))) => {
+                falsch = Some(b);
+                break;
+            }
+            Ok(Some(Ok(_))) => continue,
+            _ => break,
+        }
+    }
+    assert!(falsch.is_none(), "Frame A faelschlich an Kanal B");
+
+    send_frame(&mut sock, id_b, b"BBB").await;
+    let got = recv_bin(&mut obs_b).await;
+    assert_eq!(&got[16..], b"BBB");
+    println!("MULTI_CLAIM routing stream_id_a={id_a} stream_id_b={id_b} =ok");
 }

@@ -52,9 +52,11 @@ Adressierung `{app_id}/{kanal}` (dauerhaft) oder
 Abonnenten/Kanal 32, Kanaele/Session 64, Frame max 1 MiB.
 
 - **Ein Schreiber je Kanal.** Der Claim gehoert einer IDENTITAET, nicht dem
-  Socket. Reconnect derselben Identitaet erbt den Claim im Grace-Fenster
-  (Default 5 s); fremde Identitaet erhaelt `CLAIM_DENIED`. Freigabe nur
-  explizit per `release`; Diebstahl nur durch hoehere Instanz.
+  Socket. Reconnect derselben Identitaet erbt den Claim (Grace-Fenster
+  Default 5 s); eine fremde Identitaet erhaelt IMMER `CLAIM_DENIED` — auch
+  nach dem Grace-Fenster. Freigabe nur explizit per `release` (Inhaber)
+  oder `POST /v1/admin/stream/release` (hoehere Instanz, nur 0600-Admin-UDS);
+  niemals automatischer Diebstahl.
 - **Fan-out mit eigenem Ringpuffer je Abonnent.** Publish sperrt nur kurz,
   macht kein `await`: ein langsamer Abonnent kann andere NIE blockieren
   (kein Head-of-Line). Puffer voll = aelteste Frames verwerfen +
