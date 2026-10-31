@@ -1,6 +1,6 @@
 # VERIFY-BERICHT Z8-PROXY2B — NEONGRÜN (nach 2 Audit-Runden)
 
-Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `e6ae326` (gepusht auf `fork`).
+Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `1261de6` (gepusht auf `fork`).
 Repo: `/data/z8run-test/src`. Bauplan: `bauplan-z8-proxy2b.md` (v1).
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 
@@ -18,19 +18,22 @@ Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 
 ## S4-Zahlen (alle Grenzen eingehalten)
 
-`FOLTER_ENDE dauer_s=1200 rounds=20 p99_us_max=16930 hol_us_max=13277
-lost=0 fanout_min=1000 rss_pro_lauf_max_kb=2124 rss_cum_max_kb=5384
-ws=2000 rot=20000 phone_frames=80000 events_dropped=995417
-ws_p99_us_max=1286 rss_load_max_kb=11780 alive_tasks_max=438`
+`FOLTER_ENDE dauer_s=1208 rounds=20 p99_us_max=5323 hol_us_max=5372
+lost=0 fanout_min=1000 rss_pro_lauf_max_kb=1856 rss_cum_max_kb=8500
+ws=2000 rot=20000 phone_frames=4480000 events_dropped=0
+ws_p99_us_max=3121 rss_load_max_kb=9076 alive_tasks_max=271 iterations=1120`
 
-- p99 Relay-Latenz **am `/v1/stream`-Endpunkt**: 1.286 ms < 5 ms.
-- Kein Head-of-Line: schneller Abonnent bekam alle Frames; Publisher-Dauer
-  unter CPU-Sättigung 13.3 ms (Info, nicht Kriterium).
+- ECHTES 60-s-Dauerfeuer je Runde: die kombinierte Last wird bis zur
+  Rundendauer WIEDERHOLT (56 Iterationen/Runde, gesamt 1120 Iterationen /
+  20 min, keine Ruhephase). 100 eingehende WS-Streams + 50 Rotationen je Runde.
+- p99 Relay-Latenz **am `/v1/stream`-Endpunkt**: 3.121 ms < 5 ms.
+- Kein Head-of-Line: schneller Abonnent bekam alle Frames; Registry-HOL
+  unter CPU-Sättigung 5.4 ms (Info, nicht Kriterium).
 - 0 verlorene Aufnahme-Chunks; 0 Verbindungsablehnungen (2000/2000).
-- Telefonie: 80.000/80.000 Frames zugestellt (40 Gespräche × 2 Richtungen).
-- RSS über Startwert während Last 11.5 MB < 15 MB; Task-Sampler max 438 < 5000.
-- Live-Event-Overflow 24.9 % (erlaubt: Live schlägt Vollständigkeit;
-  Aufnahme verliert nichts). Kriterium für „0 Verlust“ sind Aufnahme-Kanäle.
+- Telefonie: 4.480.000 Frames zugestellt (40 Gespräche × 2 Richtungen,
+  20-ms-Takt, während der gesamten Dauer).
+- Kleindaten: ~196.000 Events/Runde (56 × 3.500), 0 verworfen.
+- RSS über Startwert während Last 9.1 MB < 15 MB; Task-Sampler max 271 < 5000.
 
 ## S5-Export-Beweise
 
@@ -68,6 +71,9 @@ ws_p99_us_max=1286 rss_load_max_kb=11780 alive_tasks_max=438`
 - Audit 2: restliche GELB — behoben (kombinierte Last, WS-p99, Telefonie-
   Zustellung, Recording/Playback-HTTP, Kettenprüfung, PQC-Empfängerkey,
   Limits, Session-Identität/Claim-Pflicht, Modulaufteilung).
+- Audit 3: S4-Dauerfeuer + Alt-Skripte + echte Kanal-Reservierung — behoben
+  (Wiederholungs-Last bis Rundendauer, alte E2E-Skripte bereinigt,
+  Aufnahme-Session je Kanal, MemDb mit exklusiver Reservierung).
 
 ## Bewusste Abgrenzungen (dokumentiert, keine stille Ausnahme)
 
