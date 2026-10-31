@@ -1,5 +1,6 @@
 # Rust
 /target/
+apps/*/target/
 **/*.rs.bk
 # Cargo.lock is committed for binaries (ensures reproducible builds)
 

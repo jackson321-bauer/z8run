@@ -2106,8 +2106,10 @@ name = "kv-proxy"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bytes",
  "clap",
+ "hex",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2787,6 +2789,8 @@ dependencies = [
  "tower",
  "tracing",
  "uuid",
+ "wasmtime",
+ "wat",
  "z8run-core",
  "z8run-runtime",
  "zeroize",

@@ -86,6 +86,7 @@ pub fn router(svc: Arc<ProxyService>) -> Router {
         .route("/v1/session/rotate", post(rotate))
         .route("/v1/session/logout", post(logout))
         .merge(crate::http_db::router())
+        .merge(crate::http_app::router())
         .with_state(svc)
 }
 

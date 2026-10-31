@@ -10,6 +10,7 @@ repository.workspace = true
 proxy-kern = { workspace = true }
 z8run-core = { workspace = true }
 z8run-runtime = { workspace = true }
+wasmtime = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 axum = { workspace = true }
@@ -37,3 +38,4 @@ clap = { workspace = true }
 [dev-dependencies]
 tokio-test = { workspace = true }
 tempfile = "3"
+wat = "1"

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use proxy_native::adapters::login;
-use proxy_native::{http, ProxyConfig, ProxyService, UdsDbClient};
+use proxy_native::{bundle, http, FsStorage, ProxyConfig, ProxyService, UdsDbClient};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -50,6 +50,14 @@ fn serve() -> anyhow::Result<()> {
     );
     tokio::runtime::Runtime::new()?.block_on(async move {
         {
+            let storage = FsStorage::new(cfg.bundle.clone());
+            let key = bundle_key();
+            match bundle::bootstrap(&svc, &storage, "", key.as_deref()).await {
+                Ok(b) => tracing::info!(app = %b.manifest.name, "Bundle aktiv"),
+                Err(e) => tracing::warn!(error = %e, "Kein Plugin-Bundle geladen"),
+            }
+        }
+        {
             let svc = svc.clone();
             let path = cfg.admin_socket.clone();
             tokio::spawn(async move {
@@ -69,6 +77,17 @@ fn serve() -> anyhow::Result<()> {
         }
         http::serve_tcp(svc).await
     })
+}
+
+fn bundle_key() -> Option<Vec<u8>> {
+    let raw = std::env::var("KV_PROXY_BUNDLE_KEY").ok()?;
+    let t = raw.trim();
+    let hexs = t.strip_prefix("0x").unwrap_or(t);
+    if hexs.len() == 64 && hexs.chars().all(|c| c.is_ascii_hexdigit()) {
+        return hex::decode(hexs).ok();
+    }
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.decode(t).ok()
 }
 
 async fn uds_get(

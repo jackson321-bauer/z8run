@@ -7,6 +7,7 @@ use proxy_kern::{Clock, ProxyError, Random, StoragePort};
 
 pub mod db;
 pub mod login;
+pub mod wasm;
 
 pub struct SystemClock;
 

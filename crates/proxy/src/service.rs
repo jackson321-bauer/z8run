@@ -5,12 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use proxy_kern::{
-    Clock, DbPort, PromptStore, ProxyError, Random, SessionInfo, SessionState, SessionStore,
-    TokenConfig, TokenGrant, TokenManager,
+    Clock, DbPort, LlmPort, PromptStore, ProxyError, Random, SessionInfo, SessionState,
+    SessionStore, TokenConfig, TokenGrant, TokenManager,
 };
 use serde_json::Value;
 
 use crate::adapters::{OsRandom, SystemClock};
+use crate::apps::{AppRegistry, MockLlm};
 
 #[derive(Debug, Clone)]
 pub struct ProxyConfig {
@@ -94,6 +95,8 @@ pub struct ProxyService {
     pub tokens: TokenManager,
     pub prompts: PromptStore,
     pub db: Arc<dyn DbPort>,
+    pub apps: AppRegistry,
+    pub llm: Arc<dyn LlmPort>,
 }
 
 impl ProxyService {
@@ -119,6 +122,8 @@ impl ProxyService {
             tokens,
             prompts: PromptStore::new(),
             db: Arc::new(NoDb),
+            apps: AppRegistry::new(),
+            llm: Arc::new(MockLlm),
         }
     }
 
@@ -169,6 +174,7 @@ impl ProxyService {
             "sessions": self.sessions.count(),
             "active_tokens": self.tokens.active_count(),
             "prompts": self.prompts.len(),
+            "apps": self.apps.len(),
         })
     }
 }
