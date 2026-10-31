@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use proxy_kern::{Clock, ProxyError};
 
-use crate::frame::Frame;
+use crate::subscriber::{SubState, Subscriber};
 
 pub const SUBSCRIBERS_PER_CHANNEL: usize = 32;
 pub const CHANNELS_PER_SESSION: usize = 64;
@@ -44,96 +44,29 @@ pub fn valid_channel(name: &str) -> bool {
         })
 }
 
-struct Claim {
-    identity: String,
-    socket_id: u64,
-    disconnected_at_ms: Option<u64>,
+pub(crate) struct Claim {
+    pub(crate) identity: String,
+    pub(crate) socket_id: u64,
+    pub(crate) disconnected_at_ms: Option<u64>,
 }
 
-/// Eigenes Ausgangspuffer je Abonnent. `publish` sperrt nur kurz und wirft
-/// bei vollem Puffer die AELTESTEN Frames weg (Live vor Vollstaendigkeit).
-pub struct Subscriber {
-    pub channel: String,
-    pub socket_id: u64,
-    queue: Mutex<SubState>,
-    notify: tokio::sync::Notify,
+pub(crate) struct Channel {
+    pub(crate) id: u32,
+    pub(crate) next_seq: u64,
+    pub(crate) claim: Option<Claim>,
+    pub(crate) subs: Vec<Arc<Subscriber>>,
 }
 
-struct SubState {
-    ring: VecDeque<Arc<[u8]>>,
-    overflows: u64,
-    closed: bool,
-}
-
-impl Subscriber {
-    pub fn channel(&self) -> &str {
-        &self.channel
-    }
-
-    pub fn overflows(&self) -> u64 {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).overflows
-    }
-
-    pub fn depth(&self) -> usize {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).ring.len()
-    }
-
-    pub fn close(&self) {
-        let mut st = self.queue.lock().unwrap_or_else(|e| e.into_inner());
-        st.closed = true;
-        drop(st);
-        self.notify.notify_waiters();
-    }
-
-    async fn recv(&self) -> Option<Arc<[u8]>> {
-        loop {
-            let notified = self.notify.notified();
-            {
-                let mut st = self.queue.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(frame) = st.ring.pop_front() {
-                    return Some(frame);
-                }
-                if st.closed {
-                    return None;
-                }
-            }
-            notified.await;
-        }
-    }
-
-    fn push(&self, frame: Arc<[u8]>, cap: usize) -> bool {
-        let mut st = self.queue.lock().unwrap_or_else(|e| e.into_inner());
-        if st.closed {
-            return false;
-        }
-        if st.ring.len() >= cap.max(1) {
-            st.ring.pop_front();
-            st.overflows += 1;
-        }
-        st.ring.push_back(frame);
-        drop(st);
-        self.notify.notify_one();
-        true
-    }
-}
-
-struct Channel {
-    id: u32,
-    next_seq: u64,
-    claim: Option<Claim>,
-    subs: Vec<Arc<Subscriber>>,
-}
-
-struct Inner {
-    channels: HashMap<String, Channel>,
-    overflow_total: u64,
+pub(crate) struct Inner {
+    pub(crate) channels: HashMap<String, Channel>,
+    pub(crate) overflow_total: u64,
 }
 
 pub struct ChannelRegistry {
-    cfg: ChannelConfig,
-    clock: Arc<dyn Clock>,
+    pub(crate) cfg: ChannelConfig,
+    pub(crate) clock: Arc<dyn Clock>,
     next_id: AtomicU64,
-    inner: Mutex<Inner>,
+    pub(crate) inner: Mutex<Inner>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,7 +93,7 @@ impl ChannelRegistry {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -213,100 +146,6 @@ impl ChannelRegistry {
                 }
             });
         }
-    }
-
-    /// Claim gehoert einer IDENTITAET. Reconnect derselben Identitaet erbt
-    /// den Claim innerhalb des Grace-Fensters; fremde Identitaet wird
-    /// abgewiesen, solange der Claim aktiv oder im Grace-Fenster ist.
-    pub fn claim(
-        &self,
-        name: &str,
-        identity: &str,
-        socket_id: u64,
-    ) -> Result<ClaimGrant, ProxyError> {
-        self.open(name)?;
-        if identity.is_empty() {
-            return Err(ProxyError::BadRequest("Claim ohne Identitaet".into()));
-        }
-        let now = self.clock.now_ms();
-        let mut inner = self.lock();
-        let c = inner.channels.get_mut(name).expect("gerade geoeffnet");
-        if let Some(claim) = &c.claim {
-            if claim.identity != identity {
-                let grace_active = claim
-                    .disconnected_at_ms
-                    .map(|t| now.saturating_sub(t) < self.cfg.claim_grace_ms)
-                    .unwrap_or(true);
-                if grace_active {
-                    return Err(ProxyError::Stream("Claim gehoert fremder Identitaet".into()));
-                }
-            }
-        }
-        c.claim = Some(Claim {
-            identity: identity.to_string(),
-            socket_id,
-            disconnected_at_ms: None,
-        });
-        Ok(ClaimGrant { channel: name.to_string(), identity: identity.to_string(), stream_id: c.id })
-    }
-
-    /// Explizite Freigabe: der naechste Claim-Inhaber darf senden.
-    pub fn release(&self, name: &str, identity: &str) -> Result<(), ProxyError> {
-        let mut inner = self.lock();
-        let c = inner
-            .channels
-            .get_mut(name)
-            .ok_or_else(|| ProxyError::BadRequest("Kanal unbekannt".into()))?;
-        match &c.claim {
-            Some(cl) if cl.identity == identity => {
-                c.claim = None;
-                Ok(())
-            }
-            Some(_) => Err(ProxyError::Stream("Claim gehoert fremder Identitaet".into())),
-            None => Ok(()),
-        }
-    }
-
-    /// Socket weg: Claim bleibt mit Grace-Fenster fuer dieselbe Identitaet.
-    pub fn disconnect(&self, name: &str, socket_id: u64) {
-        let now = self.clock.now_ms();
-        let mut inner = self.lock();
-        if let Some(c) = inner.channels.get_mut(name) {
-            if let Some(cl) = &mut c.claim {
-                if cl.socket_id == socket_id {
-                    cl.disconnected_at_ms = Some(now);
-                }
-            }
-            c.subs.retain(|s| {
-                if s.socket_id == socket_id {
-                    s.close();
-                    false
-                } else {
-                    true
-                }
-            });
-        }
-    }
-
-    pub fn publish(&self, name: &str, typ: u8, payload: Vec<u8>) -> Result<PublishOutcome, ProxyError> {
-        let mut inner = self.lock();
-        let c = inner
-            .channels
-            .get_mut(name)
-            .ok_or_else(|| ProxyError::BadRequest("Kanal unbekannt".into()))?;
-        let before: u64 = c.subs.iter().map(|s| s.overflows()).sum();
-        let seq = c.next_seq;
-        c.next_seq += 1;
-        let bytes: Arc<[u8]> = Frame::new(typ, c.id, seq, payload)?.encode()?.into();
-        let mut delivered = 0;
-        for sub in &c.subs {
-            if sub.push(bytes.clone(), self.cfg.sub_queue) {
-                delivered += 1;
-            }
-        }
-        let after: u64 = c.subs.iter().map(|s| s.overflows()).sum();
-        inner.overflow_total = inner.overflow_total.saturating_add(after - before);
-        Ok(PublishOutcome { seq, delivered, overflowed: after - before })
     }
 
     pub fn subscriber_count(&self, name: &str) -> usize {
