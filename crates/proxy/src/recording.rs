@@ -86,9 +86,14 @@ impl Recording {
         owner: String,
         mime: String,
     ) {
+        if let Err(e) = db.reserve(&db_id, &session_id).await {
+            self.complete(Err(e.to_string()));
+            return;
+        }
         let begin = match db.blob_session_begin(&db_id, &session_id, &owner, &mime).await {
             Ok(v) => v,
             Err(e) => {
+                let _ = db.release(&db_id, &session_id).await;
                 self.complete(Err(e.to_string()));
                 return;
             }
@@ -102,6 +107,7 @@ impl Recording {
             match msg {
                 Msg::Frame(data) => {
                     if let Err(e) = db.blob_session_append(&db_id, &session_id, &sid, &data, 0).await {
+                        let _ = db.release(&db_id, &session_id).await;
                         self.complete(Err(e.to_string()));
                         return;
                     }
@@ -111,6 +117,7 @@ impl Recording {
                         .blob_session_finish(&db_id, &session_id, &sid)
                         .await
                         .map_err(|e| e.to_string());
+                    let _ = db.release(&db_id, &session_id).await;
                     self.complete(out);
                     return;
                 }
@@ -120,6 +127,7 @@ impl Recording {
             .blob_session_finish(&db_id, &session_id, &sid)
             .await
             .map_err(|e| e.to_string());
+        let _ = db.release(&db_id, &session_id).await;
         self.complete(out);
     }
 }
