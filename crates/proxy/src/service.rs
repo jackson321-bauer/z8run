@@ -5,9 +5,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use proxy_kern::{
-    Clock, DbPort, LlmPort, PromptStore, ProxyError, Random, SessionInfo, SessionState,
-    SessionStore, TokenConfig, TokenGrant, TokenManager,
+    meta::EventKind, Clock, DbPort, LlmPort, MetaEvent, PromptStore, ProxyError, Random,
+    SessionInfo, SessionState, SessionStore, TokenConfig, TokenGrant, TokenManager, TraceContext,
 };
+
+use crate::meta::MetaStore;
+use crate::otel::OtelStore;
 use serde_json::Value;
 
 use crate::adapters::{OsRandom, SystemClock};
@@ -25,6 +28,10 @@ pub struct ProxyConfig {
     pub dbnode_dir: PathBuf,
     pub db_socket: PathBuf,
     pub cluster_id: String,
+    pub otel_db: String,
+    pub meta_db: String,
+    pub cluster_meta_db: String,
+    pub wal_pending_limit: u64,
 }
 
 impl Default for ProxyConfig {
@@ -41,6 +48,12 @@ impl Default for ProxyConfig {
             dbnode_dir: PathBuf::from(env("KV_PROXY_DBNODE_DIR", "/data/z8run/dbnode")),
             db_socket: PathBuf::from(env("Z8_DBNODE_SOCK", "/data/z8run/dbnode-msg.sock")),
             cluster_id: env("KV_PROXY_CLUSTER_ID", "default"),
+            otel_db: env("KV_PROXY_OTEL_DB", "otel"),
+            meta_db: env("KV_PROXY_META_DB", "meta"),
+            cluster_meta_db: env("KV_PROXY_CLUSTER_META_DB", "meta-cluster"),
+            wal_pending_limit: env("KV_PROXY_WAL_PENDING_LIMIT", "1000")
+                .parse()
+                .unwrap_or(1000),
         }
     }
 }
@@ -97,6 +110,8 @@ pub struct ProxyService {
     pub db: Arc<dyn DbPort>,
     pub apps: AppRegistry,
     pub llm: Arc<dyn LlmPort>,
+    pub otel: Option<Arc<OtelStore>>,
+    pub meta: Option<Arc<MetaStore>>,
 }
 
 impl ProxyService {
@@ -124,11 +139,21 @@ impl ProxyService {
             db: Arc::new(NoDb),
             apps: AppRegistry::new(),
             llm: Arc::new(MockLlm),
+            otel: None,
+            meta: None,
         }
     }
 
     pub fn with_db(mut self, db: Arc<dyn DbPort>) -> Self {
+        let otel = Arc::new(OtelStore::new(db.clone(), self.cfg.otel_db.clone()));
+        let mut meta_dbs = vec![self.cfg.meta_db.clone()];
+        if self.cfg.cluster_meta_db != self.cfg.meta_db {
+            meta_dbs.push(self.cfg.cluster_meta_db.clone());
+        }
+        let meta = Arc::new(MetaStore::new(db.clone(), meta_dbs));
         self.db = db;
+        self.otel = Some(otel);
+        self.meta = Some(meta);
         self
     }
 
@@ -167,6 +192,64 @@ impl ProxyService {
             self.tokens.revoke_session(&sid);
         }
         Ok(())
+    }
+
+    /// Interner Logging-DB-Satz (otel + meta) fuer Login/Open-Scope.
+    pub fn logging_dbs(&self) -> Vec<String> {
+        let mut v = vec![self.cfg.otel_db.clone(), self.cfg.meta_db.clone()];
+        if !v.contains(&self.cfg.cluster_meta_db) {
+            v.push(self.cfg.cluster_meta_db.clone());
+        }
+        v
+    }
+
+    /// Jede Aktion erzeugt mind. einen Meta-Eintrag (best effort, nie
+    /// inhaltlich: detail ist Kurz-Kontext).
+    pub async fn record_meta(
+        &self,
+        actor: &str,
+        kind: EventKind,
+        object_ref: &str,
+        trace_id: &str,
+        session: &str,
+        status: &str,
+        detail: &str,
+    ) {
+        let Some(meta) = &self.meta else { return };
+        let event = match MetaEvent::new(
+            actor,
+            kind,
+            object_ref,
+            trace_id,
+            session,
+            status,
+            detail,
+            self.now_ms(),
+        ) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(code = e.code(), "Meta-Ereignis ungueltig");
+                return;
+            }
+        };
+        if let Err(e) = meta.record(&event).await {
+            tracing::warn!(code = e.code(), art = event.action, "Meta-Schreiben fehlgeschlagen");
+        }
+    }
+
+    /// Proxy garantiert Trace: gueltiger eingehender Kontext wird
+    /// durchgereicht, sonst selbst erzeugt+injiziert.
+    pub fn ensure_trace(&self, incoming: Option<&str>) -> (TraceContext, bool) {
+        let random = crate::adapters::OsRandom;
+        proxy_kern::otel::ensure_context(incoming, &random)
+    }
+
+    pub async fn write_span(&self, span: proxy_kern::Span) {
+        if let Some(otel) = &self.otel {
+            if let Err(e) = otel.write(&span).await {
+                tracing::warn!(code = e.code(), "Span-Schreiben fehlgeschlagen");
+            }
+        }
     }
 
     pub fn status(&self) -> serde_json::Value {

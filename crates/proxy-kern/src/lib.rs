@@ -4,6 +4,8 @@
 
 pub mod app;
 pub mod error;
+pub mod meta;
+pub mod otel;
 pub mod prompts;
 pub mod state;
 pub mod stream;
@@ -12,6 +14,8 @@ pub mod traits;
 
 pub use app::{AppCallResult, AppInfo, AppReply, AppRequest, KvApp};
 pub use error::{ErrorBody, ProxyError};
+pub use meta::{EventKind, MetaEvent};
+pub use otel::{Direction, Span, SpanStatus, TraceContext};
 pub use prompts::PromptStore;
 pub use state::{SessionInfo, SessionState, SessionStore};
 pub use stream::{pump, RingBuffer};

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
-use proxy_kern::{ProxyError, SessionState};
+use proxy_kern::{meta::EventKind, ProxyError, SessionState};
 use serde_json::{json, Value};
 
 use crate::service::ProxyService;
@@ -161,6 +161,8 @@ pub async fn open_session(
     let addr_user = text(payload, "addr_user");
     let workspace_bucket = text(payload, "workspace_bucket");
     let engines = payload.get("engines").cloned().unwrap_or(Value::Null);
+    // Engine-Plugin-Gate: ohne OTel-Deklaration keine Zulassung.
+    proxy_kern::otel::check_engine_otel(&engines)?;
     let dbs = scope(payload, &addr_space)?;
     let master_b64 = base64::engine::general_purpose::STANDARD.encode(&master);
     let cluster = cluster_value(svc, &addr_space)?;
@@ -172,13 +174,23 @@ pub async fn open_session(
                 .await
                 .map_err(|e| ProxyError::Db(format!("open {db}: {e}")))?;
         }
+        // Interne Logging-Welten (otel + meta) mit demselben Scope oeffnen.
+        for db in svc.logging_dbs() {
+            if dbs.contains(&db) {
+                continue;
+            }
+            svc.db
+                .open_db(&db, &master_b64, cluster.clone())
+                .await
+                .map_err(|e| ProxyError::Db(format!("open {db}: {e}")))?;
+        }
     }
 
     let session_id = uuid::Uuid::now_v7().to_string();
     let state = SessionState::new(
         session_id.clone(),
-        addr_space,
-        addr_user,
+        addr_space.clone(),
+        addr_user.clone(),
         workspace_bucket,
         engines,
         dbs.clone(),
@@ -187,6 +199,29 @@ pub async fn open_session(
     );
     let grant = svc.open_session(state);
     tracing::info!(session = %grant.session_id, dbs = dbs.len(), "Login-Session geoeffnet");
+    let (ctx, _) = svc.ensure_trace(payload.get("traceparent").and_then(|v| v.as_str()));
+    if open_dbs {
+        svc.record_meta(
+            "user",
+            EventKind::Login,
+            &addr_user,
+            &ctx.trace_id,
+            &grant.session_id,
+            "ok",
+            "login",
+        )
+        .await;
+        svc.record_meta(
+            "system",
+            EventKind::ClusterOpen,
+            &addr_space,
+            &ctx.trace_id,
+            &grant.session_id,
+            "ok",
+            "cluster_open",
+        )
+        .await;
+    }
     Ok(json!({
         "status": 200,
         "ok": true,
@@ -194,6 +229,7 @@ pub async fn open_session(
         "token": grant.token,
         "expires_at_ms": grant.expires_at_ms,
         "dbs": dbs,
+        "trace_id": ctx.trace_id,
     }))
 }
 

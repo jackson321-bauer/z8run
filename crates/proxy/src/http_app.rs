@@ -42,7 +42,8 @@ async fn app_call(
     Json(req): Json<AppCallReq>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer(&headers)?;
-    let out = svc.app_call(&token, &req.app, &req.input)?;
+    let trace = headers.get("traceparent").and_then(|v| v.to_str().ok());
+    let out = svc.app_call_traced(&token, &req.app, &req.input, trace).await?;
     Ok(Json(serde_json::to_value(out).unwrap_or_default()))
 }
 
@@ -52,7 +53,8 @@ async fn llm_call(
     Json(req): Json<LlmCallReq>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer(&headers)?;
-    let out = svc.llm_call(&token, &req.prompt, &req.user).await?;
+    let trace = headers.get("traceparent").and_then(|v| v.to_str().ok());
+    let out = svc.llm_call_traced(&token, &req.prompt, &req.user, trace).await?;
     Ok(Json(out))
 }
 

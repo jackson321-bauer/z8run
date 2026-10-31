@@ -59,8 +59,9 @@ async fn write(
     Json(req): Json<WriteReq>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer(&headers)?;
+    let trace = headers.get("traceparent").and_then(|v| v.to_str().ok());
     let out = svc
-        .db_write(&token, &req.db_id, &req.sql, req.params)
+        .db_write_traced(&token, &req.db_id, &req.sql, req.params, trace)
         .await?;
     Ok(Json(out))
 }

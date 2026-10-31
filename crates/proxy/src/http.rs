@@ -75,7 +75,20 @@ async fn logout(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let token = bearer(&headers)?;
+    let info = svc.authenticate(&token)?;
+    let trace = headers.get("traceparent").and_then(|v| v.to_str().ok());
+    let (ctx, _) = svc.ensure_trace(trace);
     svc.logout(&token)?;
+    svc.record_meta(
+        "user",
+        proxy_kern::meta::EventKind::Logout,
+        &info.addr_user,
+        &ctx.trace_id,
+        &info.session_id,
+        "ok",
+        "logout",
+    )
+    .await;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

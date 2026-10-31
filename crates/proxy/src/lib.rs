@@ -8,8 +8,10 @@ pub mod bundle;
 pub mod db_api;
 pub mod http;
 pub mod http_admin;
+pub mod otel;
 pub mod http_app;
 pub mod http_db;
+pub mod meta;
 pub mod service;
 pub mod stream_api;
 
@@ -18,4 +20,6 @@ pub use adapters::wasm::WasmKvApp;
 pub use adapters::{FsStorage, OsRandom, SystemClock};
 pub use apps::{AppRegistry, MockLlm};
 pub use proxy_kern;
+pub use meta::MetaStore;
+pub use otel::OtelStore;
 pub use service::{ProxyConfig, ProxyService};
