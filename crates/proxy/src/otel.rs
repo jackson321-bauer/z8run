@@ -122,6 +122,7 @@ impl OtelStore {
     }
 
     async fn query_where(&self, sql: &str, params: Vec<Value>) -> Result<Vec<Span>, ProxyError> {
+        self.ensure_schema().await?;
         let out = self.db.query(&self.db_id, sql, params, true).await?;
         let rows = out
             .get("rows")

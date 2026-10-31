@@ -1,0 +1,104 @@
+{
+  "id": "a1b2c3d4-e5f6-4a0b-8c1d-2e3f4a5b6c7d",
+  "name": "Z8-OTEL",
+  "description": "Logging-Demo: Login-Handoff -> kv-proxy (Session) -> kv-otel (trace_full) -> Antwort",
+  "version": "0.1.0",
+  "nodes": [],
+  "edges": [],
+  "metadata": {
+    "positions": {
+      "canvas_nodes": [
+        {
+          "id": "otel-handoff",
+          "type": "z8node",
+          "position": { "x": 0, "y": 0 },
+          "data": {
+            "type": "unix-in",
+            "label": "Login Handoff",
+            "config": { "method": "POST", "path": "/otel-demo" },
+            "inputs": [],
+            "outputs": [{ "id": "output", "name": "Output", "type": "object" }]
+          }
+        },
+        {
+          "id": "otel-proxy",
+          "type": "z8node",
+          "position": { "x": 240, "y": 0 },
+          "data": {
+            "type": "kv-proxy",
+            "label": "KV Proxy",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "action": "session_open",
+              "openDbs": true
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Result", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "otel-trace",
+          "type": "z8node",
+          "position": { "x": 480, "y": 0 },
+          "data": {
+            "type": "kv-otel",
+            "label": "KV OTel",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "action": "trace_full",
+              "traceId": "",
+              "limit": 1000
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Result", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "otel-answer",
+          "type": "z8node",
+          "position": { "x": 720, "y": 0 },
+          "data": {
+            "type": "http-out",
+            "label": "Antwort",
+            "config": { "statusCode": 200 },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": []
+          }
+        }
+      ],
+      "canvas_edges": [
+        {
+          "id": "e-otel-handoff-proxy",
+          "source": "otel-handoff",
+          "sourceHandle": "output",
+          "target": "otel-proxy",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-otel-proxy-trace",
+          "source": "otel-proxy",
+          "sourceHandle": "output",
+          "target": "otel-trace",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-otel-trace-answer",
+          "source": "otel-trace",
+          "sourceHandle": "output",
+          "target": "otel-answer",
+          "targetHandle": "input"
+        }
+      ]
+    }
+  },
+  "config": {},
+  "status": "idle",
+  "created_at": "2026-10-31T00:00:00Z",
+  "updated_at": "2026-10-31T00:00:00Z"
+}

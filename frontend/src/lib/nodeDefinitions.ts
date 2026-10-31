@@ -469,6 +469,26 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
   },
   {
+    type: "kv-otel",
+    label: "KV OTel",
+    category: "data",
+    color: "#0E7490",
+    icon: "Activity",
+    description:
+      "Trace query over both logging worlds (UDS): trace_full, span_query, meta_query, export_otel",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Result", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: {
+      adminSocket: "/data/z8run/kv-proxy-admin.sock",
+      action: "trace_full",
+      traceId: "",
+      limit: 1000,
+    },
+  },
+  {
     type: "db-write",
     label: "DB Write",
     category: "data",

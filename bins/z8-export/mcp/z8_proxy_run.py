@@ -26,7 +26,13 @@ def _parse(data: bytes) -> dict[str, Any]:
     return {"status": status, **parsed}
 
 
-def _uds(method: str, uri: str, body: dict[str, Any] | None = None, token: str = "") -> dict:
+def _uds(
+    method: str,
+    uri: str,
+    body: dict[str, Any] | None = None,
+    token: str = "",
+    traceparent: str = "",
+) -> dict:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(60)
     s.connect(ADMIN_SOCK)
@@ -36,6 +42,8 @@ def _uds(method: str, uri: str, body: dict[str, Any] | None = None, token: str =
         head += f"content-type: application/json\r\ncontent-length: {len(payload)}\r\n"
     if token:
         head += f"authorization: Bearer {token}\r\n"
+    if traceparent:
+        head += f"traceparent: {traceparent}\r\n"
     s.sendall(head.encode() + b"\r\n" + payload)
     data = b""
     while True:
@@ -47,11 +55,21 @@ def _uds(method: str, uri: str, body: dict[str, Any] | None = None, token: str =
     return _parse(data)
 
 
-def _tcp(method: str, path: str, body: dict[str, Any] | None = None, token: str = "") -> dict:
+def _tcp(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None = None,
+    token: str = "",
+    traceparent: str = "",
+) -> dict:
     import http.client
 
     conn = http.client.HTTPConnection(HOST, PORT, timeout=60)
-    headers = {"authorization": f"Bearer {token}"} if token else {}
+    headers: dict[str, str] = {}
+    if token:
+        headers["authorization"] = f"Bearer {token}"
+    if traceparent:
+        headers["traceparent"] = traceparent
     payload = json.dumps(body) if body is not None else None
     if payload:
         headers["content-type"] = "application/json"
@@ -66,11 +84,17 @@ def _tcp(method: str, path: str, body: dict[str, Any] | None = None, token: str 
     return {"status": resp.status, **parsed}
 
 
-def _admin(method: str, uri: str, body: dict[str, Any] | None = None, token: str = "") -> dict:
+def _admin(
+    method: str,
+    uri: str,
+    body: dict[str, Any] | None = None,
+    token: str = "",
+    traceparent: str = "",
+) -> dict:
     try:
-        return _uds(method, uri, body, token)
+        return _uds(method, uri, body, token, traceparent)
     except OSError:
-        return _tcp(method, uri, body, token)
+        return _tcp(method, uri, body, token, traceparent)
 
 
 def register_proxy_tool(mcp) -> None:
@@ -88,6 +112,7 @@ def register_proxy_tool(mcp) -> None:
         trace_id: str = "",
         action_filter: str = "",
         limit: int = 1000,
+        traceparent: str = "",
     ) -> dict:
         """Proxy-Aktion: status|session_open|session_close|app_list|app_call|
         stream_open|span_query|meta_query|export_otel|trace_full.
@@ -98,7 +123,7 @@ def register_proxy_tool(mcp) -> None:
         export_otel schreibt JSONL + gesiegeltes MANIFEST.
         """
         if action == "status":
-            return _admin("GET", "/v1/status")
+            return _admin("GET", "/v1/status", traceparent=traceparent)
         if action == "session_open":
             return _admin(
                 "POST",
@@ -109,37 +134,41 @@ def register_proxy_tool(mcp) -> None:
                     "master_key_b64": master_key_b64,
                     "dbs": dbs or [],
                     "open_dbs": open_dbs,
+                    "traceparent": traceparent,
                 },
+                traceparent=traceparent,
             )
         if action == "session_close":
-            return _admin("POST", "/v1/session/logout", token=token)
+            return _admin("POST", "/v1/session/logout", token=token, traceparent=traceparent)
         if action == "app_list":
-            return _admin("GET", "/v1/apps", token=token)
+            return _admin("GET", "/v1/apps", token=token, traceparent=traceparent)
         if action == "app_call":
             return _admin(
                 "POST",
                 "/v1/app/call",
                 {"app": app, "input": input if input is not None else {}},
                 token=token,
+                traceparent=traceparent,
             )
         if action == "stream_open":
-            return _admin("GET", "/v1/stream/blob/meta", token=token)
+            return _admin("GET", "/v1/stream/blob/meta", token=token, traceparent=traceparent)
         if action == "span_query":
-            return _admin("GET", f"/v1/spans?trace_id={trace_id}", token=token)
+            return _admin("GET", f"/v1/spans?trace_id={trace_id}", token=token, traceparent=traceparent)
         if action == "trace_full":
-            return _admin("GET", f"/v1/trace/full?trace_id={trace_id}", token=token)
+            return _admin("GET", f"/v1/trace/full?trace_id={trace_id}", token=token, traceparent=traceparent)
         if action == "meta_query":
             body: dict[str, Any] = {"limit": limit}
             if trace_id:
                 body["trace_id"] = trace_id
             if action_filter:
                 body["action"] = action_filter
-            return _admin("POST", "/v1/meta/query", body, token=token)
+            return _admin("POST", "/v1/meta/query", body, token=token, traceparent=traceparent)
         if action == "export_otel":
             return _admin(
                 "POST",
                 "/v1/export/otel",
                 {"trace_id": trace_id} if trace_id else {},
                 token=token,
+                traceparent=traceparent,
             )
         return {"status": 400, "code": "ACTION", "error": f"unbekannt: {action}"}

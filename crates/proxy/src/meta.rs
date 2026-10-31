@@ -139,6 +139,7 @@ impl MetaStore {
         let Some(db_id) = self.dbs.first() else {
             return Ok(Vec::new());
         };
+        self.ensure_schema().await?;
         let out = self.db.query(db_id, &sql, params, true).await?;
         rows_to_events(&out)
     }

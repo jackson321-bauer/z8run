@@ -24,7 +24,7 @@ pub struct KvProxyNode {
     open_dbs: bool,
 }
 
-fn at<'a>(v: &'a Value, path: &str) -> &'a Value {
+pub(crate) fn at<'a>(v: &'a Value, path: &str) -> &'a Value {
     if path.is_empty() {
         return v;
     }
@@ -35,7 +35,7 @@ fn at<'a>(v: &'a Value, path: &str) -> &'a Value {
     cur
 }
 
-async fn uds_call(
+pub(crate) async fn uds_call(
     socket: &str,
     method: &str,
     uri: &str,

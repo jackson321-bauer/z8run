@@ -60,7 +60,8 @@ async fn meta(
     let out = svc
         .meta_query(req.trace_id.as_deref(), req.action.as_deref(), req.limit)
         .await?;
-    Ok(Json(out))
+    let count = out.as_array().map(|a| a.len()).unwrap_or(0);
+    Ok(Json(serde_json::json!({"meta": out, "count": count})))
 }
 
 async fn trace_full(

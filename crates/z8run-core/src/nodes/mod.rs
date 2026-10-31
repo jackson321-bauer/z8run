@@ -62,6 +62,7 @@ pub mod human_handoff;
 pub mod image_gen;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kv3_nodes;
+pub mod kv_otel_node;
 pub mod kv_proxy_node;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kv_auth;
@@ -177,6 +178,7 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         Arc::new(ordner_nodes::OrdnerListNodeFactory) as Arc<dyn NodeExecutorFactory>,
         Arc::new(ordner_nodes::OrdnerPfadNodeFactory) as Arc<dyn NodeExecutorFactory>,
         Arc::new(kv_proxy_node::KvProxyNodeFactory) as Arc<dyn NodeExecutorFactory>,
+        Arc::new(kv_otel_node::KvOtelNodeFactory) as Arc<dyn NodeExecutorFactory>,
     ] {
         engine.register_node_type(factory).await;
     }
