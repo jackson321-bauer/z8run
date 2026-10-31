@@ -50,11 +50,17 @@ pub(crate) struct Claim {
     pub(crate) disconnected_at_ms: Option<u64>,
 }
 
+/// Aufnahme-Senke je Kanal (G8): laeuft parallel zum Fan-out, blockiert nie.
+pub trait FrameTap: Send + Sync {
+    fn on_frame(&self, seq: u64, typ: u8, payload: &[u8]);
+}
+
 pub(crate) struct Channel {
     pub(crate) id: u32,
     pub(crate) next_seq: u64,
     pub(crate) claim: Option<Claim>,
     pub(crate) subs: Vec<Arc<Subscriber>>,
+    pub(crate) tap: Option<Arc<dyn FrameTap>>,
 }
 
 pub(crate) struct Inner {
@@ -108,7 +114,7 @@ impl ChannelRegistry {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) as u32;
         inner.channels.insert(
             name.to_string(),
-            Channel { id, next_seq: 0, claim: None, subs: Vec::new() },
+            Channel { id, next_seq: 0, claim: None, subs: Vec::new(), tap: None },
         );
         Ok(id)
     }
@@ -146,6 +152,24 @@ impl ChannelRegistry {
                 }
             });
         }
+    }
+
+    pub fn set_tap(
+        &self,
+        name: &str,
+        tap: Option<Arc<dyn FrameTap>>,
+    ) -> Result<(), ProxyError> {
+        self.open(name)?;
+        let mut inner = self.lock();
+        if let Some(c) = inner.channels.get_mut(name) {
+            c.tap = tap;
+            return Ok(());
+        }
+        Err(ProxyError::BadRequest("Kanal unbekannt".into()))
+    }
+
+    pub fn has_tap(&self, name: &str) -> bool {
+        self.lock().channels.get(name).map(|c| c.tap.is_some()).unwrap_or(false)
     }
 
     pub fn subscriber_count(&self, name: &str) -> usize {

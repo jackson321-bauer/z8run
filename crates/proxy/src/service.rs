@@ -1,121 +1,24 @@
 //! Nativ-Proxy-Dienst: verbindet Kern-Logik mit Adaptern.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use proxy_kern::{
-    meta::EventKind, Clock, DbPort, LlmPort, MetaEvent, PromptStore, ProxyError, Random,
-    SessionInfo, SessionState, SessionStore, TokenConfig, TokenGrant, TokenManager, TraceContext,
+    Clock, DbPort, LlmPort, PromptStore, ProxyError, Random, SessionInfo, SessionState,
+    SessionStore, TokenConfig, TokenGrant, TokenManager,
 };
 
 use crate::channel::{ChannelConfig, ChannelRegistry};
+use crate::config::ProxyConfig;
+use crate::logging_sink::LoggingSink;
+use crate::nodb::NoDb;
 use crate::meta::MetaStore;
 use crate::secrets::SecretStore;
 use crate::otel::OtelStore;
-use crate::subscribe::{Event, EventHub, Filter, Sink};
+use crate::subscribe::{EventHub, Filter};
 use crate::wal_guard::WalGuard;
-use serde_json::Value;
 
 use crate::adapters::{OsRandom, SystemClock};
 use crate::apps::{AppRegistry, MockLlm};
-
-#[derive(Debug, Clone)]
-pub struct ProxyConfig {
-    pub login_socket: PathBuf,
-    pub admin_socket: PathBuf,
-    pub http_bind: String,
-    pub http_port: u16,
-    pub token_ttl_ms: u64,
-    pub token_grace_ms: u64,
-    pub bundle: String,
-    pub dbnode_dir: PathBuf,
-    pub db_socket: PathBuf,
-    pub cluster_id: String,
-    pub otel_db: String,
-    pub meta_db: String,
-    pub cluster_meta_db: String,
-    pub wal_pending_limit: u64,
-    pub export_dir: PathBuf,
-    pub export_key: String,
-    pub stream_subscribers: usize,
-    pub stream_sub_queue: usize,
-    pub stream_claim_grace_ms: u64,
-}
-
-impl Default for ProxyConfig {
-    fn default() -> Self {
-        let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
-        Self {
-            login_socket: PathBuf::from(env("KV_PROXY_LOGIN_SOCK", "/data/z8run/kv3-proxy.sock")),
-            admin_socket: PathBuf::from(env("KV_PROXY_ADMIN_SOCK", "/data/z8run/kv-proxy-admin.sock")),
-            http_bind: env("KV_PROXY_BIND", "127.0.0.1"),
-            http_port: env("KV_PROXY_PORT", "7800").parse().unwrap_or(7800),
-            token_ttl_ms: env("KV_PROXY_TOKEN_TTL_MS", "900000").parse().unwrap_or(900_000),
-            token_grace_ms: env("KV_PROXY_TOKEN_GRACE_MS", "30000").parse().unwrap_or(30_000),
-            bundle: env("KV_PROXY_BUNDLE", "/data/z8run/proxy-bundle"),
-            dbnode_dir: PathBuf::from(env("KV_PROXY_DBNODE_DIR", "/data/z8run/dbnode")),
-            db_socket: PathBuf::from(env("Z8_DBNODE_SOCK", "/data/z8run/dbnode-msg.sock")),
-            cluster_id: env("KV_PROXY_CLUSTER_ID", "default"),
-            otel_db: env("KV_PROXY_OTEL_DB", "otel"),
-            meta_db: env("KV_PROXY_META_DB", "meta"),
-            cluster_meta_db: env("KV_PROXY_CLUSTER_META_DB", "meta-cluster"),
-            wal_pending_limit: env("KV_PROXY_WAL_PENDING_LIMIT", "1000")
-                .parse()
-                .unwrap_or(1000),
-            export_dir: PathBuf::from(env("KV_PROXY_EXPORT_DIR", "/data/z8run/exports/otel")),
-            export_key: env("KV_PROXY_EXPORT_KEY", ""),
-            stream_subscribers: env("KV_PROXY_STREAM_SUBS", "32").parse().unwrap_or(32),
-            stream_sub_queue: env("KV_PROXY_STREAM_QUEUE", "256").parse().unwrap_or(256),
-            stream_claim_grace_ms: env("KV_PROXY_STREAM_GRACE_MS", "5000")
-                .parse()
-                .unwrap_or(5000),
-        }
-    }
-}
-
-/// Kein DB-Kanal konfiguriert (z.B. in reinen Kern-/HTTP-Tests).
-pub struct NoDb;
-
-#[async_trait]
-impl DbPort for NoDb {
-    async fn open_db(&self, _: &str, _: &str, _: Value) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn close_db(&self, _: &str) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn reserve(&self, _: &str, _: &str) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn release(&self, _: &str, _: &str) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn query(
-        &self,
-        _: &str,
-        _: &str,
-        _: Vec<Value>,
-        _: bool,
-    ) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn write(
-        &self,
-        _: &str,
-        _: &str,
-        _: &str,
-        _: Vec<Value>,
-    ) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn status(&self, _: Option<&str>) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-    async fn schema(&self, _: &str) -> Result<Value, ProxyError> {
-        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
-    }
-}
 
 pub struct ProxyService {
     pub cfg: ProxyConfig,
@@ -132,50 +35,7 @@ pub struct ProxyService {
     pub guard: Arc<WalGuard>,
     pub secrets: SecretStore,
     pub streams: Arc<ChannelRegistry>,
-}
-
-/// Logging-Persistenz als Abonnent der Subscribe/Push-Naht.
-struct LoggingSink {
-    meta: Arc<MetaStore>,
-    otel: Arc<OtelStore>,
-}
-
-#[async_trait]
-impl Sink for LoggingSink {
-    async fn deliver(&self, event: &Event) -> bool {
-        if event.kind.starts_with("meta:") {
-            if let Some(v) = event.payload.get("meta") {
-                match serde_json::from_value::<MetaEvent>(v.clone()) {
-                    Ok(m) => {
-                        if let Err(e) = self.meta.record(&m).await {
-                            tracing::warn!(code = e.code(), art = m.action, "Meta-Schreiben fehlgeschlagen");
-                            return false;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Meta-Abonnent: Payload unlesbar");
-                        return false;
-                    }
-                }
-            }
-        } else if event.kind.starts_with("otel:") {
-            if let Some(v) = event.payload.get("span") {
-                match serde_json::from_value::<proxy_kern::Span>(v.clone()) {
-                    Ok(span) => {
-                        if let Err(e) = self.otel.write(&span).await {
-                            tracing::warn!(code = e.code(), "Span-Schreiben fehlgeschlagen");
-                            return false;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "OTel-Abonnent: Payload unlesbar");
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
+    pub recordings: std::sync::Mutex<std::collections::HashMap<String, Arc<crate::recording::Recording>>>,
 }
 
 impl ProxyService {
@@ -219,6 +79,7 @@ impl ProxyService {
             guard: WalGuard::new(wal_limit),
             secrets: SecretStore::new(),
             streams,
+            recordings: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -288,71 +149,6 @@ impl ProxyService {
             v.push(self.cfg.cluster_meta_db.clone());
         }
         v
-    }
-
-    /// Jede Aktion erzeugt mind. einen Meta-Eintrag (best effort, nie
-    /// inhaltlich: detail ist Kurz-Kontext).
-    pub async fn record_meta(
-        &self,
-        actor: &str,
-        kind: EventKind,
-        object_ref: &str,
-        trace_id: &str,
-        session: &str,
-        status: &str,
-        detail: &str,
-    ) {
-        let event = match MetaEvent::new(
-            actor,
-            kind,
-            object_ref,
-            trace_id,
-            session,
-            status,
-            detail,
-            self.now_ms(),
-        ) {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::warn!(code = e.code(), "Meta-Ereignis ungueltig");
-                return;
-            }
-        };
-        // Logging ist erster Abonnent an der Naht (kein Sonderpfad).
-        let payload = serde_json::json!({
-            "meta": serde_json::to_value(&event).unwrap_or(Value::Null)
-        });
-        self.hub
-            .publish(
-                &self.cfg.cluster_id,
-                "proxy",
-                &format!("meta:{}", event.action),
-                trace_id,
-                payload,
-            )
-            .await;
-    }
-
-    /// Proxy garantiert Trace: gueltiger eingehender Kontext wird
-    /// durchgereicht, sonst selbst erzeugt+injiziert.
-    pub fn ensure_trace(&self, incoming: Option<&str>) -> (TraceContext, bool) {
-        let random = crate::adapters::OsRandom;
-        proxy_kern::otel::ensure_context(incoming, &random)
-    }
-
-    pub async fn write_span(&self, span: proxy_kern::Span) {
-        let payload = serde_json::json!({
-            "span": serde_json::to_value(&span).unwrap_or(Value::Null)
-        });
-        self.hub
-            .publish(
-                &self.cfg.cluster_id,
-                "proxy",
-                &format!("otel:{}", span.name),
-                &span.trace_id,
-                payload,
-            )
-            .await;
     }
 
     /// Fail-closed: sobald die WAL nicht sicher ist, kein Verkehr mehr.

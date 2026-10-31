@@ -49,6 +49,43 @@ pub trait DbPort: Send + Sync {
     ) -> Result<Value, ProxyError>;
     async fn status(&self, db_id: Option<&str>) -> Result<Value, ProxyError>;
     async fn schema(&self, db_id: &str) -> Result<Value, ProxyError>;
+
+    /// Zeit-Chunk-Aufnahme (Blob-Session). Standard: nicht konfiguriert.
+    async fn blob_session_begin(
+        &self,
+        _db_id: &str,
+        _session_id: &str,
+        _owner: &str,
+        _mime: &str,
+    ) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("Blob-Session nicht konfiguriert".into()))
+    }
+    async fn blob_session_append(
+        &self,
+        _db_id: &str,
+        _session_id: &str,
+        _sid: &str,
+        _data: &[u8],
+        _dauer_ms: u64,
+    ) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("Blob-Session nicht konfiguriert".into()))
+    }
+    async fn blob_session_finish(
+        &self,
+        _db_id: &str,
+        _session_id: &str,
+        _sid: &str,
+    ) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("Blob-Session nicht konfiguriert".into()))
+    }
+    async fn blob_session_get(
+        &self,
+        _db_id: &str,
+        _session_id: &str,
+        _sid: &str,
+    ) -> Result<Vec<u8>, ProxyError> {
+        Err(ProxyError::Db("Blob-Session nicht konfiguriert".into()))
+    }
 }
 
 /// LLM-Port. In PROXY-1 eine Attrappe (Mock); echte Endpoints erst PROXY-2/3.

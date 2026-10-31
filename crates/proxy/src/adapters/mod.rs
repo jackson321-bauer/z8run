@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use proxy_kern::{Clock, ProxyError, Random, StoragePort};
 
 pub mod db;
+pub mod db_events;
 pub mod login;
 pub mod wasm;
 

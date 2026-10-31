@@ -9,6 +9,8 @@ use async_trait::async_trait;
 use proxy_kern::{DbPort, ProxyError};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+use super::db_events::{cluster, event_value};
 use z8run_core::dbnode::{DbNodeCommand, DbNodeEvent};
 
 const MAX_LINE: u64 = 32 * 1024 * 1024;
@@ -61,7 +63,7 @@ impl UdsDbClient {
             .map_err(|_| ProxyError::Db("DB-Kanal Timeout".into()))?
     }
 
-    async fn one(&self, cmd: DbNodeCommand) -> Result<Value, ProxyError> {
+    pub(crate) async fn one(&self, cmd: DbNodeCommand) -> Result<Value, ProxyError> {
         let events = self.command(cmd).await?;
         let mut last: Option<Value> = None;
         for ev in events {
@@ -69,32 +71,6 @@ impl UdsDbClient {
         }
         last.ok_or_else(|| ProxyError::Db("Engine lieferte kein Event".into()))
     }
-}
-
-fn event_value(ev: DbNodeEvent) -> Result<Value, ProxyError> {
-    let out = match ev {
-        DbNodeEvent::Rows { outcome, .. } => serde_json::to_value(outcome),
-        DbNodeEvent::WriteOk { outcome, .. } => serde_json::to_value(outcome),
-        DbNodeEvent::Ok { status, op, db_id } => Ok(serde_json::json!({
-            "ok": true, "op": op, "db_id": db_id, "status": status,
-        })),
-        DbNodeEvent::Status { dbs } => serde_json::to_value(dbs),
-        DbNodeEvent::Schema { schema } => serde_json::to_value(schema),
-        DbNodeEvent::WalProgress { progress } => serde_json::to_value(progress),
-        DbNodeEvent::LinefsOk { ergebnis, .. } => Ok(ergebnis),
-        DbNodeEvent::Error {
-            code,
-            message,
-            db_id,
-        } => {
-            return Err(ProxyError::Db(format!("{code} ({db_id}): {message}")));
-        }
-    };
-    out.map_err(|e| ProxyError::Db(format!("Event serialisieren: {e}")))
-}
-
-fn cluster(v: Value) -> Result<z8run_core::dbnode::ClusterConfig, ProxyError> {
-    serde_json::from_value(v).map_err(|e| ProxyError::Db(format!("Cluster-Config: {e}")))
 }
 
 #[async_trait]
@@ -180,5 +156,22 @@ impl DbPort for UdsDbClient {
             db_id: db_id.to_string(),
         })
         .await
+    }
+
+
+    async fn blob_session_begin(&self, db_id: &str, session_id: &str, owner: &str, mime: &str) -> Result<Value, ProxyError> {
+        self.one(DbNodeCommand::BlobSessionBegin { db_id: db_id.into(), session_id: session_id.into(), owner: owner.into(), mime: mime.into() }).await
+    }
+    async fn blob_session_append(&self, db_id: &str, session_id: &str, sid: &str, data: &[u8], dauer_ms: u64) -> Result<Value, ProxyError> {
+        use base64::Engine as _;
+        self.one(DbNodeCommand::BlobSessionAppend { db_id: db_id.into(), session_id: session_id.into(), sid: sid.into(), data_b64: base64::engine::general_purpose::STANDARD.encode(data), dauer_ms }).await
+    }
+    async fn blob_session_finish(&self, db_id: &str, session_id: &str, sid: &str) -> Result<Value, ProxyError> {
+        self.one(DbNodeCommand::BlobSessionFinish { db_id: db_id.into(), session_id: session_id.into(), sid: sid.into() }).await
+    }
+    async fn blob_session_get(&self, db_id: &str, session_id: &str, sid: &str) -> Result<Vec<u8>, ProxyError> {
+        let v = self.one(DbNodeCommand::BlobSessionGet { db_id: db_id.into(), session_id: session_id.into(), sid: sid.into() }).await?;
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.decode(v.get("bytes_b64").and_then(Value::as_str).unwrap_or("")).map_err(|e| ProxyError::Db(format!("blob_session_get: {e}")))
     }
 }

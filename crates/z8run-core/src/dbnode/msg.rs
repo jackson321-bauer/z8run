@@ -51,6 +51,33 @@ pub enum DbNodeCommand {
     },
     /// Vollstaendige LineFS-Befehlsmatrix (Zeilen + Ordner + Binaer).
     Linefs(crate::dbnode::linefs_rows::LinefsRequest),
+    /// Zeit-Chunk-Aufnahme (Blob-Session): begin/append/finish/get/list.
+    BlobSessionBegin {
+        db_id: String,
+        session_id: String,
+        owner: String,
+        mime: String,
+    },
+    BlobSessionAppend {
+        db_id: String,
+        session_id: String,
+        sid: String,
+        data_b64: String,
+        dauer_ms: u64,
+    },
+    BlobSessionFinish {
+        db_id: String,
+        session_id: String,
+        sid: String,
+    },
+    BlobSessionGet {
+        db_id: String,
+        session_id: String,
+        sid: String,
+    },
+    BlobSessionList {
+        db_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +105,11 @@ pub enum DbNodeEvent {
         schema: SchemaInfo,
     },
     LinefsOk {
+        db_id: String,
+        op: String,
+        ergebnis: Value,
+    },
+    BlobOk {
         db_id: String,
         op: String,
         ergebnis: Value,

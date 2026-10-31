@@ -92,6 +92,53 @@ impl DbNode {
                     Err(e) => vec![err(db_id, e)],
                 }
             }
+            DbNodeCommand::BlobSessionBegin { db_id, session_id, owner, mime } => {
+                let m = self.blob_session_begin(&db_id, &session_id, &owner, &mime).await;
+                blob_event(db_id, "blob_session_begin", m)
+            }
+            DbNodeCommand::BlobSessionAppend { db_id, session_id, sid, data_b64, dauer_ms } => {
+                use base64::Engine;
+                let data = base64::engine::general_purpose::STANDARD.decode(data_b64);
+                match data {
+                    Ok(data) => {
+                        let m = self.blob_session_append(&db_id, &session_id, &sid, &data, dauer_ms).await;
+                        blob_event(db_id, "blob_session_append", m)
+                    }
+                    Err(e) => vec![DbNodeEvent::Error {
+                        db_id, code: "DATA".into(), message: format!("data_b64: {e}"),
+                    }],
+                }
+            }
+            DbNodeCommand::BlobSessionFinish { db_id, session_id, sid } => {
+                let m = self.blob_session_finish(&db_id, &session_id, &sid).await;
+                blob_event(db_id, "blob_session_finish", m)
+            }
+            DbNodeCommand::BlobSessionGet { db_id, session_id: _, sid } => {
+                match self.blob_session_get_bytes(&db_id, &sid).await {
+                    Ok(bytes) => {
+                        use base64::Engine;
+                        let ergebnis = serde_json::json!({
+                            "session_id": sid,
+                            "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes),
+                        });
+                        vec![DbNodeEvent::BlobOk { db_id, op: "blob_session_get".into(), ergebnis }]
+                    }
+                    Err(e) => vec![err(db_id, e)],
+                }
+            }
+            DbNodeCommand::BlobSessionList { db_id } => {
+                match self.blob_session_list(&db_id) {
+                    Ok(list) => match serde_json::to_value(list) {
+                        Ok(ergebnis) => vec![DbNodeEvent::BlobOk {
+                            db_id, op: "blob_session_list".into(), ergebnis,
+                        }],
+                        Err(e) => vec![DbNodeEvent::Error {
+                            db_id, code: "JSON".into(), message: e.to_string(),
+                        }],
+                    },
+                    Err(e) => vec![err(db_id, e)],
+                }
+            }
         }
     }
 
@@ -109,6 +156,22 @@ impl DbNode {
             }],
             Err(e) => vec![err(db_id, e)],
         }
+    }
+}
+
+fn blob_event<T: serde::Serialize>(
+    db_id: String,
+    op: &str,
+    r: crate::dbnode::types::DbResult<T>,
+) -> Vec<DbNodeEvent> {
+    match r {
+        Ok(value) => match serde_json::to_value(value) {
+            Ok(ergebnis) => vec![DbNodeEvent::BlobOk { db_id, op: op.into(), ergebnis }],
+            Err(e) => vec![DbNodeEvent::Error {
+                db_id, code: "JSON".into(), message: e.to_string(),
+            }],
+        },
+        Err(e) => vec![err(db_id, e)],
     }
 }
 

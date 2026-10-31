@@ -23,6 +23,9 @@ impl ChannelRegistry {
         let before: u64 = c.subs.iter().map(|s| s.overflows()).sum();
         let seq = c.next_seq;
         c.next_seq += 1;
+        if let Some(tap) = &c.tap {
+            tap.on_frame(seq, typ, &payload);
+        }
         let bytes: Arc<[u8]> = Frame::new(typ, c.id, seq, payload)?.encode()?.into();
         let mut delivered = 0;
         for sub in &c.subs {
