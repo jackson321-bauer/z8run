@@ -122,7 +122,7 @@ def main() -> int:
         order.append(idx)
         fill = body[i * STRIDE + 4 : (i + 1) * STRIDE]
         assert all(b == (((i & 0xFF) + 1) | 0x80) for b in fill[:4096]), i
-    assert order == list(range(CHUNKS)), order
+    assert order == list(range(1, CHUNKS + 1)), order
     print(f"BLOB order={order} sha_ok=1 bytes={len(body)}")
     growth = peak["kb"] - before
     print(f"RSS before_kb={before} peak_kb={peak['kb']} after_kb={after} growth_kb={growth}")

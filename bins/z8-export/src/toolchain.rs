@@ -89,7 +89,12 @@ pub fn build(dir: &Path, bin: &str, readable: bool, wasm: bool) -> Result<PathBu
     } else {
         bin.to_string()
     };
-    let mut out = dir.join("target");
+    // CARGO_TARGET_DIR respektieren (sonst zeigt die Zusammenfassung auf
+    // einen Pfad, an dem das Binary gar nicht liegt).
+    let mut out = match std::env::var("CARGO_TARGET_DIR") {
+        Ok(v) if !v.trim().is_empty() => PathBuf::from(v),
+        _ => dir.join("target"),
+    };
     if wasm {
         out = out.join("wasm32-wasip1");
     }

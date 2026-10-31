@@ -170,7 +170,7 @@ def main() -> int:
     growth = peak["kb"] - before
     assert hashlib.sha256(body).hexdigest() == meta["sha256"], "sha ungleich"
     order = [int.from_bytes(body[i * STRIDE : i * STRIDE + 4], "little") for i in range(CHUNKS)]
-    assert order == list(range(CHUNKS)), order
+    assert order == list(range(1, CHUNKS + 1)), order
     assert growth < 5 * 1024, growth
     print(f"BLOB sha_ok=1 order={order} rss_growth_kb={growth}")
 

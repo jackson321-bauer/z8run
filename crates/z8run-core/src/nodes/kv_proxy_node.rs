@@ -127,6 +127,23 @@ impl KvProxyNode {
     }
 }
 
+/// Entfernt Master/Login-Body auch aus verschachtelten Trigger-Payloads
+/// (unix-in/http-in legen den Body unter `req.body` ab).
+fn scrub(out: &mut Value) {
+    for p in [
+        "master_key_b64",
+        "master",
+        "master_b64",
+        "proxy_session",
+        "req.body.master_key_b64",
+        "req.body.master",
+        "req.body.master_b64",
+        "req.body.proxy_session",
+    ] {
+        crate::nodes::dbnode_common::strip_path(out, p);
+    }
+}
+
 #[async_trait::async_trait]
 impl NodeExecutor for KvProxyNode {
     async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
@@ -140,9 +157,8 @@ impl NodeExecutor for KvProxyNode {
                 let mut out = msg.payload.clone();
                 if let Some(o) = out.as_object_mut() {
                     o.insert("proxy_error".into(), json!(e));
-                    o.remove("proxy_session");
-                    o.remove("master_key_b64");
                 }
+                scrub(&mut out);
                 return Ok(vec![msg.derive(msg.source_node, "error", out)]);
             }
         };
@@ -160,9 +176,8 @@ impl NodeExecutor for KvProxyNode {
                 let mut out = msg.payload.clone();
                 if let Some(o) = out.as_object_mut() {
                     o.insert("proxy_error".into(), json!(e));
-                    o.remove("proxy_session");
-                    o.remove("master_key_b64");
                 }
+                scrub(&mut out);
                 return Ok(vec![msg.derive(msg.source_node, "error", out)]);
             }
         };
@@ -175,11 +190,9 @@ impl NodeExecutor for KvProxyNode {
                 o.insert("proxy_session_id".into(), result["session_id"].clone());
                 o.insert("proxy_dbs".into(), result["dbs"].clone());
             }
-            // Master/Login-Body nie nach aussen spiegeln.
-            o.remove("proxy_session");
-            o.remove("master_key_b64");
-            o.remove("master");
         }
+        // Master/Login-Body nie nach aussen spiegeln (auch req.body.*).
+        scrub(&mut out);
         let port = if status == 200 { "output" } else { "error" };
         Ok(vec![msg.derive(msg.source_node, port, out)])
     }
@@ -224,3 +237,27 @@ node_factory!(KvProxyNodeFactory, KvProxyNode, "kv-proxy", {
     sql: String::new(),
     open_dbs: true,
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrub_entfernt_master_auch_in_req_body() {
+        let mut v = json!({
+            "master_key_b64": "top-geheim",
+            "req": {"body": {
+                "master_key_b64": "body-geheim",
+                "master": "body-master",
+                "proxy_session": {"master_key_b64": "session-geheim"},
+                "keep": 1
+            }}
+        });
+        scrub(&mut v);
+        let s = v.to_string();
+        assert!(!s.contains("geheim"), "{s}");
+        assert!(!s.contains("body-master"), "{s}");
+        assert!(!s.contains("proxy_session"), "{s}");
+        assert!(s.contains("\"keep\":1"), "{s}");
+    }
+}

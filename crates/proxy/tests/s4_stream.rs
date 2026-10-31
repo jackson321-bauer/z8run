@@ -60,7 +60,7 @@ async fn blob_12_chunks_sha_und_reihenfolge_sowie_sse() {
     for i in 0..CHUNKS {
         let start = i * stride;
         let idx = u32::from_le_bytes(body[start..start + 4].try_into().unwrap());
-        assert_eq!(idx as usize, i, "Chunk-Reihenfolge verletzt");
+        assert_eq!(idx as usize, i + 1, "Chunk-Reihenfolge verletzt");
         assert!(body[start + 4..start + stride]
             .iter()
             .all(|b| *b == ((i as u8).wrapping_add(1)) | 0x80));

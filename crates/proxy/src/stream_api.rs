@@ -22,10 +22,10 @@ pub const CHUNKS: usize = 12;
 pub const CHUNK_SIZE: usize = 1024 * 1024;
 const RING: usize = 64 * 1024;
 
-/// Deterministischer Chunk i: 4-Byte-LE-Index + Fuellbytes.
+/// Deterministischer Chunk i: 1-basierter 4-Byte-LE-Index + Fuellbytes.
 pub fn blob_chunk(i: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(4 + CHUNK_SIZE);
-    v.extend_from_slice(&(i as u32).to_le_bytes());
+    v.extend_from_slice(&((i + 1) as u32).to_le_bytes());
     v.extend(std::iter::repeat_n(((i as u8).wrapping_add(1)) | 0x80, CHUNK_SIZE));
     v
 }
