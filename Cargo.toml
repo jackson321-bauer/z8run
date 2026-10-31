@@ -5,9 +5,12 @@ members = [
     "crates/z8run-storage",
     "crates/z8run-runtime",
     "crates/z8run-api",
+    "crates/proxy-kern",
+    "crates/proxy",
     "bins/z8run-cli",
     "bins/z8-export",
     "bins/z8-stahlgitter",
+    "bins/kv-proxy",
 ]
 
 [workspace.package]
@@ -28,6 +31,8 @@ z8run-core = { path = "crates/z8run-core", version = "0.2.0" }
 z8run-storage = { path = "crates/z8run-storage", version = "0.2.0" }
 z8run-runtime = { path = "crates/z8run-runtime", version = "0.2.0" }
 z8run-api = { path = "crates/z8run-api", version = "0.2.0" }
+proxy-kern = { path = "crates/proxy-kern", version = "0.2.0" }
+proxy-native = { path = "crates/proxy", version = "0.2.0" }
 
 # Async runtime
 tokio = { version = "1.50", features = ["full"] }
@@ -80,6 +85,8 @@ url = "2"
 # Crypto
 aes-gcm = "0.10"
 rand = "0.8"
+zeroize = "1"
+hkdf = "0.12"
 
 # Identifiers
 uuid = { version = "1.23", features = ["v4", "v5", "v7", "serde"] }

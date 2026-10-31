@@ -1,0 +1,15 @@
+[package]
+name = "proxy-kern"
+description = "Z8 proxy core: target-clean traits, session token rotation, scope and stream primitives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+base64 = { workspace = true }
