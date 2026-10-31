@@ -149,7 +149,36 @@ pub fn open(container: &[u8], mode: OpenBox<'_>) -> DbResult<(Value, Vec<(String
         verify_entry(&manifest, &name, &bytes)?;
         out.push((name, bytes));
     }
+    verify_chain(&manifest)?;
     Ok((manifest, out))
+}
+
+/// Rechnet die Hash-Kette nach: je Eintrag sha256(prev|name|sha), Ende =
+/// `hash_chain`. Manipulierte Kette/Manifest = Fehler.
+fn verify_chain(manifest: &Value) -> DbResult<()> {
+    let Some(entries) = manifest["files"].as_array() else {
+        return Err(DbError::new("EXPORT_INTEGRITY", "files fehlt"));
+    };
+    let mut prev = String::new();
+    for e in entries {
+        let name = e["name"].as_str().unwrap_or_default();
+        let sha = e["sha256"].as_str().unwrap_or_default();
+        let mut h = Sha256::new();
+        h.update(prev.as_bytes());
+        h.update(name.as_bytes());
+        h.update(sha.as_bytes());
+        prev = hex::encode(h.finalize());
+        if e["chain"].as_str() != Some(prev.as_str()) {
+            return Err(DbError::new(
+                "EXPORT_INTEGRITY",
+                format!("Hash-Kette gebrochen bei {name}"),
+            ));
+        }
+    }
+    if manifest["hash_chain"].as_str() != Some(prev.as_str()) {
+        return Err(DbError::new("EXPORT_INTEGRITY", "Hash-Ketten-Kopf stimmt nicht"));
+    }
+    Ok(())
 }
 
 fn verify_entry(manifest: &Value, name: &str, bytes: &[u8]) -> DbResult<()> {
@@ -167,4 +196,50 @@ fn verify_entry(manifest: &Value, name: &str, bytes: &[u8]) -> DbResult<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> (Vec<(String, Vec<u8>)>, Value) {
+        let files = vec![("a.jsonl".to_string(), b"zeile\n".to_vec())];
+        let manifest = json!({"files":[{"name":"a.jsonl","sha256":hex::encode(Sha256::digest(b"zeile\n")),"bytes":6,"chain":"x"}],"hash_chain":"x"});
+        (files, manifest)
+    }
+
+    #[test]
+    fn pqc_empfaenger_key_oeffnet_und_falscher_key_scheitert() {
+        use kv_login::kette::umschlag;
+        let mut rng = rand::rngs::OsRng;
+        let secret = p256::SecretKey::random(&mut rng);
+        let pem = secret
+            .to_sec1_pem(p256::pkcs8::LineEnding::LF)
+            .unwrap()
+            .to_string();
+        let pub_b64 = B64.encode(p256::PublicKey::from(secret.public_key()).to_sec1_bytes());
+        let kem = umschlag::kem_paar_1024(&mut rng);
+        let ek_b64 = B64.encode(&kem.ek);
+        let (mut files, mut manifest) = sample();
+        // Kette korrekt nachrechnen, sonst verweigert open (gewollt).
+        let sha = hex::encode(Sha256::digest(&files[0].1));
+        let mut h = Sha256::new();
+        h.update(b"");
+        h.update(b"a.jsonl");
+        h.update(sha.as_bytes());
+        let head = hex::encode(h.finalize());
+        manifest["files"][0]["sha256"] = Value::from(sha);
+        manifest["files"][0]["chain"] = Value::from(head.clone());
+        manifest["hash_chain"] = Value::from(head);
+        let mode = BoxMode::Pqc { pub_b64: &pub_b64, kem_ek_b64: &ek_b64 };
+        let (bytes, _m) = seal(&files, manifest, mode).unwrap();
+        let opened = open(&bytes, OpenBox::Pqc { pem: &pem, kem_dk: &kem.dk });
+        assert!(opened.is_ok(), "PQC-Key oeffnet nicht: {opened:?}");
+        let other = p256::SecretKey::random(&mut rand::rngs::OsRng);
+        let other_pem = other
+            .to_sec1_pem(p256::pkcs8::LineEnding::LF)
+            .unwrap()
+            .to_string();
+        assert!(open(&bytes, OpenBox::Pqc { pem: &other_pem, kem_dk: &kem.dk }).is_err());
+    }
 }

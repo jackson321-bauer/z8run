@@ -46,14 +46,17 @@ async fn ctl(
     match req.action.as_str() {
         "open" => {
             let id = reg.open(ch)?;
+            svc.record_meta("app", proxy_kern::meta::EventKind::AppCall, ch, "", &identity, "ok", "stream_open").await;
             Ok(Json(json!({"ok": true, "channel": ch, "stream_id": id})))
         }
         "claim" => {
             let g = reg.claim(ch, &identity, socket_id())?;
+            svc.record_meta("app", proxy_kern::meta::EventKind::AppCall, ch, "", &identity, "ok", "stream_claim").await;
             Ok(Json(json!({"ok": true, "claimed": ch, "stream_id": g.stream_id})))
         }
         "release" => {
             reg.release(ch, &identity)?;
+            svc.record_meta("app", proxy_kern::meta::EventKind::AppCall, ch, "", &identity, "ok", "stream_release").await;
             Ok(Json(json!({"ok": true, "released": ch})))
         }
         "push" => {
@@ -66,6 +69,7 @@ async fn ctl(
                 .decode(req.payload_b64.unwrap_or_default())
                 .map_err(|e| ApiError::from(proxy_kern::ProxyError::BadRequest(format!("payload_b64: {e}"))))?;
             let out = reg.publish(ch, req.typ.unwrap_or(crate::frame::TYP_MEDIA), data)?;
+            svc.record_meta("app", proxy_kern::meta::EventKind::AppCall, ch, "", &identity, "ok", "stream_push").await;
             Ok(Json(json!({"ok": true, "seq": out.seq, "delivered": out.delivered})))
         }
         "subscribe" => {
@@ -80,6 +84,7 @@ async fn ctl(
                 }
             }
             reg.unsubscribe(ch, sid);
+            svc.record_meta("app", proxy_kern::meta::EventKind::AppCall, ch, "", &identity, "ok", "stream_subscribe").await;
             Ok(Json(json!({"ok": true, "channel": ch, "frames_b64": frames})))
         }
         other => Err(ApiError::from(proxy_kern::ProxyError::BadRequest(format!(

@@ -98,13 +98,3 @@ pub trait LlmPort: Send + Sync {
     async fn complete(&self, system: &str, user: &str) -> Result<Value, ProxyError>;
 }
 
-/// Quelle fuer die Stream-Durchreichung (z.B. DB-BLOB-Playback).
-pub trait ByteSource: Send {
-    fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ProxyError>;
-}
-
-/// Senke fuer die Stream-Durchreichung (z.B. HTTP-chunked/SSE).
-pub trait ByteSink: Send {
-    fn write_chunk(&mut self, data: &[u8]) -> Result<(), ProxyError>;
-    fn finish(&mut self) -> Result<(), ProxyError>;
-}

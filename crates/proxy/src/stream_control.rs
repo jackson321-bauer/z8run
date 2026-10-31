@@ -33,6 +33,16 @@ pub async fn handle_control(
                 Ok(sub) => {
                     joined.push(ch.to_string());
                     tokio::spawn(spawn_forward(reg.clone(), sub, tx.clone()));
+                    svc.record_meta(
+                        "app",
+                        proxy_kern::meta::EventKind::AppCall,
+                        ch,
+                        "",
+                        &setup.session_id,
+                        "ok",
+                        "stream_subscribe",
+                    )
+                    .await;
                     let _ = send_json(tx, json!({"type": "ack", "subscribed": ch})).await;
                 }
                 Err(e) => send_err(tx, e.code(), &e.to_string()).await,
@@ -48,6 +58,16 @@ pub async fn handle_control(
                     if !joined.contains(&ch.to_string()) {
                         joined.push(ch.to_string());
                     }
+                    svc.record_meta(
+                        "app",
+                        proxy_kern::meta::EventKind::AppCall,
+                        ch,
+                        "",
+                        &setup.session_id,
+                        "ok",
+                        "stream_claim",
+                    )
+                    .await;
                     let _ = send_json(
                         tx,
                         json!({"type": "ack", "claimed": ch, "stream_id": g.stream_id}),
@@ -62,6 +82,16 @@ pub async fn handle_control(
             match reg.release(ch, &setup.identity) {
                 Ok(()) => {
                     writable.remove(ch);
+                    svc.record_meta(
+                        "app",
+                        proxy_kern::meta::EventKind::AppCall,
+                        ch,
+                        "",
+                        &setup.session_id,
+                        "ok",
+                        "stream_release",
+                    )
+                    .await;
                     let _ = send_json(tx, json!({"type": "ack", "released": ch})).await;
                 }
                 Err(e) => send_err(tx, e.code(), &e.to_string()).await,

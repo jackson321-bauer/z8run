@@ -4,11 +4,14 @@
 
 use std::sync::Arc;
 
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use base64::Engine as _;
-use proxy_kern::{DbPort, Span, SpanStatus};
+use proxy_kern::{DbPort, SessionState, Span, SpanStatus};
 use proxy_native::export_all::{open_export, ExportRequest, World};
 use proxy_native::{ProxyConfig, ProxyService, UdsDbClient};
 use serde_json::{json, Value};
+use tower::ServiceExt;
 
 const SECRET: &str = "SK-EXPORT-TOPSECRET-42";
 const PW: &str = "Export-Pass-2026!";
@@ -35,6 +38,8 @@ fn req(worlds: Vec<World>) -> ExportRequest {
         from_ms: None,
         to_ms: None,
         password: PW.into(),
+        recipient_pub_b64: None,
+        recipient_kem_ek_b64: None,
     }
 }
 
@@ -156,6 +161,27 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
+    // F1: Overflow-Meta ueber den ECHTEN Service-Sink (Hub -> MetaStore).
+    let _ovf = svc.streams.subscribe("demo/ovf", 999).unwrap();
+    for i in 0..400u32 {
+        svc.streams
+            .publish("demo/ovf", proxy_native::frame::TYP_MEDIA, i.to_le_bytes().to_vec())
+            .unwrap();
+    }
+    for _ in 0..50 {
+        let metas = svc.meta.as_ref().unwrap().query(None, None, 1000).await.unwrap();
+        if metas.iter().any(|m| m.action == "stream_overflow") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let metas = svc.meta.as_ref().unwrap().query(None, None, 1000).await.unwrap();
+    assert!(
+        metas.iter().any(|m| m.action == "stream_overflow"),
+        "stream_overflow nicht als Meta persistiert"
+    );
+    println!("OVERFLOW_META echt=ja");
+
     // VOLL-EXPORT
     let out = svc.export_all(&req(vec![])).await.unwrap();
     let manifest = out["manifest"].clone();
@@ -218,7 +244,19 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
     future.from_ms = Some(1_900_000_000_000);
     let m = svc.export_all(&future).await.unwrap();
     assert_eq!(m["manifest"]["counts"]["linefs"], 0, "LineFS-Zeitfilter (ts)");
+    let mut hit = req(vec![World::Linefs]);
+    hit.from_ms = Some(1_700_000_000_000);
+    hit.to_ms = Some(1_900_000_000_000);
+    let m = svc.export_all(&hit).await.unwrap();
+    assert_eq!(m["manifest"]["counts"]["linefs"], 2, "LineFS-Zeitfilter positiv (datei+zeile)");
     println!("EXPORT_FILTER session/zeitraum=ok");
+
+    // Hash-Kette ist beim Oeffnen NICHT manipulierbar.
+    let mut tampered: Value = serde_json::from_slice(&bytes).unwrap();
+    tampered["manifest"]["hash_chain"] = Value::from("0".repeat(64));
+    let bad = serde_json::to_vec(&tampered).unwrap();
+    assert!(open_export(&bad, PW).is_err(), "manipulierte Hash-Kette akzeptiert");
+    println!("EXPORT_CHAIN manipulation=fehler");
 
     // SELEKTION: nur otel.
     let only = svc.export_all(&req(vec![World::Otel])).await.unwrap();
@@ -262,4 +300,75 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
     let after_meta = String::from_utf8_lossy(&afiles[0].1).to_string();
     assert!(after_meta.contains("nach_freeze"), "neuer Export fehlt Aktion");
     println!("EXPORT_FREEZE alt_ohne=ok neu_mit=ok");
+
+    // EINE API positiver HTTP-E2E: Token + POST /v1/export/all und /v1/stream/ctl.
+    let tok = svc
+        .open_session(SessionState::new(
+            "s5-http".into(),
+            "space".into(),
+            "user".into(),
+            "ws/".into(),
+            json!([]),
+            vec!["demo".into()],
+            b"master".to_vec(),
+            1,
+        ))
+        .token;
+    let app = proxy_native::http::router(svc.clone());
+    let (st, v) = post_json(
+        app.clone(),
+        "/v1/export/all",
+        &tok,
+        json!({"worlds":["meta"], "password": PW}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "HTTP-Export: {v}");
+    assert_eq!(v["manifest"]["hash_chain"].as_str().unwrap().len(), 64);
+    assert!(!v["container_b64"].as_str().unwrap().is_empty());
+    let (st, _) = post_json(
+        app.clone(),
+        "/v1/stream/ctl",
+        &tok,
+        json!({"action":"open","channel":"api/pos"}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _) = post_json(
+        app.clone(),
+        "/v1/stream/ctl",
+        &tok,
+        json!({"action":"claim","channel":"api/pos"}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, v) = post_json(
+        app,
+        "/v1/stream/ctl",
+        &tok,
+        json!({"action":"push","channel":"api/pos","payload_b64":"aGFsbG8="}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "ctl push: {v}");
+    println!("API_HTTP export_all+stream_ctl=200");
+}
+
+async fn post_json(
+    app: axum::Router,
+    uri: &str,
+    token: &str,
+    body: Value,
+) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 4 << 20)
+        .await
+        .unwrap_or_default();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
 }

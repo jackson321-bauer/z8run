@@ -164,6 +164,25 @@ async fn langsamer_abonnent_blockiert_andere_nicht() {
 }
 
 #[test]
+fn limits_werden_durchgesetzt() {
+    let clock = ManualClock::new(1);
+    let cfg = ChannelConfig {
+        channels_per_session: 1,
+        subscribers_per_channel: 1,
+        ..Default::default()
+    };
+    let reg = registry(cfg, clock);
+    assert!(reg.claim("app/a", "id1", 1).is_ok());
+    // Zweiter Kanal derselben Identitaet = Limit erreicht.
+    assert!(reg.claim("app/b", "id1", 2).is_err(), "Kanal-Limit fehlt");
+    // Derselbe Kanal (Reconnect) bleibt erlaubt.
+    assert!(reg.claim("app/a", "id1", 3).is_ok());
+    let _s = reg.subscribe("app/c", 1).unwrap();
+    assert!(reg.subscribe("app/c", 2).is_err(), "Abonnenten-Limit fehlt");
+    println!("LIMITS kanal=1 abonnent=1 durchgesetzt");
+}
+
+#[test]
 fn frame_roundtrip_binaer_byte_genau() {
     let payload: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
     let f = Frame::with_flags(TYP_MEDIA, 0xA5, 42, 7, payload.clone()).unwrap();

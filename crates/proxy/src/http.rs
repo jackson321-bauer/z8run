@@ -115,6 +115,7 @@ pub fn public_routes() -> Router<Arc<ProxyService>> {
         .merge(crate::http_log::router())
         .merge(crate::export_api::router())
         .merge(crate::stream_ctl_api::router())
+        .merge(crate::recording_http::router())
 }
 
 async fn guard_mw(

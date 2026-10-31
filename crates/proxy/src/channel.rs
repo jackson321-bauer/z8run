@@ -36,15 +36,7 @@ impl Default for ChannelConfig {
     }
 }
 
-pub fn valid_channel(name: &str) -> bool {
-    let parts: Vec<&str> = name.split('/').collect();
-    (parts.len() == 2 || parts.len() == 3)
-        && parts.iter().all(|p| {
-            !p.is_empty()
-                && p.len() <= 64
-                && p.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:".contains(c))
-        })
-}
+pub use crate::channel_name::valid_channel;
 
 pub(crate) struct Claim {
     pub(crate) identity: String,

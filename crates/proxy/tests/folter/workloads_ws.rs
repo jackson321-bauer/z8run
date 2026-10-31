@@ -2,8 +2,9 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use proxy_kern::SessionState;
 use proxy_native::frame::{Frame, TYP_MEDIA};
 use proxy_native::ProxyService;
@@ -79,3 +80,67 @@ pub async fn ws_streams(url: String, token: String, round: u64) -> usize {
     ok
 }
 
+
+
+/// p99-Relay-Latenz AM ECHTEN `/v1/stream`-Endpunkt (nicht nur Registry):
+/// Producer (live) sendet Binärrahmen, Consumer (subscribe) empfängt.
+pub async fn relay_p99_ws(url: String, token: String, frames: u64) -> u64 {
+    use tokio_tungstenite::tungstenite::Message;
+    async fn conn(
+        url: &str,
+        token: &str,
+        typ: &str,
+        channel: &str,
+    ) -> Option<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>> {
+        let mut req = url.into_client_request().ok()?;
+        req.headers_mut().insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).ok()?,
+        );
+        req.headers_mut().insert("x-z8-stream-type", HeaderValue::from_str(typ).ok()?);
+        req.headers_mut()
+            .insert("x-z8-channel", HeaderValue::from_str(channel).ok()?);
+        tokio_tungstenite::connect_async(req).await.ok().map(|(w, _)| w)
+    }
+    let Some(mut producer) = conn(&url, &token, "live", "folter/wsrelay").await else {
+        return u64::MAX;
+    };
+    let Some(mut consumer) = conn(&url, &token, "subscribe", "folter/wsrelay").await else {
+        return u64::MAX;
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let mut lat = Vec::with_capacity(frames as usize);
+    for i in 0..frames {
+        let sent = Instant::now();
+        let mut payload = sent.elapsed().as_nanos().to_le_bytes().to_vec();
+        payload.extend_from_slice(&(i as u64).to_le_bytes());
+        let Ok(frame) = Frame::with_flags(TYP_MEDIA, 0, 1, 0, payload) else {
+            return u64::MAX;
+        };
+        let Ok(framed) = frame.encode() else {
+            return u64::MAX;
+        };
+        if producer.send(Message::Binary(framed.into())).await.is_err() {
+            return u64::MAX;
+        }
+        loop {
+            match tokio::time::timeout(Duration::from_secs(1), consumer.next()).await {
+                Ok(Some(Ok(Message::Binary(b)))) => {
+                    let _ = Frame::decode(&b);
+                    lat.push(sent.elapsed().as_micros() as u64);
+                    break;
+                }
+                Ok(Some(Ok(_))) => continue,
+                _ => return u64::MAX,
+            }
+        }
+    }
+    let _ = producer.close(None).await;
+    let _ = consumer.close(None).await;
+    if lat.is_empty() {
+        return u64::MAX;
+    }
+    lat.sort_unstable();
+    let idx = (lat.len() as f64 * 0.99).ceil() as usize;
+    lat[idx.saturating_sub(1).min(lat.len() - 1)]
+}

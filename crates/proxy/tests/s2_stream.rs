@@ -70,7 +70,7 @@ async fn connect(
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn send_bin(ws: &mut Ws, bytes: &[u8]) {
-    let framed = Frame::with_flags(TYP_MEDIA, 0, 1, 0, bytes.to_vec())
+    let framed = Frame::with_flags(TYP_MEDIA, 0xA5, 1, 0, bytes.to_vec())
         .unwrap()
         .encode()
         .unwrap();
@@ -200,17 +200,25 @@ async fn live_api_relay_200_frames_gemischt_bytes_identisch() {
         let bytes = serde_json::to_vec(&json_event).unwrap();
         expected.push(bytes.clone());
         send_bin(&mut producer, &bytes).await;
-        assert_eq!(recv_bin(&mut consumer).await[16..], bytes[..]);
+        let full = recv_bin(&mut consumer).await;
+        let frame = Frame::decode(&full).unwrap();
+        assert_eq!(frame.typ, TYP_MEDIA);
+        assert_eq!(frame.flags, 0xA5, "flags nicht durchgereicht");
+        assert_eq!(frame.payload, bytes);
 
         let mut audio = vec![0u8; 320];
         audio[0] = i as u8;
         audio[319] = 0xFF;
         expected.push(audio.clone());
         send_bin(&mut producer, &audio).await;
-        assert_eq!(recv_bin(&mut consumer).await[16..], audio[..]);
+        let full = recv_bin(&mut consumer).await;
+        let frame = Frame::decode(&full).unwrap();
+        assert_eq!(frame.typ, TYP_MEDIA);
+        assert_eq!(frame.flags, 0xA5, "flags nicht durchgereicht");
+        assert_eq!(frame.payload, audio);
     }
     assert_eq!(expected.len(), 200);
-    println!("RELAY frames=200 json=100 binaer=100 bytes=identisch reihenfolge=ok");
+    println!("RELAY frames=200 json=100 binaer=100 payload+typ+flags=identisch (seq/stream_id Routing) reihenfolge=ok");
 }
 
 #[tokio::test]

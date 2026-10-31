@@ -68,32 +68,45 @@ pub async fn recording(reg: Arc<ChannelRegistry>, db: Arc<MemDb>, round: u64) ->
 
 pub async fn phone(reg: Arc<ChannelRegistry>, round: u64) -> u64 {
     // 40 Gespraeche, BIDIREKTIONAL: je 2 Kanaele (A->B, B->A), 50 Frames
-    // im 20-ms-Takt (native Telefonie-Frames, kein Rebundling).
-    let counter = Arc::new(AtomicU64::new(0));
+    // im 20-ms-Takt. Gezaehlt wird die ZUSTELLUNG am Abonnenten, nicht der
+    // Publish-Aufruf.
+    let delivered = Arc::new(AtomicU64::new(0));
     let mut tasks = Vec::new();
     for c in 0..40u64 {
         for dir in 0..2u64 {
             let reg = reg.clone();
-            let counter = counter.clone();
+            let delivered = delivered.clone();
             tasks.push(tokio::spawn(async move {
                 let ch = format!("folter/phone-{c}-{dir}");
                 reg.open(&ch).unwrap();
+                let sub = reg.subscribe(&ch, 900 + c * 2 + dir).unwrap();
+                let reader = {
+                    let reg = reg.clone();
+                    let delivered = delivered.clone();
+                    tokio::spawn(async move {
+                        while reg.recv(&sub).await.is_some() {
+                            delivered.fetch_add(1, Ordering::Relaxed);
+                        }
+                    })
+                };
                 for i in 0..50u32 {
                     let mut p = vec![0u8; 160];
                     p[..4].copy_from_slice(&i.to_le_bytes());
                     reg.publish(&ch, TYP_MEDIA, p).unwrap();
-                    counter.fetch_add(1, Ordering::Relaxed);
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                reg.unsubscribe(&ch, 900 + c * 2 + dir);
+                let _ = reader.await;
             }));
         }
     }
     for t in tasks {
         let _ = t.await;
     }
-    counter.load(Ordering::Relaxed)
+    let _ = round;
+    delivered.load(Ordering::Relaxed)
 }
-
 pub async fn small_events(reg: Arc<ChannelRegistry>, round: u64, count: u64) -> u64 {
     let ch = "folter/events".to_string();
     reg.open(&ch).unwrap();

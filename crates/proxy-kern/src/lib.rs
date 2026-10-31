@@ -18,4 +18,4 @@ pub use otel::{Direction, Span, SpanStatus, TraceContext};
 pub use prompts::PromptStore;
 pub use state::{SessionInfo, SessionState, SessionStore};
 pub use token::{TokenConfig, TokenGrant, TokenManager};
-pub use traits::{ByteSink, ByteSource, Clock, DbPort, LlmPort, Random, StoragePort};
+pub use traits::{Clock, DbPort, LlmPort, Random, StoragePort};

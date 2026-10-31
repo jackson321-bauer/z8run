@@ -172,6 +172,61 @@ async fn aufnahme_duplex_alle_frames_sha_gleich_und_wiedergabe() {
     }
     assert_eq!(got, expected, "Wiedergabe nicht byte-identisch");
     println!("WIEDERGABE_KANAL frames={frames} bytes={} sha_gleich=ja", got.len());
+
+    // OEFFENTLICHE API (der Weg einer App): start -> push -> stop -> playback.
+    let app = http::router(svc.clone());
+    let (st, _) = post_json(
+        app.clone(),
+        "/v1/recording/start",
+        &token,
+        json!({"db_id":"demo","channel":"call/http","owner":"http","mime":"audio/opus"}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    svc.streams
+        .publish("call/http", TYP_MEDIA, b"http-frame".to_vec())
+        .unwrap();
+    let (st, v) = post_json(
+        app.clone(),
+        "/v1/recording/stop",
+        &token,
+        json!({"channel":"call/http"}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let hsid = v["manifest"]["session_id"].as_str().unwrap().to_string();
+    svc.streams.open("call/http-play").unwrap();
+    let (st, v) = post_json(
+        app,
+        "/v1/playback",
+        &token,
+        json!({"db_id":"demo","sid":hsid,"channel":"call/http-play","chunk_size":65536}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(v["frames"].as_u64().unwrap() >= 1);
+    println!("RECORDING_HTTP start/stop/playback=ok");
+}
+
+async fn post_json(
+    app: axum::Router,
+    uri: &str,
+    token: &str,
+    body: serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let req = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap_or_default();
+    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
 }
 
 fn rss_kb() -> u64 {

@@ -122,22 +122,41 @@ pub async fn handle(mut socket: WebSocket, svc: Arc<ProxyService>, setup: Setup)
             _ = stop_rx.changed() => break,
             msg = stream.next() => match msg {
                 Some(Ok(Message::Binary(data))) => {
-                    let Some(ch) = writable.iter().next().cloned() else {
+                    if writable.is_empty() {
                         let _ = send_err(&out_tx, "NOT_CLAIMED", "Socket haelt keinen Claim").await;
                         continue;
-                    };
+                    }
                     // G2: Medien-Frames sind Binaer MIT 16-B-Header. Es wird
                     // NICHT geraten — ein Rahmen ohne gueltigen Header wird
                     // abgewiesen (kein versehentliches Abschneiden von Inhalt).
                     match Frame::decode(&data) {
-                        Ok(f) => match reg.publish_with_flags(&ch, f.typ, f.flags, f.payload) {
-                            Ok(out) => {
-                                let _ =
-                                    send_json(&out_tx, json!({"type": "ack", "seq": out.seq}))
-                                        .await;
+                        Ok(f) => {
+                            // Routing ueber stream_id (nicht "irgendein Claim").
+                            let ch = writable
+                                .iter()
+                                .find(|c| reg.stream_id(c) == Some(f.stream_id))
+                                .cloned()
+                                .or_else(|| {
+                                    (writable.len() == 1)
+                                        .then(|| writable.iter().next().cloned())
+                                        .flatten()
+                                });
+                            let Some(ch) = ch else {
+                                send_err(&out_tx, "BAD_ROUTE", "stream_id passt zu keinem Claim")
+                                    .await;
+                                continue;
+                            };
+                            match reg.publish_with_flags(&ch, f.typ, f.flags, f.payload) {
+                                Ok(out) => {
+                                    let _ = send_json(
+                                        &out_tx,
+                                        json!({"type": "ack", "seq": out.seq}),
+                                    )
+                                    .await;
+                                }
+                                Err(e) => send_err(&out_tx, e.code(), &e.to_string()).await,
                             }
-                            Err(e) => send_err(&out_tx, e.code(), &e.to_string()).await,
-                        },
+                        }
                         Err(e) => send_err(&out_tx, "BAD_FRAME", &e.to_string()).await,
                     }
                 }
