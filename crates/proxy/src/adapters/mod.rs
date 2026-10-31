@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use proxy_kern::{Clock, ProxyError, Random, StoragePort};
 
+pub mod db;
+pub mod login;
+
 pub struct SystemClock;
 
 impl Clock for SystemClock {

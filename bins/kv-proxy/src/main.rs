@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use proxy_native::{http, ProxyConfig, ProxyService};
+use proxy_native::adapters::login;
+use proxy_native::{http, ProxyConfig, ProxyService, UdsDbClient};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -44,18 +45,28 @@ fn main() -> anyhow::Result<()> {
 
 fn serve() -> anyhow::Result<()> {
     let cfg = ProxyConfig::default();
-    let svc = Arc::new(ProxyService::new(cfg.clone()));
+    let svc = Arc::new(
+        ProxyService::new(cfg.clone()).with_db(Arc::new(UdsDbClient::new(cfg.db_socket.clone()))),
+    );
     tokio::runtime::Runtime::new()?.block_on(async move {
-        let admin = {
+        {
             let svc = svc.clone();
             let path = cfg.admin_socket.clone();
             tokio::spawn(async move {
                 if let Err(e) = http::serve_uds(svc, path).await {
                     tracing::warn!(error = %e, "Admin-UDS beendet");
                 }
-            })
-        };
-        drop(admin);
+            });
+        }
+        {
+            let svc = svc.clone();
+            let path = cfg.login_socket.clone();
+            tokio::spawn(async move {
+                if let Err(e) = login::serve_login(svc, path).await {
+                    tracing::warn!(error = %e, "Login-Handoff beendet");
+                }
+            });
+        }
         http::serve_tcp(svc).await
     })
 }

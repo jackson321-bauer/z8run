@@ -28,6 +28,7 @@ mod linefs_read;
 pub mod linefs_rows;
 pub mod handle;
 pub mod msg;
+pub mod msg_uds;
 pub mod restore;
 pub mod schema;
 pub mod storage;

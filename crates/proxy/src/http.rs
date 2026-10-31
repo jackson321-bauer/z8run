@@ -29,7 +29,7 @@ impl IntoResponse for ApiError {
     }
 }
 
-fn bearer(headers: &HeaderMap) -> Result<String, ApiError> {
+pub(crate) fn bearer(headers: &HeaderMap) -> Result<String, ApiError> {
     let value = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -85,6 +85,7 @@ pub fn router(svc: Arc<ProxyService>) -> Router {
         .route("/v1/session", get(session))
         .route("/v1/session/rotate", post(rotate))
         .route("/v1/session/logout", post(logout))
+        .merge(crate::http_db::router())
         .with_state(svc)
 }
 

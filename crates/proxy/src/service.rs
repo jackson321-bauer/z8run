@@ -3,10 +3,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use proxy_kern::{
-    Clock, PromptStore, ProxyError, Random, SessionInfo, SessionState, SessionStore, TokenConfig,
-    TokenGrant, TokenManager,
+    Clock, DbPort, PromptStore, ProxyError, Random, SessionInfo, SessionState, SessionStore,
+    TokenConfig, TokenGrant, TokenManager,
 };
+use serde_json::Value;
 
 use crate::adapters::{OsRandom, SystemClock};
 
@@ -19,6 +21,9 @@ pub struct ProxyConfig {
     pub token_ttl_ms: u64,
     pub token_grace_ms: u64,
     pub bundle: String,
+    pub dbnode_dir: PathBuf,
+    pub db_socket: PathBuf,
+    pub cluster_id: String,
 }
 
 impl Default for ProxyConfig {
@@ -32,7 +37,53 @@ impl Default for ProxyConfig {
             token_ttl_ms: env("KV_PROXY_TOKEN_TTL_MS", "900000").parse().unwrap_or(900_000),
             token_grace_ms: env("KV_PROXY_TOKEN_GRACE_MS", "30000").parse().unwrap_or(30_000),
             bundle: env("KV_PROXY_BUNDLE", "/data/z8run/proxy-bundle"),
+            dbnode_dir: PathBuf::from(env("KV_PROXY_DBNODE_DIR", "/data/z8run/dbnode")),
+            db_socket: PathBuf::from(env("Z8_DBNODE_SOCK", "/data/z8run/dbnode-msg.sock")),
+            cluster_id: env("KV_PROXY_CLUSTER_ID", "default"),
         }
+    }
+}
+
+/// Kein DB-Kanal konfiguriert (z.B. in reinen Kern-/HTTP-Tests).
+pub struct NoDb;
+
+#[async_trait]
+impl DbPort for NoDb {
+    async fn open_db(&self, _: &str, _: &str, _: Value) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn close_db(&self, _: &str) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn reserve(&self, _: &str, _: &str) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn release(&self, _: &str, _: &str) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn query(
+        &self,
+        _: &str,
+        _: &str,
+        _: Vec<Value>,
+        _: bool,
+    ) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn write(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: Vec<Value>,
+    ) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn status(&self, _: Option<&str>) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
+    }
+    async fn schema(&self, _: &str) -> Result<Value, ProxyError> {
+        Err(ProxyError::Db("DB-Kanal nicht konfiguriert".into()))
     }
 }
 
@@ -42,6 +93,7 @@ pub struct ProxyService {
     pub sessions: SessionStore,
     pub tokens: TokenManager,
     pub prompts: PromptStore,
+    pub db: Arc<dyn DbPort>,
 }
 
 impl ProxyService {
@@ -66,7 +118,13 @@ impl ProxyService {
             sessions: SessionStore::new(),
             tokens,
             prompts: PromptStore::new(),
+            db: Arc::new(NoDb),
         }
+    }
+
+    pub fn with_db(mut self, db: Arc<dyn DbPort>) -> Self {
+        self.db = db;
+        self
     }
 
     pub fn now_ms(&self) -> u64 {

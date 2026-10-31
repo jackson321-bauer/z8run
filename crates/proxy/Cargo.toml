@@ -31,6 +31,7 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
 aes-gcm = { workspace = true }
+uuid = { workspace = true }
 clap = { workspace = true }
 
 [dev-dependencies]

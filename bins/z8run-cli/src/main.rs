@@ -458,6 +458,18 @@ async fn cmd_serve(
     let app = z8run_api::build_router(state);
     let uds_app = app.clone();
 
+    // DB-Node Message-Naht (Ein-Schreiber bleibt in diesem Prozess): der
+    // Proxy verbindet sich als Client, oeffnet aber keine DB-Dateien selbst.
+    let dbnode_path = std::env::var("Z8_DBNODE_SOCK")
+        .unwrap_or_else(|_| "/data/z8run/dbnode-msg.sock".to_string());
+    if !dbnode_path.is_empty() {
+        tokio::spawn(async move {
+            if let Err(e) = z8run_core::dbnode::msg_uds::serve(dbnode_path).await {
+                tracing::warn!(error = %e, "dbnode-msg UDS beendet");
+            }
+        });
+    }
+
     // Optional Unix-domain-socket listener. It serves the exact same router as
     // the TCP listener, so /api, /hook and /ws behave identically on both
     // transports. Access is controlled by the socket file permissions (0600).
