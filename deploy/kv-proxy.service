@@ -1,0 +1,25 @@
+[Unit]
+Description=Z8 Proxy (PROXY-1) - Login-Handoff, Session-Token, DB-Naht, WASM-Apps
+Documentation=https://github.com/z8run/z8run
+After=network-online.target z8run.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=z8run
+Group=z8run
+WorkingDirectory=/data/z8run
+EnvironmentFile=/etc/z8run/proxy.env
+ExecStart=/usr/local/bin/kv-proxy serve
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/data/z8run
+
+[Install]
+WantedBy=multi-user.target

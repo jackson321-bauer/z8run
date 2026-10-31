@@ -446,6 +446,29 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     defaultConfig: { dbId: "", sql: "", paramsPath: "params" },
   },
   {
+    type: "kv-proxy",
+    label: "KV Proxy",
+    category: "data",
+    color: "#0E7490",
+    icon: "ShieldCheck",
+    description:
+      "Thin client over the proxy engine (UDS): session_open, status, app_list, app_call, db_query",
+    inputs: [{ id: "input", name: "Input", type: "any" }],
+    outputs: [
+      { id: "output", name: "Result", type: "object" },
+      { id: "error", name: "Error", type: "any" },
+    ],
+    defaultConfig: {
+      adminSocket: "/data/z8run/kv-proxy-admin.sock",
+      action: "session_open",
+      app: "",
+      inputPath: "input",
+      dbId: "",
+      sql: "",
+      openDbs: true,
+    },
+  },
+  {
     type: "db-write",
     label: "DB Write",
     category: "data",

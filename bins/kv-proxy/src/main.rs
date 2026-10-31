@@ -20,6 +20,13 @@ enum Cmd {
     Serve,
     /// Laufenden Dienst abfragen
     Status,
+    /// prompts.enc aus einer name<TAB>text-Datei versiegeln (Deploy)
+    SealPrompts {
+        #[arg(long)]
+        out: std::path::PathBuf,
+        #[arg(long)]
+        prompts: std::path::PathBuf,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -40,7 +47,32 @@ fn main() -> anyhow::Result<()> {
             println!("{body}");
             Ok(())
         }
+        Cmd::SealPrompts { out, prompts } => seal_prompts(&out, &prompts),
     }
+}
+
+fn seal_prompts(out: &std::path::Path, prompts: &std::path::Path) -> anyhow::Result<()> {
+    let key = bundle_key().ok_or_else(|| anyhow::anyhow!("KV_PROXY_BUNDLE_KEY fehlt/ungueltig"))?;
+    let bundle_id = std::env::var("KV_PROXY_BUNDLE_ID").unwrap_or_else(|_| "echo".to_string());
+    let text = std::fs::read_to_string(prompts)?;
+    let mut entries = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (name, content) = line
+            .split_once('\t')
+            .ok_or_else(|| anyhow::anyhow!("Prompt-Zeile ohne Tab: {line}"))?;
+        entries.push((name.to_string(), content.as_bytes().to_vec()));
+    }
+    let sealed = bundle::seal_prompts(&key, &bundle_id, &entries)?;
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(out, sealed)?;
+    println!("prompts.enc geschrieben: {} Eintraege -> {}", entries.len(), out.display());
+    Ok(())
 }
 
 fn serve() -> anyhow::Result<()> {
