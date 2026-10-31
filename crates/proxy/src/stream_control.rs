@@ -90,6 +90,28 @@ pub async fn handle_control(
                 Err(e) => send_err(tx, e.code(), &e.to_string()).await,
             }
         }
+        // G17: Rotation lebt im Socket weiter — neues Token wird geprueft,
+        // die Verbindung bleibt bestehen (gleiche Session-Identitaet).
+        "token" => {
+            let tok = v.get("token").and_then(Value::as_str).unwrap_or("");
+            match svc.authenticate(tok) {
+                Ok(info) if info.session_id == setup.session_id => {
+                    svc.record_meta(
+                        "app",
+                        proxy_kern::meta::EventKind::AppCall,
+                        "stream",
+                        "",
+                        &setup.session_id,
+                        "ok",
+                        "token_rotated",
+                    )
+                    .await;
+                    let _ = send_json(tx, json!({"type": "ack", "rotated": true})).await;
+                }
+                Ok(_) => send_err(tx, "TOKEN_FOREIGN", "Token gehoert fremder Session").await,
+                Err(_) => send_err(tx, "TOKEN_INVALID", "Rotationstoken ungueltig").await,
+            }
+        }
         "ack" | "error" => {}
         other => {
             let _ = svc;

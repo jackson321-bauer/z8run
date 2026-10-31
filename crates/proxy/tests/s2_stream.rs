@@ -119,9 +119,25 @@ async fn token_rotation_im_socket_und_live_roundtrip() {
     assert_eq!(ack["type"], "ack");
     assert_eq!(ack["seq"], 0);
 
-    // Rotation per HTTP/API: der bestehende Socket lebt weiter.
+    // Rotation IN der Socket (Control-Frame): Verbindung lebt weiter.
     let grant = svc.rotate(&token).unwrap();
     assert_ne!(grant.token, token);
+    ws.send(Message::Text(
+        json!({"type": "token", "token": grant.token}).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    let rot = recv_text(&mut ws).await;
+    assert_eq!(rot["type"], "ack");
+    assert_eq!(rot["rotated"], true);
+    // Ungueltiges Rotationstoken wird abgewiesen, Socket bleibt.
+    ws.send(Message::Text(
+        json!({"type": "token", "token": "kaputt"}).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    let bad = recv_text(&mut ws).await;
+    assert_eq!(bad["code"], "TOKEN_INVALID");
     send_bin(&mut ws, b"nach-rotation").await;
     let ack2 = recv_text(&mut ws).await;
     assert_eq!(ack2["seq"], 1);
