@@ -30,8 +30,22 @@ pub fn seal(
     files: &[(String, Vec<u8>)],
     mut manifest: Value,
     mode: BoxMode<'_>,
-) -> DbResult<Vec<u8>> {
+) -> DbResult<(Vec<u8>, Value)> {
     let ck: [u8; 32] = rand::random();
+    // Secret-Huellen: Klartext NUR hier im Speicher, im Manifest steht
+    // ausschliesslich der mit dem Container-Key versiegelte Umschlag.
+    if let Some(values) = manifest.get_mut("secret_values").and_then(Value::as_array_mut) {
+        let mut sealed = Vec::new();
+        for v in values.iter() {
+            let name = v["name"].as_str().unwrap_or_default();
+            let raw = v["value_b64"].as_str().unwrap_or_default();
+            let bytes = B64.decode(raw).unwrap_or_default();
+            let ct = encrypt_part(&ck, &format!("secret:{name}"), 0, &bytes)?;
+            sealed.push(json!({"name": name, "box": B64.encode(ct)}));
+        }
+        manifest["secrets"] = Value::Array(sealed);
+        manifest.as_object_mut().map(|o| o.remove("secret_values"));
+    }
     let mut dir = Vec::with_capacity(files.len());
     let mut entries = Vec::with_capacity(files.len());
     for (name, bytes) in files {
@@ -46,13 +60,38 @@ pub fn seal(
             chunks.push(json!({"i": i, "ct": B64.encode(ct)}));
         }
         dir.push(json!({"name": name, "chunks": chunks}));
-        entries.push(json!({
-            "name": name,
-            "sha256": hex::encode(Sha256::digest(bytes)),
-            "bytes": bytes.len(),
-        }));
+        let sha = hex::encode(Sha256::digest(bytes));
+        // Vorhandene Manifest-Eintraege BEHALTEN (Hash-Kette bleibt), nur
+        // sha/bytes aktualisieren; neue Dateien anhaengen.
+        let mut entry = json!({"name": name, "sha256": sha, "bytes": bytes.len()});
+        if let Some(old) = manifest["files"]
+            .as_array()
+            .and_then(|a| a.iter().find(|e| e["name"].as_str() == Some(name.as_str())))
+        {
+            if let Some(chain) = old.get("chain") {
+                entry["chain"] = chain.clone();
+            }
+        }
+        entries.push(entry);
     }
-    manifest["files"] = Value::Array(entries);
+    if manifest.get("files").and_then(Value::as_array).is_none() {
+        manifest["files"] = Value::Array(entries);
+    } else {
+        let old = manifest["files"].as_array().cloned().unwrap_or_default();
+        let mut merged = Vec::new();
+        for e in old {
+            let name = e["name"].as_str().unwrap_or_default().to_string();
+            if let Some(new) = entries.iter().find(|n| n["name"].as_str() == Some(name.as_str())) {
+                merged.push(new.clone());
+            }
+        }
+        for n in entries {
+            if !merged.iter().any(|m| m["name"] == n["name"]) {
+                merged.push(n);
+            }
+        }
+        manifest["files"] = Value::Array(merged);
+    }
     let key_box = seal_container_key(mode, &ck, "z8-export-container").map_err(err_from)?;
     let container = json!({
         "format": CONTAINER_FORMAT,
@@ -60,7 +99,8 @@ pub fn seal(
         "files": dir,
         "key_box": key_box,
     });
-    serde_json::to_vec(&container).map_err(|e| DbError::new("JSON", e.to_string()))
+    let bytes = serde_json::to_vec(&container).map_err(|e| DbError::new("JSON", e.to_string()))?;
+    Ok((bytes, manifest))
 }
 
 /// Oeffnet den Container, prueft jede Datei gegen das Manifest und liefert

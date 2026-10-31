@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -54,6 +55,7 @@ pub struct TokenManager {
     clock: Arc<dyn Clock>,
     random: Arc<dyn Random>,
     grants: Mutex<HashMap<String, Grant>>,
+    issued: AtomicU64,
 }
 
 impl TokenManager {
@@ -63,7 +65,15 @@ impl TokenManager {
             clock,
             random,
             grants: Mutex::new(HashMap::new()),
+            issued: AtomicU64::new(0),
         }
+    }
+
+    /// Raeumt abgelaufene/ausgegraced Tokens auf (Rotation darf keinen
+    /// Speicher-Stau erzeugen). Laeuft amortisiert, nicht bei jedem Grant.
+    fn sweep(&self, now: u64) {
+        let mut grants = self.lock();
+        grants.retain(|_, g| Self::deadline(g) > now);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Grant>> {
@@ -93,6 +103,10 @@ impl TokenManager {
                 grace_until: None,
             },
         );
+        if self.issued.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
+            let now = self.clock.now_ms();
+            self.sweep(now);
+        }
         TokenGrant {
             token,
             session_id: session_id.to_string(),

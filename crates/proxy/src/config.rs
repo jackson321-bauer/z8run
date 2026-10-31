@@ -23,6 +23,7 @@ pub struct ProxyConfig {
     pub stream_subscribers: usize,
     pub stream_sub_queue: usize,
     pub stream_claim_grace_ms: u64,
+    pub stream_frame_max: usize,
 }
 
 impl Default for ProxyConfig {
@@ -52,6 +53,9 @@ impl Default for ProxyConfig {
             stream_claim_grace_ms: env("KV_PROXY_STREAM_GRACE_MS", "5000")
                 .parse()
                 .unwrap_or(5000),
+            stream_frame_max: env("KV_PROXY_STREAM_FRAME_MAX", "1048576")
+                .parse()
+                .unwrap_or(1_048_576),
         }
     }
 }

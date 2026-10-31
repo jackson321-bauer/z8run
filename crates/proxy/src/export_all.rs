@@ -11,7 +11,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use z8run_core::dbnode::BoxMode;
 
-use crate::secrets::hash_secret;
 use crate::service::ProxyService;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -49,6 +48,27 @@ pub struct ExportRequest {
     pub password: String,
 }
 
+/// Minimaler RFC3339-Parser (LineFS `ts` ist Text, kein ts_ms).
+fn rfc3339_ms(s: &str) -> Option<u64> {
+    let b = s.as_bytes();
+    if b.len() < 19 {
+        return None;
+    }
+    let n = |a: usize, l: usize| -> Option<i64> { s.get(a..a + l)?.parse().ok() };
+    let (y, mo, d) = (n(0, 4)?, n(5, 2)?, n(8, 2)?);
+    let (h, mi, se) = (n(11, 2)?, n(14, 2)?, n(17, 2)?);
+    // Howard Hinnant, days_from_civil
+    let y = if mo <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (mo + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + h * 3_600 + mi * 60 + se;
+    u64::try_from(secs).ok().map(|x| x * 1000)
+}
+
 fn pick<'a>(row: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     keys.iter().find_map(|k| row.get(*k)).filter(|v| !v.is_null())
 }
@@ -63,7 +83,12 @@ fn matches(row: &Value, sessions: &[String], from: Option<u64>, to: Option<u64>)
         }
     }
     let ts = pick(row, &["ts_ms", "start_ms", "created_ms", "created_at"])
-        .and_then(Value::as_u64);
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            pick(row, &["ts", "created_at"])
+                .and_then(Value::as_str)
+                .and_then(rfc3339_ms)
+        });
     if let Some(t) = ts {
         if from.is_some_and(|f| t < f) || to.is_some_and(|u| t > u) {
             return false;
@@ -98,11 +123,34 @@ fn chain(entries: &mut [Value]) -> String {
 
 async fn rows(svc: &ProxyService, db: &str, sql: &str) -> Vec<Value> {
     match svc.db.query(db, sql, Vec::new(), true).await {
-        Ok(v) => v
-            .get("rows")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
+        Ok(v) => {
+            // QueryOutcome = {columns, rows:[[..]]} -> JSONL braucht Objekte.
+            let cols: Vec<String> = v["columns"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            v["rows"]
+                .as_array()
+                .map(|rows| {
+                    rows.iter()
+                        .map(|row| {
+                            let mut o = serde_json::Map::new();
+                            if let Some(vals) = row.as_array() {
+                                for (i, c) in cols.iter().enumerate() {
+                                    o.insert(c.clone(), vals.get(i).cloned().unwrap_or(Value::Null));
+                                }
+                            }
+                            Value::Object(o)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
         Err(e) => {
             tracing::warn!(db, sql, error = %e, "Export: Welt nicht lesbar, uebersprungen");
             Vec::new()
@@ -118,16 +166,57 @@ impl ProxyService {
         } else {
             req.worlds.clone()
         };
-        // Freeze: WAL-Stand N JETZT, vor dem Lesen.
-        let freeze = self
-            .db
-            .status(None)
-            .await
-            .unwrap_or(Value::Null);
+        // FREEZE: Schreib-Reservierung auf allen beteiligten DBs blockiert
+        // jeden Schreiber; DANACH WAL-Stand N lesen. Freigabe immer am Ende.
+        let mut ids: Vec<String> = Vec::new();
+        if worlds
+            .iter()
+            .any(|w| matches!(w, World::Linefs | World::Blobs | World::Flows | World::Apps))
+        {
+            ids.push(db.clone());
+        }
+        if worlds.contains(&World::Otel) {
+            ids.push(self.cfg.otel_db.clone());
+        }
+        if worlds.contains(&World::Meta) {
+            ids.push(self.cfg.meta_db.clone());
+            ids.push(self.cfg.cluster_meta_db.clone());
+        }
+        ids.dedup();
+        let mut held: Vec<String> = Vec::new();
+        for id in ids {
+            if held.contains(&id) {
+                continue;
+            }
+            match self.db.reserve(&id, "export-all").await {
+                Ok(_) => held.push(id),
+                Err(e) => {
+                    for h in &held {
+                        let _ = self.db.release(h, "export-all").await;
+                    }
+                    return Err(ProxyError::Db(format!("Freeze-Reservierung {id}: {e}")));
+                }
+            }
+        }
+        let freeze = self.db.status(None).await.unwrap_or(Value::Null);
+        let out = self.export_collect(req, &worlds, &db, freeze).await;
+        for h in &held {
+            let _ = self.db.release(h, "export-all").await;
+        }
+        out
+    }
+
+    async fn export_collect(
+        &self,
+        req: &ExportRequest,
+        worlds: &[World],
+        db: &str,
+        freeze: Value,
+    ) -> Result<Value, ProxyError> {
         let mut files: Vec<(String, Vec<u8>)> = Vec::new();
         let mut counts = serde_json::Map::new();
 
-        for w in &worlds {
+        for w in worlds {
             match w {
                 World::Otel => {
                     let spans = match &self.otel {
@@ -156,9 +245,9 @@ impl ProxyService {
                     files.push(("meta.jsonl".into(), jsonl(&list)));
                 }
                 World::Linefs => {
-                    let mut list = rows(self, &db, "SELECT * FROM dateien").await;
-                    list.extend(rows(self, &db, "SELECT * FROM ordner").await);
-                    list.extend(rows(self, &db, "SELECT * FROM zeilen_epochen").await);
+                    let mut list = rows(self, db, "SELECT * FROM dateien").await;
+                    list.extend(rows(self, db, "SELECT * FROM ordner").await);
+                    list.extend(rows(self, db, "SELECT * FROM zeilen_epochen").await);
                     let list: Vec<Value> = list
                         .into_iter()
                         .filter(|v| matches(v, &req.sessions, req.from_ms, req.to_ms))
@@ -167,7 +256,7 @@ impl ProxyService {
                     files.push(("linefs.jsonl".into(), jsonl(&list)));
                 }
                 World::Flows => {
-                    let list: Vec<Value> = rows(self, &db, "SELECT * FROM flows")
+                    let list: Vec<Value> = rows(self, db, "SELECT * FROM flows")
                         .await
                         .into_iter()
                         .filter(|v| matches(v, &req.sessions, req.from_ms, req.to_ms))
@@ -176,7 +265,7 @@ impl ProxyService {
                     files.push(("flows.jsonl".into(), jsonl(&list)));
                 }
                 World::Apps => {
-                    let list: Vec<Value> = rows(self, &db, "SELECT * FROM apps")
+                    let list: Vec<Value> = rows(self, db, "SELECT * FROM apps")
                         .await
                         .into_iter()
                         .filter(|v| matches(v, &req.sessions, req.from_ms, req.to_ms))
@@ -213,16 +302,19 @@ impl ProxyService {
             }
         }
 
-        let refs = self.secrets.refs();
-        let envelopes: Vec<Value> = refs
+        // Secrets: Klartext bleibt im Speicher; der Container ersetzt
+        // `secret_values` durch versiegelte Huellen (nur Name + Box).
+        let secret_values: Vec<Value> = self
+            .secrets
+            .refs()
             .iter()
             .map(|name| {
-                let hash = self
+                let value = self
                     .secrets
                     .get(name)
-                    .map(|v| hash_secret(v.as_str()))
+                    .map(|v| B64.encode(v.as_bytes()))
                     .unwrap_or_default();
-                json!({"name": name, "sha256": hash, "huelle": "nur-name-hash"})
+                json!({"name": name, "value_b64": value})
             })
             .collect();
         let mut entries: Vec<Value> = files
@@ -250,18 +342,18 @@ impl ProxyService {
             "counts": Value::Object(counts),
             "files": entries,
             "hash_chain": chain_head,
-            "secrets": envelopes,
+            "secret_values": secret_values,
         });
         let mode = BoxMode::Password {
             passwort: &req.password,
         };
-        let container =
-            z8run_core::dbnode::seal_export_container(&files, manifest.clone(), mode)
+        let (container, manifest) =
+            z8run_core::dbnode::seal_export_container(&files, manifest, mode)
                 .map_err(|e| ProxyError::Internal(format!("Export-Container: {e}")))?;
         self.record_meta(
             "app",
             proxy_kern::meta::EventKind::AppCall,
-            &db,
+            db,
             "",
             &format!("export:{}", manifest["hash_chain"].as_str().unwrap_or("")),
             "ok",

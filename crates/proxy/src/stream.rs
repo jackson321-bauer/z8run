@@ -74,7 +74,8 @@ fn token(headers: &HeaderMap) -> Option<String> {
 fn setup(headers: &HeaderMap, session_id: &str) -> Result<Setup, ProxyError> {
     let kind = Kind::parse(&header(headers, "x-z8-stream-type").unwrap_or_else(|| "live".into()))
         .ok_or_else(|| ProxyError::BadRequest("Session-Typ unbekannt".into()))?;
-    let identity = header(headers, "x-z8-identity").unwrap_or_else(|| session_id.to_string());
+    // G3: Identitaet kommt AUS DER SESSION, nie aus einem Client-Header.
+    let identity = session_id.to_string();
     let channel = header(headers, "x-z8-channel");
     let peer = header(headers, "x-z8-peer-channel");
     let mut subscribe = Vec::new();

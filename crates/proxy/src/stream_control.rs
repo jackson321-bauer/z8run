@@ -40,10 +40,8 @@ pub async fn handle_control(
         }
         "claim" => {
             let ch = v.get("channel").and_then(Value::as_str).unwrap_or("");
-            let identity = v
-                .get("identity")
-                .and_then(Value::as_str)
-                .unwrap_or(&setup.identity);
+            // G3: Identitaet ist die Session, nicht ein Client-Feld.
+            let identity = setup.identity.as_str();
             match reg.claim(ch, identity, sid) {
                 Ok(g) => {
                     writable.insert(ch.to_string());

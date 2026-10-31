@@ -53,6 +53,7 @@ impl ProxyService {
                 channels_per_session: crate::channel::CHANNELS_PER_SESSION,
                 claim_grace_ms: cfg.stream_claim_grace_ms,
                 sub_queue: cfg.stream_sub_queue,
+                max_frame_bytes: cfg.stream_frame_max,
             },
             clock.clone(),
         ));

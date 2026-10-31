@@ -19,8 +19,6 @@ struct Ctl {
     action: String,
     channel: String,
     #[serde(default)]
-    identity: Option<String>,
-    #[serde(default)]
     payload_b64: Option<String>,
     #[serde(default)]
     typ: Option<u8>,
@@ -43,7 +41,8 @@ async fn ctl(
     let info = svc.authenticate(&token)?;
     let reg = svc.streams.clone();
     let ch = req.channel.as_str();
-    let identity = req.identity.clone().unwrap_or_else(|| info.session_id.clone());
+    // G3: Identitaet = authentifizierte Session (Client-Feld wird ignoriert).
+    let identity = info.session_id.clone();
     match req.action.as_str() {
         "open" => {
             let id = reg.open(ch)?;
@@ -58,6 +57,11 @@ async fn ctl(
             Ok(Json(json!({"ok": true, "released": ch})))
         }
         "push" => {
+            if !reg.may_publish(ch, &identity) {
+                return Err(ApiError::from(proxy_kern::ProxyError::Stream(
+                    "Push ohne Claim (Senderecht fehlt)".into(),
+                )));
+            }
             let data = B64
                 .decode(req.payload_b64.unwrap_or_default())
                 .map_err(|e| ApiError::from(proxy_kern::ProxyError::BadRequest(format!("payload_b64: {e}"))))?;

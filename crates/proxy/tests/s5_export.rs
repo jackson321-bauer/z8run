@@ -52,7 +52,7 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
-    let db = UdsDbClient::new(sock);
+    let db = Arc::new(UdsDbClient::new(sock));
     let master = base64::engine::general_purpose::STANDARD.encode([9u8; 32]);
     for id in ["demo", "otel", "meta", "meta-cluster"] {
         db.open_db(id, &master, cluster(dir.path())).await.unwrap();
@@ -114,7 +114,7 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
         cluster_meta_db: "meta-cluster".into(),
         ..ProxyConfig::default()
     };
-    let db_arc: Arc<dyn DbPort> = Arc::new(db);
+    let db_arc: Arc<dyn DbPort> = db.clone();
     let svc = ProxyService::new(cfg).with_db(db_arc);
     svc.secrets.insert("ncp", "api_key", SECRET);
     let svc = Arc::new(svc);
@@ -168,7 +168,8 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
     assert!(!manifest.to_string().contains(SECRET));
     let sec = manifest["secrets"].as_array().unwrap();
     assert!(sec.iter().any(|s| s["name"] == "ncp/api_key"));
-    assert!(sec.iter().all(|s| s.get("huelle").is_some()));
+    assert!(sec.iter().all(|s| s.get("box").is_some()), "keine versiegelte Huelle");
+    assert!(manifest.get("secret_values").is_none(), "Klartext-Huelle im Manifest");
 
     // Oeffnen mit Empfaenger-Passwort; jeder Datei-SHA wird geprueft.
     let (m2, files) = open_export(&bytes, PW).unwrap();
@@ -187,6 +188,37 @@ async fn gesamt_export_voll_selektiv_freeze_und_secret() {
     // Falscher Key/Passwort = Fehler.
     assert!(open_export(&bytes, "falsches-Passwort-2026!").is_err());
     println!("EXPORT_KEY falsch=fehler");
+
+    // ECHTER FREEZE: waehrend der Reservierung blockiert der Export selbst
+    // (er versucht zu reservieren) UND jeder Schreiber.
+    db.reserve("demo", "freeze-hold").await.unwrap();
+    assert!(
+        svc.export_all(&req(vec![World::Flows])).await.is_err(),
+        "Export ohne Freeze-Reservierung"
+    );
+    assert!(
+        db.write("demo", "sess-a", "INSERT INTO flows VALUES ('f2','X','sess-a',0)", vec![])
+            .await
+            .is_err(),
+        "Schreiber trotz Freeze-Reservierung"
+    );
+    db.release("demo", "freeze-hold").await.unwrap();
+    println!("EXPORT_FREEZE reservierung blockiert export+schreiben");
+
+    // SELEKTION + Session-Filter + Zeitraum-Filter.
+    let mut sel = req(vec![World::Flows]);
+    sel.sessions = vec!["sess-a".into()];
+    let m = svc.export_all(&sel).await.unwrap();
+    assert_eq!(m["manifest"]["counts"]["flows"], 1);
+    let mut none = req(vec![World::Flows]);
+    none.sessions = vec!["niemand".into()];
+    let m = svc.export_all(&none).await.unwrap();
+    assert_eq!(m["manifest"]["counts"]["flows"], 0);
+    let mut future = req(vec![World::Linefs]);
+    future.from_ms = Some(1_900_000_000_000);
+    let m = svc.export_all(&future).await.unwrap();
+    assert_eq!(m["manifest"]["counts"]["linefs"], 0, "LineFS-Zeitfilter (ts)");
+    println!("EXPORT_FILTER session/zeitraum=ok");
 
     // SELEKTION: nur otel.
     let only = svc.export_all(&req(vec![World::Otel])).await.unwrap();

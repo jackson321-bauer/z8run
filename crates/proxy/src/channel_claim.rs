@@ -19,6 +19,24 @@ impl ChannelRegistry {
         }
         let now = self.clock.now_ms();
         let mut inner = self.lock();
+        // G18: Kanaele je Identitaet begrenzen (nur Schreib-Kanaele zaehlen).
+        let eigene = inner
+            .channels
+            .values()
+            .filter(|c| {
+                c.claim
+                    .as_ref()
+                    .is_some_and(|cl| cl.identity == identity)
+            })
+            .count();
+        let schon = inner
+            .channels
+            .get(name)
+            .and_then(|c| c.claim.as_ref())
+            .is_some_and(|cl| cl.identity == identity);
+        if !schon && eigene >= self.cfg.channels_per_session {
+            return Err(ProxyError::BadRequest("Kanal-Limit je Identitaet".into()));
+        }
         let c = inner.channels.get_mut(name).expect("gerade geoeffnet");
         if let Some(claim) = &c.claim {
             if claim.identity != identity {
@@ -41,6 +59,15 @@ impl ChannelRegistry {
             identity: identity.to_string(),
             stream_id: c.id,
         })
+    }
+
+    /// Ist `identity` der aktuelle Claim-Inhaber von `name`? (Senderecht)
+    pub fn may_publish(&self, name: &str, identity: &str) -> bool {
+        self.lock()
+            .channels
+            .get(name)
+            .and_then(|c| c.claim.as_ref())
+            .is_some_and(|cl| cl.identity == identity)
     }
 
     /// Explizite Freigabe: der naechste Claim-Inhaber darf senden.

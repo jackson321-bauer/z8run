@@ -216,9 +216,21 @@ async fn live_api_relay_200_frames_gemischt_bytes_identisch() {
 #[tokio::test]
 async fn fremde_identitaet_claim_abgewiesen() {
     let (svc, token) = service();
+    // ZWEITE Session = zweite Identitaet (Identitaet ist die Session).
+    let state2 = SessionState::new(
+        "s2-stream-2".into(),
+        "space".into(),
+        "user".into(),
+        "ws/".into(),
+        json!([]),
+        vec!["demo".into()],
+        b"master".to_vec(),
+        1,
+    );
+    let token2 = svc.open_session(state2).token;
     let url = server(svc).await;
     let _a = connect(&url, Some(&token), "live", "app/claim", None, "alice").await.unwrap();
-    let mut b = connect(&url, Some(&token), "live", "app/claim", None, "bob").await.unwrap();
+    let mut b = connect(&url, Some(&token2), "live", "app/claim", None, "alice").await.unwrap();
     let err = recv_text(&mut b).await;
     assert_eq!(err["type"], "err");
     assert_eq!(err["code"], "CLAIM_DENIED");

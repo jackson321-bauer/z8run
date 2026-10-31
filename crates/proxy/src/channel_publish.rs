@@ -25,6 +25,13 @@ impl ChannelRegistry {
         flags: u8,
         payload: Vec<u8>,
     ) -> Result<PublishOutcome, ProxyError> {
+        if payload.len() > self.cfg.max_frame_bytes {
+            return Err(ProxyError::Stream(format!(
+                "Frame zu gross ({} > {})",
+                payload.len(),
+                self.cfg.max_frame_bytes
+            )));
+        }
         let mut inner = self.lock();
         let c = inner
             .channels

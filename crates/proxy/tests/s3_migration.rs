@@ -8,6 +8,7 @@ use axum::http::{Request, StatusCode};
 use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use proxy_kern::{DbPort, SessionState};
+use proxy_native::frame::{Frame, TYP_MEDIA};
 use proxy_native::playback::{blob_chunk, blob_sha_hex, publish_chunks, CHUNKS, CHUNK_SIZE};
 use proxy_native::{http, ProxyConfig, ProxyService};
 use serde_json::json;
@@ -50,7 +51,11 @@ async fn connect(url: &str, token: &str, typ: &str, ch: &str, peer: Option<&str>
 }
 
 async fn send_bin(ws: &mut Ws, b: &[u8]) {
-    ws.send(Message::Binary(b.to_vec().into())).await.unwrap();
+    let framed = Frame::with_flags(TYP_MEDIA, 0, 1, 0, b.to_vec())
+        .unwrap()
+        .encode()
+        .unwrap();
+    ws.send(Message::Binary(framed.into())).await.unwrap();
 }
 
 async fn recv_payload(ws: &mut Ws) -> Vec<u8> {
@@ -119,6 +124,21 @@ async fn aufnahme_duplex_alle_frames_sha_gleich_und_wiedergabe() {
     let url = server(svc.clone()).await;
     let mut a = connect(&url, &token, "duplex", "call/a", Some("call/b"), "alice").await;
     let mut b = connect(&url, &token, "duplex", "call/b", Some("call/a"), "bob").await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Warm-up: DB-Caches/Allokatoren einmal anlegen, DANN RSS messen.
+    svc.recording_start("demo", "warmup/a", "warm", "audio/opus").await.unwrap();
+    for i in 0..100u32 {
+        svc.streams
+            .publish("warmup/a", TYP_MEDIA, i.to_le_bytes().to_vec())
+            .unwrap();
+    }
+    let wm = svc.recording_stop("warmup/a").await.unwrap();
+    let wsid = wm["session_id"].as_str().unwrap().to_string();
+    svc.streams.open("warmup/play").unwrap();
+    svc.playback_recording("demo", &wsid, "warmup/play", 64 * 1024)
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     svc.recording_start("demo", "call/a", "alice", "audio/opus").await.unwrap();

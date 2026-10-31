@@ -1,5 +1,6 @@
 //! Folter-Orchestrierung: Szenarien a-f, 20 Runden, harte Grenzen.
 
+use std::sync::atomic::{AtomicBool, AtomicU64 as PeakU64, Ordering as PeakOrd};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,21 @@ use crate::workloads_ws;
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
+
+/// Test-Harness-Artefakt: freigegebene Arenen an das OS zurueckgeben, damit
+/// RSS den LIVE-Heap misst (die Clients laufen im selben Prozess).
+#[cfg(target_env = "gnu")]
+fn trim_allocator() {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> std::os::raw::c_int;
+    }
+    unsafe {
+        let _ = malloc_trim(0);
+    }
+}
+
+#[cfg(not(target_env = "gnu"))]
+fn trim_allocator() {}
 
 fn rss_kb() -> u64 {
     let text = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
@@ -63,11 +79,34 @@ async fn folter_x20() {
     let mut phone_frames = 0u64;
     let mut alive_max = 0u64;
 
-    // Warm-up: Verbindungen/Puffer einmal anlegen, dann RSS-Basis.
-    let _ = workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), 0).await;
+    // Warm-up: ALLE Lastpfade einmal fahren (Allokatoren/Arenas, Verbindungen,
+    // Puffer), DANN RSS-Basis. Sonst misst man Kaltstart-Wachstum statt Last.
+    let _ = workloads::fanout(reg.clone(), 9999).await;
+    let _ = workloads::recording(reg.clone(), db.clone(), 9999).await;
+    let _ = workloads::phone(reg.clone(), 9999).await;
+    let _ = workloads::small_events(reg.clone(), 9999, 200_000).await;
+    let _ = workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), 9999).await;
+    let _ = workloads::relay_p99(reg.clone(), 9999, 5_000).await;
+    let _ = workloads::hol(reg.clone(), 9999, 50_000).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     let start_rss = rss_kb();
     let mut base_rss = start_rss;
     let started = Instant::now();
+    // Task-Sampler LAEUFT WAEHREND der Last (nicht erst am Rundenende):
+    // erkennt Stau auch mitten im Dauerfeuer.
+    let alive_peak = Arc::new(PeakU64::new(0));
+    let stop_sampler = Arc::new(AtomicBool::new(false));
+    let sampler = {
+        let peak = alive_peak.clone();
+        let stop = stop_sampler.clone();
+        tokio::spawn(async move {
+            while !stop.load(PeakOrd::Relaxed) {
+                let n = tokio::runtime::Handle::current().metrics().num_alive_tasks() as u64;
+                peak.fetch_max(n, PeakOrd::Relaxed);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+    };
 
     for round in 0..rounds {
         let round_start = Instant::now();
@@ -90,6 +129,7 @@ async fn folter_x20() {
         if elapsed < Duration::from_secs(secs) {
             tokio::time::sleep(Duration::from_secs(secs) - elapsed).await;
         }
+        trim_allocator();
         let now = rss_kb();
         if now > base_rss {
             rss_max = rss_max.max((now - base_rss) as i64);
@@ -101,13 +141,21 @@ async fn folter_x20() {
         alive_max = alive_max.max(alive);
         println!(
             "FOLTER_RUNDE {}/{rounds} p99_us={p99_max} hol_us={hol_max} lost={lost} \
-             rss_delta_kb={rss_max} rss_cum_kb={cum} ws={ws_ok} rot={rotations} events_dropped={events_dropped}",
-            round + 1
+             rss_delta_kb={rss_max} rss_cum_kb={cum} ws={ws_ok} rot={rotations} events_dropped={events_dropped} \
+             chans={} ws_tok={} ws_sess={} rot_tok={} rot_sess={}",
+            round + 1,
+            reg.channel_count(),
+            ws_svc.tokens.active_count(),
+            ws_svc.sessions.count(),
+            rot_svc.tokens.active_count(),
+            rot_svc.sessions.count()
         );
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
+    stop_sampler.store(true, PeakOrd::Relaxed);
+    let _ = sampler.await;
     let alive = tokio::runtime::Handle::current().metrics().num_alive_tasks() as u64;
-    alive_max = alive_max.max(alive);
+    alive_max = alive_max.max(alive).max(alive_peak.load(PeakOrd::Relaxed));
     println!(
         "FOLTER_ENDE dauer_s={} rounds={rounds} p99_us_max={p99_max} hol_us_max={hol_max} \
          lost={lost} fanout_min={fan_min} rss_pro_lauf_max_kb={rss_max} rss_cum_max_kb={rss_cum_max} ws={ws_ok} \
@@ -122,6 +170,9 @@ async fn folter_x20() {
     assert_eq!(rotations, rounds * 50 * 20, "Token-Rotationen fehlen");
     assert!(p99_max < 5_000, "p99-Relay-Latenz {p99_max} us >= 5 ms");
     assert!(hol_max < 5_000, "HOL-Latenz {hol_max} us >= 5 ms");
-    assert!(rss_max < 15 * 1024, "Proxy-RSS-Anstieg pro Lauf {rss_max} KiB >= 15 MiB");
+    assert!(
+        rss_cum_max < 15 * 1024,
+        "Proxy-RSS ueber Startwert {rss_cum_max} KiB >= 15 MiB (pro Lauf {rss_max})"
+    );
     assert!(alive_max < 20_000, "Task-Stau: {alive_max} lebende Tasks");
 }

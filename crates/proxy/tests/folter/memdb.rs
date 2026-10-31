@@ -57,8 +57,9 @@ impl DbPort for MemDb {
         Ok(json!({"ok": true}))
     }
     async fn blob_session_finish(&self, _: &str, _: &str, sid: &str) -> Result<Value, ProxyError> {
-        let bytes = self.sessions.lock().unwrap().get(sid).cloned().unwrap_or_default();
-        let frames = *self.frames.lock().unwrap().get(sid).unwrap_or(&0);
+        // Retention-frei: Hash bilden, Puffer FREIGEBEN (RSS bleibt flach).
+        let bytes = self.sessions.lock().unwrap().remove(sid).unwrap_or_default();
+        let frames = self.frames.lock().unwrap().remove(sid).unwrap_or(0);
         Ok(json!({"session_id": sid, "gesamt_sha256": hex::encode(Sha256::digest(&bytes)), "chunk_ids": vec!["x"; frames as usize]}))
     }
     async fn blob_session_get(&self, _: &str, _: &str, sid: &str) -> Result<Vec<u8>, ProxyError> {

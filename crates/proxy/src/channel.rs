@@ -21,6 +21,7 @@ pub struct ChannelConfig {
     pub channels_per_session: usize,
     pub claim_grace_ms: u64,
     pub sub_queue: usize,
+    pub max_frame_bytes: usize,
 }
 
 impl Default for ChannelConfig {
@@ -30,6 +31,7 @@ impl Default for ChannelConfig {
             channels_per_session: CHANNELS_PER_SESSION,
             claim_grace_ms: CLAIM_GRACE_MS,
             sub_queue: SUB_QUEUE,
+            max_frame_bytes: crate::frame::MAX_FRAME_BYTES,
         }
     }
 }

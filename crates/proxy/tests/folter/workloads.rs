@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use proxy_native::channel::{ChannelConfig, ChannelRegistry};
 use proxy_native::frame::TYP_MEDIA;
@@ -67,24 +67,26 @@ pub async fn recording(reg: Arc<ChannelRegistry>, db: Arc<MemDb>, round: u64) ->
 }
 
 pub async fn phone(reg: Arc<ChannelRegistry>, round: u64) -> u64 {
+    // 40 Gespraeche, BIDIREKTIONAL: je 2 Kanaele (A->B, B->A), 50 Frames
+    // im 20-ms-Takt (native Telefonie-Frames, kein Rebundling).
     let counter = Arc::new(AtomicU64::new(0));
     let mut tasks = Vec::new();
     for c in 0..40u64 {
-        let reg = reg.clone();
-        let counter = counter.clone();
-        tasks.push(tokio::spawn(async move {
-            let ch = format!("folter/phone-{round}-{c}");
-            reg.open(&ch).unwrap();
-            for i in 0..50u32 {
-                let mut p = vec![0u8; 160];
-                p[..4].copy_from_slice(&i.to_le_bytes());
-                reg.publish(&ch, TYP_MEDIA, p).unwrap();
-                counter.fetch_add(1, Ordering::Relaxed);
-                if i % 10 == 0 {
-                    tokio::task::yield_now().await;
+        for dir in 0..2u64 {
+            let reg = reg.clone();
+            let counter = counter.clone();
+            tasks.push(tokio::spawn(async move {
+                let ch = format!("folter/phone-{round}-{c}-{dir}");
+                reg.open(&ch).unwrap();
+                for i in 0..50u32 {
+                    let mut p = vec![0u8; 160];
+                    p[..4].copy_from_slice(&i.to_le_bytes());
+                    reg.publish(&ch, TYP_MEDIA, p).unwrap();
+                    counter.fetch_add(1, Ordering::Relaxed);
+                    tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }
-        }));
+            }));
+        }
     }
     for t in tasks {
         let _ = t.await;
