@@ -1,6 +1,6 @@
 # VERIFY-BERICHT Z8-PROXY2B — NEONGRÜN (nach 2 Audit-Runden)
 
-Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `1261de6` (gepusht auf `fork`).
+Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `e620e70` (gepusht auf `fork`).
 Repo: `/data/z8run-test/src`. Bauplan: `bauplan-z8-proxy2b.md` (v1).
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 
@@ -9,8 +9,8 @@ Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 | Stufe | Ergebnis | Beweis |
 |---|---|---|
 | S0 Sicherung/Platz | GRÜN | `s0-sicherung.log`, `s0-baseline-1..3.log` (501×3), 16 GB frei vor S4 |
-| S1 Kanal-Kern | GRÜN | `s1_channel.log`: 7 Tests (Claim-Streit, Grace/Reconnect, Fan-out, Overflow+echtes Meta, HOL, Frame LE+flags, Limits) |
-| S2 Endpoint/Duplex/Relay | GRÜN | `s2_stream.log`: 5 Tests (Auth, Rotation im Socket, Duplex, 200 Frames payload+typ+flags identisch, BAD_FRAME/CLAIM_DENIED) |
+| S1 Kanal-Kern | GRÜN | `s1_channel.log`: 7 Tests (Claim-Streit, Grace/Reconnect, Force-Release, Fan-out, Overflow+echtes Meta, HOL, Frame LE+flags, Limits) |
+| S2 Endpoint/Duplex/Relay | GRÜN | `s2_stream.log`: 6 Tests (Auth, Rotation im Socket, Duplex, 200 Frames payload+typ+flags identisch, BAD_FRAME/CLAIM_DENIED, Multi-Claim stream_id) |
 | S3 Aufnahme/Migration | GRÜN | `s3_migration.log`: echte Blob-Session, SHA-gleich, 12-Chunk-Wiedergabe, Recording-HTTP start/stop/playback, alte Endpunkte 404 |
 | S4 Last-Folter ×20 | GRÜN | `s4-folter-x20-final.log` (20×60 s, kombiniert) |
 | S5 Gesamt-Export | GRÜN | `s5_export.log` (Voll/Selektion/Filter/Freeze/Kette/PQC/Secret-Hülle/HTTP-E2E) |
@@ -61,7 +61,7 @@ ws_p99_us_max=3121 rss_load_max_kb=9076 alive_tasks_max=271 iterations=1120`
 
 ## Tests
 
-`cargo test` 3× sequenziell (100 s Pause): **515 passed / 0 failed** je Lauf
+`cargo test` 3× sequenziell (100 s Pause): **516 passed / 0 failed** je Lauf
 (`s6-cargo-test-1..3.log`). Baseline 501×3 (`s0-baseline-*`). ≥501 erfüllt.
 
 ## Audit-Historie
@@ -74,11 +74,15 @@ ws_p99_us_max=3121 rss_load_max_kb=9076 alive_tasks_max=271 iterations=1120`
 - Audit 3: S4-Dauerfeuer + Alt-Skripte + echte Kanal-Reservierung — behoben
   (Wiederholungs-Last bis Rundendauer, alte E2E-Skripte bereinigt,
   Aufnahme-Session je Kanal, MemDb mit exklusiver Reservierung).
+- Audit 4: Claim-Semantik + Multi-Claim + stale Zahl — behoben: fremde
+  Identität wird auch nach Grace IMMER abgewiesen; Freigabe nur durch
+  Inhaber oder Admin-UDS (`/v1/admin/stream/release`, auf TCP = 404);
+  Multi-Claim-Routing über `stream_id` getestet (`s2_stream` 6 Tests).
 
 ## Bewusste Abgrenzungen (dokumentiert, keine stille Ausnahme)
 
 - Registry-interner p99/HOL steigt unter CPU-Sättigung (200k Events); das
-  Kriterium ist die Endpunkt-Latenz (1.286 ms). Beide Werte stehen im Log.
+  Kriterium ist die Endpunkt-Latenz (3.121 ms). Beide Werte stehen im Log.
 - Demo-Flow ist ein Layout-/Integrationsbaustein; die Funktion wird durch
   `s2_stream`/`s3_migration`/`s5_export` (echte Endpunkte) bewiesen.
 - Testdateien dürfen >200 Zeilen sein (Prüf-Harness, kein Produktcode);
