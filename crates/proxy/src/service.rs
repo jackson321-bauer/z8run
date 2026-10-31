@@ -12,6 +12,7 @@ use proxy_kern::{
 use crate::meta::MetaStore;
 use crate::otel::OtelStore;
 use crate::subscribe::EventHub;
+use crate::wal_guard::WalGuard;
 use serde_json::Value;
 
 use crate::adapters::{OsRandom, SystemClock};
@@ -114,6 +115,7 @@ pub struct ProxyService {
     pub otel: Option<Arc<OtelStore>>,
     pub meta: Option<Arc<MetaStore>>,
     pub hub: Arc<EventHub>,
+    pub guard: Arc<WalGuard>,
 }
 
 impl ProxyService {
@@ -124,6 +126,7 @@ impl ProxyService {
     }
 
     pub fn with_parts(cfg: ProxyConfig, clock: Arc<dyn Clock>, random: Arc<dyn Random>) -> Self {
+        let wal_limit = cfg.wal_pending_limit;
         let tokens = TokenManager::new(
             TokenConfig {
                 ttl_ms: cfg.token_ttl_ms,
@@ -144,6 +147,7 @@ impl ProxyService {
             otel: None,
             meta: None,
             hub: Arc::new(EventHub::default()),
+            guard: WalGuard::new(wal_limit),
         }
     }
 
@@ -268,6 +272,11 @@ impl ProxyService {
                 tracing::warn!(code = e.code(), "Span-Schreiben fehlgeschlagen");
             }
         }
+    }
+
+    /// Fail-closed: sobald die WAL nicht sicher ist, kein Verkehr mehr.
+    pub fn wal_down(&self) -> bool {
+        self.guard.is_down()
     }
 
     pub fn status(&self) -> serde_json::Value {

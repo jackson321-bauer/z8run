@@ -15,6 +15,7 @@ pub mod meta;
 pub mod service;
 pub mod stream_api;
 pub mod subscribe;
+pub mod wal_guard;
 
 pub use adapters::db::UdsDbClient;
 pub use adapters::wasm::WasmKvApp;
@@ -25,3 +26,4 @@ pub use meta::MetaStore;
 pub use otel::OtelStore;
 pub use service::{ProxyConfig, ProxyService};
 pub use subscribe::{Event, EventHub, Filter, Sink};
+pub use wal_guard::WalGuard;

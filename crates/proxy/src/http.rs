@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{Request, State},
     http::{HeaderMap, StatusCode},
+    middleware::Next,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -103,14 +104,40 @@ pub fn public_routes() -> Router<Arc<ProxyService>> {
         .merge(crate::stream_api::router())
 }
 
+async fn guard_mw(
+    State(svc): State<Arc<ProxyService>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if svc.wal_down() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "code": "UNAVAILABLE",
+                "error": "WAL nicht bestaetigt — Proxy gestoppt",
+            })),
+        )
+            .into_response();
+    }
+    next.run(req).await
+}
+
 pub fn router(svc: Arc<ProxyService>) -> Router {
-    public_routes().with_state(svc)
+    let guard = svc.clone();
+    public_routes()
+        .layer(axum::middleware::from_fn_with_state(
+            guard,
+            guard_mw,
+        ))
+        .with_state(svc)
 }
 
 /// Admin-Router (nur Admin-UDS): oeffentliche Routen + Session-Erzeugung.
 pub fn admin_router(svc: Arc<ProxyService>) -> Router {
+    let guard = svc.clone();
     public_routes()
         .merge(crate::http_admin::router())
+        .layer(axum::middleware::from_fn_with_state(guard, guard_mw))
         .with_state(svc)
 }
 
@@ -118,7 +145,17 @@ pub async fn serve_tcp(svc: Arc<ProxyService>) -> anyhow::Result<()> {
     let addr = format!("{}:{}", svc.cfg.http_bind, svc.cfg.http_port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(address = %addr, "Proxy HTTP bereit");
-    axum::serve(listener, router(svc)).await?;
+    let guard = svc.guard.clone();
+    let app = router(svc);
+    tokio::select! {
+        r = axum::serve(listener, app) => r?,
+        _ = guard.wait_down() => {
+            tracing::error!(
+                grund = ?guard.reason(),
+                "WAL-Notfall: Verkehr gestoppt, Proxy geht DOWN (fail-closed)"
+            );
+        }
+    }
     Ok(())
 }
 

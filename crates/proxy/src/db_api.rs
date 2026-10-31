@@ -49,6 +49,11 @@ impl ProxyService {
         traceparent: Option<&str>,
     ) -> Result<Value, ProxyError> {
         let info = self.require_scope(token, db_id)?;
+        if self.wal_down() {
+            return Err(ProxyError::Unavailable(
+                "WAL nicht bestaetigt — Proxy gestoppt".into(),
+            ));
+        }
         let (ctx, _) = self.ensure_trace(traceparent);
         let start = self.now_ms();
         self.db.reserve(db_id, &info.session_id).await?;
@@ -81,6 +86,10 @@ impl ProxyService {
         }
         span.attrs = attrs;
         self.write_span(span).await;
+        if let Err(e) = &out {
+            // Fail-closed: ein WAL-Fehler beendet den Verkehr geordnet.
+            self.guard.observe(0, Some(e.code()));
+        }
         out
     }
 

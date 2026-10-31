@@ -24,6 +24,8 @@ pub enum ProxyError {
     Stream(String),
     #[error("intern: {0}")]
     Internal(String),
+    #[error("nicht verfuegbar (fail-closed): {0}")]
+    Unavailable(String),
 }
 
 impl ProxyError {
@@ -40,6 +42,7 @@ impl ProxyError {
             Self::Bundle(_) => "BUNDLE_ERROR",
             Self::Stream(_) => "STREAM_ERROR",
             Self::Internal(_) => "INTERNAL",
+            Self::Unavailable(_) => "UNAVAILABLE",
         }
     }
 
@@ -51,6 +54,7 @@ impl ProxyError {
             Self::NotFound(_) => 404,
             Self::Stream(_) => 409,
             Self::Db(_) | Self::Wasm(_) | Self::Bundle(_) | Self::Internal(_) => 500,
+            Self::Unavailable(_) => 503,
         }
     }
 }
