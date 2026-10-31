@@ -3,6 +3,7 @@
 ueber den z8run-UDS-Trigger ausfuehren."""
 from __future__ import annotations
 
+import http.client
 import http.cookiejar
 import json
 import socket
@@ -80,10 +81,27 @@ def main() -> int:
         }
         status, text = uds_post(f"/hook/{fid}/proxy-demo", payload)
         print(f"TRIGGER status={status}")
-        print(f"BODY {text[:1200]}")
+        try:
+            body = json.loads(text)
+        except ValueError:
+            body = {}
+        token = body.get("proxy_token") or ""
+        if token:
+            conn = http.client.HTTPConnection("127.0.0.1", 7800, timeout=10)
+            conn.request(
+                "POST",
+                "/v1/session/logout",
+                headers={"authorization": f"Bearer {token}"},
+            )
+            conn.getresponse().read()
+            conn.close()
+        # Kein Token in Logs: vor der Ausgabe ersetzen.
+        safe = text.replace(token, "<redacted>") if token else text
+        print(f"BODY {safe[:1200]}")
         assert status == 200, status
         assert '"rows"' in text and '"ok"' in text, text
         assert "PROXY-DEMO-SYSTEMPROMPT-2026" not in text
+        assert token not in safe
         print("RESULT PASS")
         return 0
     finally:
