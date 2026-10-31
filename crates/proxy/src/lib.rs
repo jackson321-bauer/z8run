@@ -24,6 +24,7 @@ pub mod service;
 pub mod stream_api;
 pub mod stream;
 pub mod stream_conn;
+pub mod stream_control;
 pub mod subscriber;
 pub mod subscribe;
 pub mod wal_guard;

@@ -8,6 +8,7 @@ pub mod auth;
 pub mod error;
 pub mod execution_recorder;
 pub mod front;
+pub mod front_ws;
 pub mod hook_limits;
 pub mod rate_limit;
 pub mod routes;
