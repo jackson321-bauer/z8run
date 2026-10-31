@@ -1,0 +1,89 @@
+//! Duenne Stream-Control-API (G1): open/subscribe/claim/release/push fuer
+//! Canvas-Nodes und MCP. Der Medienpfad bleibt der WebSocket; hier laufen
+//! nur Control-Aktionen plus ein begrenzter Poll fuer subscribe.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+use crate::http::{bearer, ApiError};
+use crate::service::ProxyService;
+
+#[derive(Deserialize)]
+struct Ctl {
+    action: String,
+    channel: String,
+    #[serde(default)]
+    identity: Option<String>,
+    #[serde(default)]
+    payload_b64: Option<String>,
+    #[serde(default)]
+    typ: Option<u8>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+fn socket_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1_000_000);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+async fn ctl(
+    State(svc): State<Arc<ProxyService>>,
+    headers: HeaderMap,
+    Json(req): Json<Ctl>,
+) -> Result<Json<Value>, ApiError> {
+    let token = bearer(&headers)?;
+    let info = svc.authenticate(&token)?;
+    let reg = svc.streams.clone();
+    let ch = req.channel.as_str();
+    let identity = req.identity.clone().unwrap_or_else(|| info.session_id.clone());
+    match req.action.as_str() {
+        "open" => {
+            let id = reg.open(ch)?;
+            Ok(Json(json!({"ok": true, "channel": ch, "stream_id": id})))
+        }
+        "claim" => {
+            let g = reg.claim(ch, &identity, socket_id())?;
+            Ok(Json(json!({"ok": true, "claimed": ch, "stream_id": g.stream_id})))
+        }
+        "release" => {
+            reg.release(ch, &identity)?;
+            Ok(Json(json!({"ok": true, "released": ch})))
+        }
+        "push" => {
+            let data = B64
+                .decode(req.payload_b64.unwrap_or_default())
+                .map_err(|e| ApiError::from(proxy_kern::ProxyError::BadRequest(format!("payload_b64: {e}"))))?;
+            let out = reg.publish(ch, req.typ.unwrap_or(crate::frame::TYP_MEDIA), data)?;
+            Ok(Json(json!({"ok": true, "seq": out.seq, "delivered": out.delivered})))
+        }
+        "subscribe" => {
+            let sid = socket_id();
+            let sub = reg.subscribe(ch, sid)?;
+            let limit = req.limit.unwrap_or(64).min(1024);
+            let mut frames = Vec::new();
+            while frames.len() < limit {
+                match tokio::time::timeout(Duration::from_millis(25), reg.recv(&sub)).await {
+                    Ok(Some(raw)) => frames.push(B64.encode(&raw[..])),
+                    _ => break,
+                }
+            }
+            reg.unsubscribe(ch, sid);
+            Ok(Json(json!({"ok": true, "channel": ch, "frames_b64": frames})))
+        }
+        other => Err(ApiError::from(proxy_kern::ProxyError::BadRequest(format!(
+            "unbekannte Stream-Aktion: {other}"
+        )))),
+    }
+}
+
+pub fn router() -> Router<Arc<ProxyService>> {
+    Router::new().route("/v1/stream/ctl", post(ctl))
+}

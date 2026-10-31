@@ -33,6 +33,7 @@ pub mod config;
 pub mod stream;
 pub mod stream_conn;
 pub mod stream_control;
+pub mod stream_ctl_api;
 pub mod subscriber;
 pub mod subscribe;
 pub mod wal_guard;

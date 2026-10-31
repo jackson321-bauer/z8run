@@ -113,9 +113,19 @@ def register_proxy_tool(mcp) -> None:
         action_filter: str = "",
         limit: int = 1000,
         traceparent: str = "",
+        channel: str = "",
+        identity: str = "",
+        payload_b64: str = "",
+        password: str = "",
+        worlds: list[str] | None = None,
+        sessions: list[str] | None = None,
+        db_id: str = "",
+        from_ms: int = 0,
+        to_ms: int = 0,
     ) -> dict:
         """Proxy-Aktion: status|session_open|session_close|app_list|app_call|
-        stream_open|span_query|meta_query|export_otel|trace_full.
+        stream_open|stream_subscribe|stream_claim|stream_push|export_all|
+        span_query|meta_query|export_otel|trace_full.
         session_open braucht addr_space + master_key_b64 (Login-Scope); der
         Master wird nie in der Antwort ausgegeben. app_call nutzt Token +
         App-Name + input. trace_full liefert ALLE Spans+Metas eines Traces
@@ -150,8 +160,32 @@ def register_proxy_tool(mcp) -> None:
                 token=token,
                 traceparent=traceparent,
             )
-        if action == "stream_open":
-            return _admin("GET", "/v1/stream/blob/meta", token=token, traceparent=traceparent)
+        if action in ("stream_open", "stream_subscribe", "stream_claim", "stream_push"):
+            ctl = {
+                "open": "open",
+                "stream_subscribe": "subscribe",
+                "stream_claim": "claim",
+                "stream_push": "push",
+            }[action if action != "stream_open" else "open"]
+            body: dict[str, Any] = {"action": ctl, "channel": channel}
+            if identity:
+                body["identity"] = identity
+            if payload_b64:
+                body["payload_b64"] = payload_b64
+            return _admin("POST", "/v1/stream/ctl", body, token=token, traceparent=traceparent)
+        if action == "export_all":
+            body = {
+                "worlds": worlds or [],
+                "sessions": sessions or [],
+                "password": password,
+            }
+            if db_id:
+                body["db_id"] = db_id
+            if from_ms:
+                body["from_ms"] = from_ms
+            if to_ms:
+                body["to_ms"] = to_ms
+            return _admin("POST", "/v1/export/all", body, token=token, traceparent=traceparent)
         if action == "span_query":
             return _admin("GET", f"/v1/spans?trace_id={trace_id}", token=token, traceparent=traceparent)
         if action == "trace_full":

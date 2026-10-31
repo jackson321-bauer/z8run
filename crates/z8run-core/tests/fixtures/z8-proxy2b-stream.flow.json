@@ -1,0 +1,144 @@
+{
+  "id": "a7c1e9b4-2d63-4f80-b1a5-9e4c7d2f6a10",
+  "name": "Z8-STREAM",
+  "description": "Kanal-Demo: Session -> Claim -> Subscribe -> Push (16-B-Frames) -> Gesamt-Export",
+  "version": "0.1.0",
+  "nodes": [],
+  "edges": [],
+  "metadata": {
+    "positions": {
+      "canvas_nodes": [
+        {
+          "id": "start",
+          "type": "z8node",
+          "position": { "x": 0, "y": 0 },
+          "data": {
+            "type": "unix-in",
+            "label": "Trigger",
+            "config": { "method": "POST", "path": "/z8-stream" },
+            "inputs": [],
+            "outputs": [{ "id": "output", "name": "Output", "type": "object" }]
+          }
+        },
+        {
+          "id": "session",
+          "type": "z8node",
+          "position": { "x": 240, "y": 0 },
+          "data": {
+            "type": "kv-proxy",
+            "label": "Session",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "action": "session_open",
+              "openDbs": true
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Result", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "claim",
+          "type": "z8node",
+          "position": { "x": 480, "y": 0 },
+          "data": {
+            "type": "kv-stream",
+            "label": "Claim",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "action": "claim",
+              "channel": "demo/live",
+              "identity": "flow-1"
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Result", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "subscribe",
+          "type": "z8node",
+          "position": { "x": 720, "y": 0 },
+          "data": {
+            "type": "kv-stream",
+            "label": "Subscribe",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "action": "subscribe",
+              "channel": "demo/live",
+              "limit": 64
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Frames", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "push",
+          "type": "z8node",
+          "position": { "x": 960, "y": 0 },
+          "data": {
+            "type": "kv-stream",
+            "label": "Push",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "action": "push",
+              "channel": "demo/live",
+              "identity": "flow-1"
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Result", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "export",
+          "type": "z8node",
+          "position": { "x": 1200, "y": 0 },
+          "data": {
+            "type": "kv-export",
+            "label": "Gesamt-Export",
+            "config": {
+              "adminSocket": "/data/z8run/kv-proxy-admin.sock",
+              "worlds": "otel,meta",
+              "dbId": "demo"
+            },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": [
+              { "id": "output", "name": "Export", "type": "object" },
+              { "id": "error", "name": "Error", "type": "any" }
+            ]
+          }
+        },
+        {
+          "id": "answer",
+          "type": "z8node",
+          "position": { "x": 1440, "y": 0 },
+          "data": {
+            "type": "http-out",
+            "label": "Antwort",
+            "config": { "statusCode": 200 },
+            "inputs": [{ "id": "input", "name": "Input", "type": "any" }],
+            "outputs": []
+          }
+        }
+      ],
+      "canvas_edges": [
+        { "id": "e-start-session", "source": "start", "sourceHandle": "output", "target": "session", "targetHandle": "input" },
+        { "id": "e-session-claim", "source": "session", "sourceHandle": "output", "target": "claim", "targetHandle": "input" },
+        { "id": "e-claim-subscribe", "source": "claim", "sourceHandle": "output", "target": "subscribe", "targetHandle": "input" },
+        { "id": "e-subscribe-push", "source": "subscribe", "sourceHandle": "output", "target": "push", "targetHandle": "input" },
+        { "id": "e-push-export", "source": "push", "sourceHandle": "output", "target": "export", "targetHandle": "input" },
+        { "id": "e-export-answer", "source": "export", "sourceHandle": "output", "target": "answer", "targetHandle": "input" }
+      ]
+    }
+  }
+}
