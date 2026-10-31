@@ -9,6 +9,7 @@ use proxy_kern::{
     SessionInfo, SessionState, SessionStore, TokenConfig, TokenGrant, TokenManager, TraceContext,
 };
 
+use crate::channel::{ChannelConfig, ChannelRegistry};
 use crate::meta::MetaStore;
 use crate::secrets::SecretStore;
 use crate::otel::OtelStore;
@@ -37,6 +38,9 @@ pub struct ProxyConfig {
     pub wal_pending_limit: u64,
     pub export_dir: PathBuf,
     pub export_key: String,
+    pub stream_subscribers: usize,
+    pub stream_sub_queue: usize,
+    pub stream_claim_grace_ms: u64,
 }
 
 impl Default for ProxyConfig {
@@ -61,6 +65,11 @@ impl Default for ProxyConfig {
                 .unwrap_or(1000),
             export_dir: PathBuf::from(env("KV_PROXY_EXPORT_DIR", "/data/z8run/exports/otel")),
             export_key: env("KV_PROXY_EXPORT_KEY", ""),
+            stream_subscribers: env("KV_PROXY_STREAM_SUBS", "32").parse().unwrap_or(32),
+            stream_sub_queue: env("KV_PROXY_STREAM_QUEUE", "256").parse().unwrap_or(256),
+            stream_claim_grace_ms: env("KV_PROXY_STREAM_GRACE_MS", "5000")
+                .parse()
+                .unwrap_or(5000),
         }
     }
 }
@@ -122,6 +131,7 @@ pub struct ProxyService {
     pub hub: Arc<EventHub>,
     pub guard: Arc<WalGuard>,
     pub secrets: SecretStore,
+    pub streams: Arc<ChannelRegistry>,
 }
 
 /// Logging-Persistenz als Abonnent der Subscribe/Push-Naht.
@@ -177,6 +187,15 @@ impl ProxyService {
 
     pub fn with_parts(cfg: ProxyConfig, clock: Arc<dyn Clock>, random: Arc<dyn Random>) -> Self {
         let wal_limit = cfg.wal_pending_limit;
+        let streams = Arc::new(ChannelRegistry::new(
+            ChannelConfig {
+                subscribers_per_channel: cfg.stream_subscribers,
+                channels_per_session: crate::channel::CHANNELS_PER_SESSION,
+                claim_grace_ms: cfg.stream_claim_grace_ms,
+                sub_queue: cfg.stream_sub_queue,
+            },
+            clock.clone(),
+        ));
         let tokens = TokenManager::new(
             TokenConfig {
                 ttl_ms: cfg.token_ttl_ms,
@@ -199,6 +218,7 @@ impl ProxyService {
             hub: Arc::new(EventHub::default()),
             guard: WalGuard::new(wal_limit),
             secrets: SecretStore::new(),
+            streams,
         }
     }
 

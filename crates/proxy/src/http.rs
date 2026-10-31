@@ -112,6 +112,7 @@ pub fn public_routes() -> Router<Arc<ProxyService>> {
         .merge(crate::http_db::router())
         .merge(crate::http_app::router())
         .merge(crate::stream_api::router())
+        .merge(crate::stream::router())
         .merge(crate::http_log::router())
 }
 

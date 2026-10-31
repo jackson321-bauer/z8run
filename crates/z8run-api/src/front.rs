@@ -113,6 +113,7 @@ async fn handle(
     });
     hyper::server::conn::http1::Builder::new()
         .serve_connection(io, service)
+        .with_upgrades()
         .await?;
     Ok(())
 }
@@ -148,17 +149,25 @@ async fn route(
             Ok(u) => *req.uri_mut() = u,
             Err(e) => return fehler(400, &format!("Ziel-URI: {e}")),
         }
-        {
+        if is_websocket_upgrade(&req) {
             let h = req.headers_mut();
-            for k in [
-                "connection", "keep-alive", "transfer-encoding", "upgrade",
-                "proxy-authorization", "proxy-authenticate", "te",
-            ] {
+            for k in ["keep-alive", "proxy-authorization", "proxy-authenticate", "te"] {
                 h.remove(k);
             }
             if let Ok(v) = addr.to_string().parse() {
                 h.insert("host", v);
             }
+            return reverse_upgrade(req, addr).await;
+        }
+        let h = req.headers_mut();
+        for k in [
+            "connection", "keep-alive", "transfer-encoding", "upgrade",
+            "proxy-authorization", "proxy-authenticate", "te",
+        ] {
+            h.remove(k);
+        }
+        if let Ok(v) = addr.to_string().parse() {
+            h.insert("host", v);
         }
         return reverse(req, addr).await;
     }
@@ -167,6 +176,62 @@ async fn route(
         Ok(resp) => resp,
         Err(e) => match e {},
     }
+}
+
+fn is_websocket_upgrade(req: &hyper::Request<Body>) -> bool {
+    let upgrade = req
+        .headers()
+        .get(axum::http::header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+    let connection = req
+        .headers()
+        .get(axum::http::header::CONNECTION)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_ascii_lowercase().contains("upgrade"))
+        .unwrap_or(false);
+    upgrade && connection
+}
+
+/// WebSocket-Upgrade durch den PQC-TLS-Front: 101 wird beantwortet und
+/// danach werden Bytes bidirektional getunnelt (WS ueber 443).
+async fn reverse_upgrade(mut req: hyper::Request<Body>, addr: SocketAddr) -> Response {
+    let stream = match tokio::net::TcpStream::connect(addr).await {
+        Ok(s) => s,
+        Err(e) => return fehler(502, &format!("upstream {addr}: {e}")),
+    };
+    let io = TokioIo::new(stream);
+    let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {
+        Ok(v) => v,
+        Err(e) => return fehler(502, &format!("handshake: {e}")),
+    };
+    tokio::spawn(async move {
+        let _ = conn.with_upgrades().await;
+    });
+    let client_upgrade = hyper::upgrade::on(&mut req);
+    let mut resp = match sender.send_request(req).await {
+        Ok(r) => r,
+        Err(e) => return fehler(502, &format!("upstream Antwort: {e}")),
+    };
+    if resp.status() != axum::http::StatusCode::SWITCHING_PROTOCOLS {
+        let (parts, body) = resp.into_parts();
+        return Response::from_parts(parts, Body::new(body));
+    }
+    let server_upgrade = hyper::upgrade::on(&mut resp);
+    let (parts, _) = resp.into_parts();
+    tokio::spawn(async move {
+        let (client, server) = tokio::join!(client_upgrade, server_upgrade);
+        match (client, server) {
+            (Ok(c), Ok(s)) => {
+                let mut c = TokioIo::new(c);
+                let mut s = TokioIo::new(s);
+                let _ = tokio::io::copy_bidirectional(&mut c, &mut s).await;
+            }
+            _ => tracing::debug!("WS-Upgrade auf einer Seite fehlgeschlagen"),
+        }
+    });
+    Response::from_parts(parts, Body::empty())
 }
 
 async fn reverse(req: hyper::Request<Body>, addr: SocketAddr) -> Response {
