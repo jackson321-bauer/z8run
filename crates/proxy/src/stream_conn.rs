@@ -30,13 +30,13 @@ pub(crate) async fn send_err(tx: &mpsc::Sender<Message>, code: &str, message: &s
     let _ = send_json(tx, json!({"type": "err", "code": code, "error": message})).await;
 }
 
-fn unwrap_media(data: &Bytes) -> (u8, Vec<u8>) {
-    if data.len() >= HEADER_LEN && u16::from_be_bytes([data[0], data[1]]) == FRAME_MAGIC {
+fn unwrap_media(data: &Bytes) -> (u8, u8, Vec<u8>) {
+    if data.len() >= HEADER_LEN && u16::from_le_bytes([data[0], data[1]]) == FRAME_MAGIC {
         if let Ok(f) = Frame::decode(data) {
-            return (f.typ, f.payload);
+            return (f.typ, f.flags, f.payload);
         }
     }
-    (TYP_MEDIA, data.to_vec())
+    (TYP_MEDIA, 0, data.to_vec())
 }
 
 pub(crate) async fn spawn_forward(
@@ -136,8 +136,8 @@ pub async fn handle(mut socket: WebSocket, svc: Arc<ProxyService>, setup: Setup)
                         let _ = send_err(&out_tx, "NOT_CLAIMED", "Socket haelt keinen Claim").await;
                         continue;
                     };
-                    let (typ, payload) = unwrap_media(&data);
-                    match reg.publish(&ch, typ, payload) {
+                    let (typ, flags, payload) = unwrap_media(&data);
+                    match reg.publish_with_flags(&ch, typ, flags, payload) {
                         Ok(out) => {
                             let _ = send_json(&out_tx, json!({"type": "ack", "seq": out.seq})).await;
                             if out.overflowed > 0 {

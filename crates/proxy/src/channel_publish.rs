@@ -15,6 +15,16 @@ impl ChannelRegistry {
         typ: u8,
         payload: Vec<u8>,
     ) -> Result<PublishOutcome, ProxyError> {
+        self.publish_with_flags(name, typ, 0, payload)
+    }
+
+    pub fn publish_with_flags(
+        &self,
+        name: &str,
+        typ: u8,
+        flags: u8,
+        payload: Vec<u8>,
+    ) -> Result<PublishOutcome, ProxyError> {
         let mut inner = self.lock();
         let c = inner
             .channels
@@ -26,7 +36,8 @@ impl ChannelRegistry {
         if let Some(tap) = &c.tap {
             tap.on_frame(seq, typ, &payload);
         }
-        let bytes: Arc<[u8]> = Frame::new(typ, c.id, seq, payload)?.encode()?.into();
+        let bytes: Arc<[u8]> =
+            Frame::with_flags(typ, flags, c.id, seq, payload)?.encode()?.into();
         let mut delivered = 0;
         for sub in &c.subs {
             if sub.push(bytes.clone(), self.cfg.sub_queue) {

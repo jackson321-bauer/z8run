@@ -152,11 +152,18 @@ async fn langsamer_abonnent_blockiert_andere_nicht() {
 #[test]
 fn frame_roundtrip_binaer_byte_genau() {
     let payload: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
-    let f = Frame::new(TYP_MEDIA, 42, 7, payload.clone()).unwrap();
+    let f = Frame::with_flags(TYP_MEDIA, 0xA5, 42, 7, payload.clone()).unwrap();
     let bytes = f.encode().unwrap();
     assert_eq!(bytes.len(), HEADER_LEN + payload.len());
+    // G2: Header EXAKT 16 B, little endian, flags an Byte 3.
+    assert_eq!(&bytes[0..2], &0x5A38u16.to_le_bytes());
+    assert_eq!(bytes[2], TYP_MEDIA);
+    assert_eq!(bytes[3], 0xA5);
+    assert_eq!(&bytes[4..8], &42u32.to_le_bytes());
+    assert_eq!(&bytes[8..16], &7u64.to_le_bytes());
     let back = Frame::decode(&bytes).unwrap();
     assert_eq!(back.typ, TYP_MEDIA);
+    assert_eq!(back.flags, 0xA5);
     assert_eq!(back.stream_id, 42);
     assert_eq!(back.seq, 7);
     assert_eq!(back.len(), 4096);
