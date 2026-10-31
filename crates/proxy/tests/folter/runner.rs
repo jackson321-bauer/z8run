@@ -50,11 +50,16 @@ async fn folter_x20() {
         sub_queue: 8192,
         claim_grace_ms: 5_000,
         channels_per_session: 513,
+        max_frame_bytes: proxy_native::frame::MAX_FRAME_BYTES,
     };
     let reg = workloads::registry(cfg);
     let db = Arc::new(MemDb::default());
 
-    let ws_svc = Arc::new(ProxyService::new(ProxyConfig::default()));
+    let ws_svc = Arc::new(ProxyService::new(ProxyConfig {
+        // Szenario (f): 100 gleichzeitige Streams je Runde, eine Session.
+        stream_channels_per_session: 100_000,
+        ..ProxyConfig::default()
+    }));
     let ws_state = SessionState::new(
         "folter-ws".into(), "space".into(), "user".into(), "ws/".into(),
         json!([]), vec!["demo".into()], b"master".to_vec(), 1,

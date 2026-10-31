@@ -15,7 +15,7 @@ pub fn registry(cfg: ChannelConfig) -> Arc<ChannelRegistry> {
 }
 
 pub async fn fanout(reg: Arc<ChannelRegistry>, round: u64) -> (usize, usize) {
-    let ch = format!("folter/fanout-{round}");
+    let ch = "folter/fanout".to_string();
     reg.open(&ch).unwrap();
     let mut tasks = Vec::new();
     for s in 0..100u64 {
@@ -48,7 +48,7 @@ pub async fn fanout(reg: Arc<ChannelRegistry>, round: u64) -> (usize, usize) {
 pub async fn recording(reg: Arc<ChannelRegistry>, db: Arc<MemDb>, round: u64) -> u64 {
     let mut lost = 0;
     for c in 0..20u64 {
-        let ch = format!("folter/vnc-{round}-{c}");
+        let ch = format!("folter/vnc-{c}");
         reg.open(&ch).unwrap();
         let rec = Recording::start(db.clone(), "mem".into(), "folter".into(), "s".into(), "video".into());
         reg.set_tap(&ch, Some(rec.clone())).unwrap();
@@ -76,7 +76,7 @@ pub async fn phone(reg: Arc<ChannelRegistry>, round: u64) -> u64 {
             let reg = reg.clone();
             let counter = counter.clone();
             tasks.push(tokio::spawn(async move {
-                let ch = format!("folter/phone-{round}-{c}-{dir}");
+                let ch = format!("folter/phone-{c}-{dir}");
                 reg.open(&ch).unwrap();
                 for i in 0..50u32 {
                     let mut p = vec![0u8; 160];
@@ -95,7 +95,7 @@ pub async fn phone(reg: Arc<ChannelRegistry>, round: u64) -> u64 {
 }
 
 pub async fn small_events(reg: Arc<ChannelRegistry>, round: u64, count: u64) -> u64 {
-    let ch = format!("folter/events-{round}");
+    let ch = "folter/events".to_string();
     reg.open(&ch).unwrap();
     let sub = reg.subscribe(&ch, 999).unwrap();
     let r = reg.clone();
@@ -120,7 +120,7 @@ pub async fn small_events(reg: Arc<ChannelRegistry>, round: u64, count: u64) -> 
 
 /// Relay-Latenz p99 in Mikrosekunden (publish -> Abonnent).
 pub async fn relay_p99(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> u64 {
-    let ch = format!("folter/relay-{round}");
+    let ch = "folter/relay".to_string();
     reg.open(&ch).unwrap();
     let sub = reg.subscribe(&ch, 1).unwrap();
     let r = reg.clone();
@@ -161,7 +161,7 @@ pub async fn relay_p99(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> u6
 /// bremsen. Gemessen wird die Zustell-Latenz AM SCHNELLEN Abonnenten
 /// (publish -> Empfang), kanalisoliert je Runde.
 pub async fn hol(reg: Arc<ChannelRegistry>, round: u64, frames: u64) -> (u64, bool) {
-    let ch = format!("folter/hol-{round}");
+    let ch = "folter/hol".to_string();
     reg.open(&ch).unwrap();
     let _slow = reg.subscribe(&ch, 1).unwrap();
     let fast = reg.subscribe(&ch, 2).unwrap();

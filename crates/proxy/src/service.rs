@@ -50,7 +50,7 @@ impl ProxyService {
         let streams = Arc::new(ChannelRegistry::new(
             ChannelConfig {
                 subscribers_per_channel: cfg.stream_subscribers,
-                channels_per_session: crate::channel::CHANNELS_PER_SESSION,
+                channels_per_session: cfg.stream_channels_per_session,
                 claim_grace_ms: cfg.stream_claim_grace_ms,
                 sub_queue: cfg.stream_sub_queue,
                 max_frame_bytes: cfg.stream_frame_max,

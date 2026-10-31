@@ -56,7 +56,7 @@ pub async fn ws_streams(url: String, token: String, round: u64) -> usize {
             req.headers_mut().insert("x-z8-stream-type", HeaderValue::from_static("live"));
             req.headers_mut().insert(
                 "x-z8-channel",
-                HeaderValue::from_str(&format!("folter/ws-{round}-{c}")).ok()?,
+                HeaderValue::from_str(&format!("folter/ws-{c}")).ok()?,
             );
             let (mut ws, _) = tokio_tungstenite::connect_async(req).await.ok()?;
             for i in 0..5u8 {
