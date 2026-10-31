@@ -11,6 +11,7 @@ use proxy_kern::{
 
 use crate::meta::MetaStore;
 use crate::otel::OtelStore;
+use crate::subscribe::EventHub;
 use serde_json::Value;
 
 use crate::adapters::{OsRandom, SystemClock};
@@ -112,6 +113,7 @@ pub struct ProxyService {
     pub llm: Arc<dyn LlmPort>,
     pub otel: Option<Arc<OtelStore>>,
     pub meta: Option<Arc<MetaStore>>,
+    pub hub: Arc<EventHub>,
 }
 
 impl ProxyService {
@@ -141,6 +143,7 @@ impl ProxyService {
             llm: Arc::new(MockLlm),
             otel: None,
             meta: None,
+            hub: Arc::new(EventHub::default()),
         }
     }
 
@@ -232,6 +235,14 @@ impl ProxyService {
                 return;
             }
         };
+        // Logging ist erster Abonnent an der Naht (kein Sonderpfad).
+        self.hub.publish(
+            &self.cfg.cluster_id,
+            "proxy",
+            &format!("meta:{}", event.action),
+            trace_id,
+            serde_json::json!({"actor": event.actor, "status": event.status}),
+        );
         if let Err(e) = meta.record(&event).await {
             tracing::warn!(code = e.code(), art = event.action, "Meta-Schreiben fehlgeschlagen");
         }
@@ -245,6 +256,13 @@ impl ProxyService {
     }
 
     pub async fn write_span(&self, span: proxy_kern::Span) {
+        self.hub.publish(
+            &self.cfg.cluster_id,
+            "proxy",
+            &format!("otel:{}", span.name),
+            &span.trace_id,
+            serde_json::json!({"span_id": span.span_id, "status": format!("{:?}", span.status)}),
+        );
         if let Some(otel) = &self.otel {
             if let Err(e) = otel.write(&span).await {
                 tracing::warn!(code = e.code(), "Span-Schreiben fehlgeschlagen");
