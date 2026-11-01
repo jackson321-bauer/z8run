@@ -1,5 +1,9 @@
 # Unix Socket Nodes
 
+> z8-proxy3: interner Engine-Socket `/data/z8run/z8run.sock` spricht udsv3.
+> `unix-out` erkennt `*z8run.sock` automatisch; `curl --unix-socket` allein
+> funktioniert dort NICHT mehr (Chiffre). Andere lokale Sockets bleiben plain.
+
 `Unix In` and `Unix Out` speak **HTTP/1.1 over a local Unix domain socket**.
 No TCP port is opened, no TLS is involved, and nothing is reachable from the network.
 

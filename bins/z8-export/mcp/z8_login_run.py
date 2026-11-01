@@ -35,14 +35,8 @@ def _datei_inhalt(path: str, art: str) -> str:
 def _post(flow_id: str, path: str, body: dict) -> tuple[int, Any]:
     if not flow_id:
         raise ValueError("Flow-ID fehlt (Z8_LOGIN_FLOW_ID/Z8_LOGIN_PEM_FLOW_ID)")
-    transport = httpx.HTTPTransport(uds=SOCK)
-    with httpx.Client(transport=transport, base_url="http://localhost", timeout=300.0) as c:
-        r = c.post(f"/hook/{flow_id}{path}", json=body)
-        try:
-            data = r.json()
-        except ValueError:
-            data = {"raw": r.text[:2000]}
-        return r.status_code, data
+    from udsv3_client import post as udsv3_post
+    return udsv3_post(SOCK, "engine", f"/hook/{flow_id}{path}", body, 300.0)
 
 
 def perform_login_challenge(

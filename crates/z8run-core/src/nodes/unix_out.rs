@@ -157,9 +157,18 @@ impl NodeExecutor for UnixOutNode {
         let timeout_ms = self.timeout_ms;
         let max_body = self.max_response_bytes;
         let outcome = tokio::time::timeout(Duration::from_millis(timeout_ms), async move {
-            let stream = UnixStream::connect(&socket_path)
-                .await
-                .map_err(|e| e.to_string())?;
+            let stream: crate::udsv3_stream::BoxIo = if socket_path.ends_with("z8run.sock") {
+                Box::new(
+                    crate::udsv3_stream::connect(std::path::Path::new(&socket_path), "engine")
+                        .map_err(|e| e.to_string())?,
+                )
+            } else {
+                Box::new(
+                    UnixStream::connect(&socket_path)
+                        .await
+                        .map_err(|e| e.to_string())?,
+                )
+            };
             let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
                 .await
                 .map_err(|e| e.to_string())?;

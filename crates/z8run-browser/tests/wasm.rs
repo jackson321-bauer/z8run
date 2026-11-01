@@ -13,6 +13,8 @@ async fn vec_opfs_cipher_und_fassade() {
     assert!(vec.starts_with('v'), "vec_version fehlt: {vec}");
     assert_eq!(v["rows"][0][0], "hallo-browser");
     assert!(v["opfs_listed"].as_array().is_some());
+    assert!(v["quota"].as_f64().unwrap_or(0.0) > 0.0, "Quota nicht abfragbar: {out}");
+    assert!(v["persisted"].is_boolean(), "persist() fehlt: {out}");
     println!("WASM_SELFTEST {out}");
 
     // Fassade mit HTTP-Semantik (Worker postMessage).
@@ -52,6 +54,16 @@ async fn vec_opfs_cipher_und_fassade() {
     assert!(plain.starts_with(b"SQLite format 3"), "native Fixture nicht lesbar");
     assert!(plain.windows(b"native-nach-wasm".len()).any(|w| w == b"native-nach-wasm"));
     println!("NATIVE_TO_WASM_OK bytes={}", plain.len());
+
+    // Konflikt: aelterer OPFS-Stand + neuere S3-WAL => Replay + UI-Event.
+    let r = z8run_browser::facade(
+        r#"{"method":"POST","path":"/v1/conflict","body":{"local_wal":7,"local_hash":"aa","remote_wal":9,"remote_hash":"bb"}}"#,
+    );
+    assert!(r.contains("ReplayRemote"), "Konflikt-Event fehlt: {r}");
+    let r = z8run_browser::facade(
+        r#"{"method":"POST","path":"/v1/conflict","body":{"local_wal":9,"local_hash":"aa","remote_wal":9,"remote_hash":"bb"}}"#,
+    );
+    assert!(r.contains("ChainMismatch"), "Kettenkonflikt fehlt: {r}");
 
     // Offline-Regel: S3-Kontakt fehlt => SHUTDOWN.
     let r = z8run_browser::facade(

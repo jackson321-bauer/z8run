@@ -78,7 +78,15 @@ pub async fn browser_selftest(key: &[u8]) -> Result<String, JsValue> {
         .ok()
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let quota = wasm_bindgen_futures::JsFuture::from(opfs::quota()).await.ok();
+    let quota = wasm_bindgen_futures::JsFuture::from(opfs::quota())
+        .await
+        .ok()
+        .and_then(|v| {
+            js_sys::Reflect::get(&v, &JsValue::from_str("quota"))
+                .ok()
+                .and_then(|q| q.as_f64())
+        })
+        .unwrap_or(0.0);
     Ok(json!({
         "vec_version": vec,
         "rows": rows,
@@ -86,7 +94,7 @@ pub async fn browser_selftest(key: &[u8]) -> Result<String, JsValue> {
         "sealed_bytes": sealed.len(),
         "opfs_listed": listed,
         "persisted": persisted,
-        "quota": quota.map(|q| q.as_f64().unwrap_or(0.0)).unwrap_or(0.0),
+        "quota": quota,
     })
     .to_string())
 }
@@ -137,6 +145,14 @@ pub fn facade(request_json: &str) -> String {
             let now = req["body"]["now_ms"].as_u64().unwrap_or(0);
             let locked = SESSION.with(|s| s.borrow_mut().check_lock(now));
             json!({"status": 200, "body": {"locked": locked}}).to_string()
+        }
+        ("POST", "/v1/conflict") => {
+            let lw = req["body"]["local_wal"].as_u64().unwrap_or(0);
+            let lh = req["body"]["local_hash"].as_str().unwrap_or("");
+            let rw = req["body"]["remote_wal"].as_u64().unwrap_or(0);
+            let rh = req["body"]["remote_hash"].as_str().unwrap_or("");
+            let r = conflict::resolve(lw, lh, rw, rh);
+            json!({"status": 200, "body": {"event": format!("{r:?}"), "resolution": r}}).to_string()
         }
         ("POST", "/v1/s3/probe") => {
             let ok = req["body"]["ok"].as_bool().unwrap_or(false);

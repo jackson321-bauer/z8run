@@ -2,7 +2,7 @@
 //! OPFS-Stand aelter, werden die neueren S3-WALs replayed; die UI bekommt
 //! ein Meldungs-Ereignis. Gleicher Stand + andere Kette = harter Konflikt.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Resolution {
     /// Kein Konflikt: lokal ist aktuell.
     LocalCurrent,
