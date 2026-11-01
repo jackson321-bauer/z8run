@@ -5905,14 +5905,17 @@ name = "z8run-browser"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
+ "argon2",
  "async-trait",
  "base64",
  "cc",
+ "data-encoding",
  "getrandom 0.2.17",
  "hex",
  "hkdf",
  "hmac",
  "js-sys",
+ "p256",
  "proxy-kern",
  "rand 0.8.8",
  "serde",

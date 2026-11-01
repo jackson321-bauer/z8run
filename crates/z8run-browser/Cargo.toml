@@ -5,6 +5,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# NUR fuer Browser-Tests: Inline-Hashdatei/Test-Welt. Wird beim echten
+# Bündelbau (z8-export) NICHT aktiviert -> kein Login-Hintertürchen.
+test-login = []
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -16,6 +21,7 @@ hmac = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }
 zeroize = { workspace = true }
+data-encoding = "2"
 async-trait = { workspace = true }
 # ECHTER Kern (target-sauber) auch im Browser: gleiche Token-/Session-/App-
 # Logik wie nativ; nur die Adapter (DB/Storage) sind Browser-Implementierungen.
@@ -31,6 +37,9 @@ aes-gcm = { workspace = true }
 hkdf = { workspace = true }
 rand = { workspace = true }
 getrandom = { version = "0.2", features = ["js"] }
+# Passbox-Login: Argon2id + ECIES-P256 wie die native Kette (kette.rs).
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "pem", "arithmetic"] }
 # wasmi = App-Laufzeit IM Worker (Wasmtime bleibt nativ). Btree-Collections,
 # weil wasm32-unknown-unknown keine Random-Quelle fuer Hash-Maps garantiert.
 wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "memory64", "prefer-btree-collections", "portable-dispatch"] }

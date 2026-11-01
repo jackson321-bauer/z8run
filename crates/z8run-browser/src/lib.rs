@@ -13,6 +13,8 @@ mod cipher;
 #[cfg(target_arch = "wasm32")]
 mod kernel;
 #[cfg(target_arch = "wasm32")]
+mod login;
+#[cfg(target_arch = "wasm32")]
 mod opfs;
 #[cfg(target_arch = "wasm32")]
 mod opfs_backend;
@@ -164,6 +166,13 @@ pub fn db_sealed_dump(db_id: &str) -> Option<Vec<u8>> {
     kernel::dump_db(db_id)
 }
 
+/// Nur Test-Build: DB-Klartext aus der Z8FC1-Datei (Roundtrip-Beweis).
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
+#[wasm_bindgen]
+pub fn test_db_plain_dump(db_id: &str) -> Option<Vec<u8>> {
+    kernel::dump_db_plain(db_id)
+}
+
 /// DB-Key-Ableitung (HKDF wie nativ) fuer den Fixture-Abgleich im Test.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -226,9 +235,7 @@ pub async fn facade(request_json: &str) -> String {
         ("GET", "/v1/kernel/status") => {
             json!({"status": 200, "body": kernel::with_kernel(|k| k.status())}).to_string()
         }
-        ("POST", "/v1/kernel/login") | ("POST", "/v1/session/login") => {
-            kernel_login(body).await
-        }
+        ("POST", "/v1/login/passbox") => passbox_login(body).await,
         ("POST", "/v1/session/autolock") => {
             let sec = body["sec"].as_u64().unwrap_or(300);
             SESSION.with(|s| s.borrow_mut().set_autolock(sec));
@@ -323,39 +330,98 @@ pub async fn facade(request_json: &str) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn kernel_login(body: &Value) -> String {
-    use base64::Engine as _;
+fn login_err(e: login::LoginError) -> String {
+    let status = match e.code {
+        "UNAUTHORIZED" => 401,
+        "UNAVAILABLE" => 503,
+        _ => 400,
+    };
+    json!({"status": status, "body": {"error": e.message, "code": e.code}}).to_string()
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn passbox_login(body: &Value) -> String {
     if let Err(e) = opfs_backend::init().await {
         return json!({"status": 500, "body": {"error": e}}).to_string();
     }
-    let master = body["master_b64"]
-        .as_str()
-        .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
-        .unwrap_or_default();
-    if master.is_empty() {
-        return json!({"status": 400, "body": {"error": "master fehlt"}}).to_string();
+    let space = body["space"].as_str().unwrap_or("");
+    let username = body["username"].as_str().unwrap_or("");
+    let password = body["password"].as_str().unwrap_or("");
+    let hw_pem = body["hw_pem"].as_str().unwrap_or("");
+    let salt = body["salt"].as_str().unwrap_or("");
+    if space.is_empty() || username.is_empty() || password.is_empty() || hw_pem.is_empty() || salt.is_empty() {
+        return json!({"status": 400, "body": {"error": "Login-Felder unvollstaendig"}}).to_string();
     }
+    let hash = if !body["s3"].is_null() {
+        let key = body["hash_key"].as_str().unwrap_or("Argon2IDHashDatei.txt");
+        match login::s3_get_json(&body["s3"], key).await {
+            Ok(v) => v,
+            Err(e) => {
+                // Ohne S3-Kontakt: Kern fail-closed (SHUTDOWN).
+                SESSION.with(|s| {
+                    s.borrow_mut().s3_probe(false);
+                });
+                return login_err(e);
+            }
+        }
+    } else {
+        #[cfg(feature = "test-login")]
+        if body["hashdatei"].is_object() {
+            body["hashdatei"].clone()
+        } else {
+            SESSION.with(|s| {
+                s.borrow_mut().s3_probe(false);
+            });
+            return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
+        }
+        #[cfg(not(feature = "test-login"))]
+        {
+            SESSION.with(|s| {
+                s.borrow_mut().s3_probe(false);
+            });
+            return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
+        }
+    };
+    let ok = match login::login_from_hashdatei(&hash, space, username, password, hw_pem, salt) {
+        Ok(v) => v,
+        Err(e) => return login_err(e),
+    };
+    SESSION.with(|s| {
+        s.borrow_mut().login(ok.master.clone());
+        s.borrow_mut().s3_probe(true);
+    });
+    let buckets: Vec<String> = ok
+        .passbox_payload["buckets"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let db_id = body["db_id"]
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| buckets.first().cloned())
+        .unwrap_or_else(|| "demo".to_string());
     let session_id = body["session_id"]
         .as_str()
         .map(str::to_string)
         .unwrap_or_else(|| format!("s-{}", js_sys::Date::now() as u64));
-    let db_id = body["db_id"].as_str().unwrap_or("main").to_string();
-    let now = js_sys::Date::now() as u64;
     let grant = kernel::with_kernel(|k| {
         k.login(
-            master.clone(),
+            ok.master.clone(),
             session_id.clone(),
-            body["addr_space"].as_str().unwrap_or("browser").to_string(),
-            body["addr_user"].as_str().unwrap_or("browser").to_string(),
+            ok.space_addr.clone(),
+            ok.username.clone(),
             body["workspace_bucket"].as_str().unwrap_or("").to_string(),
-            vec![db_id.clone()],
-            now,
+            if buckets.is_empty() { vec![db_id.clone()] } else { buckets.clone() },
+            js_sys::Date::now() as u64,
         )
     });
-    SESSION.with(|s| s.borrow_mut().login(master.clone()));
-    let opened = match kernel::open_db(&db_id, &master, &kernel::browser_cluster("browser")).await {
+    let opened = match kernel::open_db(&db_id, &ok.master, &kernel::browser_cluster("browser")).await {
         Ok(st) => serde_json::to_value(st).unwrap_or(Value::Null),
         Err(e) => return proxy_err(e),
+    };
+    let fp = {
+        use sha2::Digest;
+        hex::encode(sha2::Sha256::digest(&ok.master))
     };
     json!({
         "status": 200,
@@ -364,29 +430,32 @@ async fn kernel_login(body: &Value) -> String {
             "session_id": grant.session_id,
             "token": grant.token,
             "expires_at_ms": grant.expires_at_ms,
+            "space_addr": ok.space_addr,
+            "user_addr": ok.user_addr,
+            "master_sha256": fp,
             "db": opened,
         }
     })
     .to_string()
 }
 
+/// Nur Test-Build: Inline-Welt (Hashdatei+PEM+Passwort) fuer Browser-Tests.
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
+#[wasm_bindgen]
+pub fn test_build_world(passwort: &str, salt: &str, space: &str, username: &str) -> String {
+    login::build_test_world(passwort, salt, space, username).to_string()
+}
+
 #[cfg(target_arch = "wasm32")]
 async fn db_open(body: &Value) -> String {
-    use base64::Engine as _;
     if let Err(e) = opfs_backend::init().await {
         return json!({"status": 500, "body": {"error": e}}).to_string();
     }
     let db_id = body["db_id"].as_str().unwrap_or("main");
     let session_id = body["session_id"].as_str().unwrap_or("browser");
-    let master = if let Some(b64) = body["master_b64"].as_str() {
-        base64::engine::general_purpose::STANDARD.decode(b64).unwrap_or_default()
-    } else {
-        match kernel::with_kernel(|k| k.session_master_b64(session_id)) {
-            Ok(b64) => base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
-        }
+    let master = match kernel::with_kernel(|k| k.session_master(session_id)) {
+        Ok(m) => m,
+        Err(_) => Vec::new(),
     };
     if master.is_empty() {
         return json!({"status": 401, "body": {"error": "kein Master (Login fehlt)"}}).to_string();

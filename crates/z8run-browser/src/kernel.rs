@@ -165,9 +165,9 @@ impl Kernel {
         self.tokens.issue(&session_id)
     }
 
-    pub fn session_master_b64(&self, session_id: &str) -> Result<String, ProxyError> {
+    pub fn session_master(&self, session_id: &str) -> Result<Vec<u8>, ProxyError> {
         self.sessions
-            .with(session_id, |s| s.master_b64())
+            .with(session_id, |s| s.master_bytes().to_vec())
             .ok_or(ProxyError::Unauthorized)
     }
 }
@@ -261,13 +261,13 @@ impl DbPort for BrowserDbPort {
     async fn open_db(
         &self,
         db_id: &str,
-        master_key_b64: &str,
+        master_key_reg: &str,
         cluster: Value,
     ) -> Result<Value, ProxyError> {
         use base64::Engine as _;
         let master = base64::engine::general_purpose::STANDARD
-            .decode(master_key_b64)
-            .map_err(|e| ProxyError::BadRequest(format!("master_b64: {e}")))?;
+            .decode(master_key_reg)
+            .map_err(|e| ProxyError::BadRequest(format!("master-key: {e}")))?;
         let st = open_db(db_id, &master, &cluster).await?;
         serde_json::to_value(st).map_err(|e| ProxyError::Internal(e.to_string()))
     }
@@ -399,6 +399,17 @@ pub fn dump_db(db_id: &str) -> Option<Vec<u8>> {
         let dbs = k.dbs.borrow();
         let d = dbs.get(db_id)?;
         opfs_backend::get_sync(&d.path).ok().flatten()
+    })
+}
+
+/// Nur Test: versiegelte DB oeffnen (beweist Z8FC1->SQLite-Roundtrip).
+#[cfg(feature = "test-login")]
+pub fn dump_db_plain(db_id: &str) -> Option<Vec<u8>> {
+    with_kernel(|k| {
+        let dbs = k.dbs.borrow();
+        let d = dbs.get(db_id)?;
+        let sealed = opfs_backend::get_sync(&d.path).ok().flatten()?;
+        cipher::open(&d.key, &sealed).ok()
     })
 }
 

@@ -77,10 +77,10 @@ fn wasm_bindgen_bin() -> String {
 
 const WORKER: &str = r#"import init, * as core from './wasm/z8run_browser.js';
 await init();
-self.onmessage = (e) => {
+self.onmessage = async (e) => {
   try {
     const req = typeof e.data === 'string' ? e.data : JSON.stringify(e.data);
-    self.postMessage(core.facade(req));
+    self.postMessage(await core.facade(req));
   } catch (err) {
     self.postMessage(JSON.stringify({status: 500, body: {error: String(err)}}));
   }

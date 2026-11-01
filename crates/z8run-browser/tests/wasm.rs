@@ -4,11 +4,6 @@ use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-fn b64(bytes: &[u8]) -> String {
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD.encode(bytes)
-}
-
 #[wasm_bindgen_test]
 async fn kern_im_worker_opfs_und_fassade() {
     let key = [7u8; 32];
@@ -32,19 +27,69 @@ async fn kern_im_worker_opfs_und_fassade() {
     assert!(r.contains("proxy-kern"), "Kern fehlt in /v1/status: {r}");
     println!("KERN_STATUS {status}");
 
-    // S2: Fassade spricht Kern-API (Login -> Token -> DB oeffnen/schreiben/lesen).
-    let master = [7u8; 32];
+    // S2/S4: Fassade spricht Kern-API ueber den ECHTEN Passbox-Login
+    // (Test-Welt inline, nur Feature `test-login`; kein Direkt-Master).
+    let world: serde_json::Value =
+        serde_json::from_str(&z8run_browser::test_build_world(
+            "pw-test", "salt-test", "space-test", "kreuz",
+        ))
+        .unwrap();
+    let mut login_body = serde_json::json!({
+        "space": "space-test",
+        "username": "kreuz",
+        "password": "pw-test",
+        "hw_pem": world["hw_pem"],
+        "salt": "salt-test",
+        "hashdatei": world["hashdatei"],
+        "session_id": "s2",
+        "db_id": "kdb"
+    });
     let login = serde_json::json!({
         "method": "POST",
-        "path": "/v1/kernel/login",
-        "body": {"master_b64": b64(&master), "session_id": "s2", "db_id": "kdb"}
+        "path": "/v1/login/passbox",
+        "body": login_body
     })
     .to_string();
     let r = z8run_browser::facade(&login).await;
-    assert!(r.contains("\"status\":200"), "Kernel-Login: {r}");
+    assert!(r.contains("\"status\":200"), "Passbox-Login: {r}");
     assert!(r.contains("\"token\":"), "Token fehlt: {r}");
     assert!(r.contains("\"adapter\":\"opfs\""), "DB-Status im Login fehlt: {r}");
-    println!("KERN_LOGIN {r}");
+    println!("PASSBOX_LOGIN {r}");
+
+    // S4: falsches Passwort = klare Abweisung (kein Token).
+    login_body["password"] = serde_json::json!("falsch");
+    let r = z8run_browser::facade(
+        &serde_json::json!({"method": "POST", "path": "/v1/login/passbox", "body": login_body})
+            .to_string(),
+    )
+    .await;
+    assert!(r.contains("\"status\":401"), "falsches Passwort nicht 401: {r}");
+    assert!(r.contains("Passwort falsch"), "keine klare Abweisung: {r}");
+    assert!(!r.contains("\"token\":"), "Token trotz falschem Passwort: {r}");
+    println!("WRONG_PASSWORD {r}");
+
+    // S4: Hashdatei wird NIE lokal (OPFS) gespeichert.
+    let files = z8run_browser::opfs_list_raw("").await;
+    assert!(
+        !files.iter().any(|f| f.contains("HashDatei") || f.contains("hashdatei")),
+        "Hashdatei im OPFS-Cache: {files:?}"
+    );
+    println!("OPFS_OHNE_HASHDATEI {files:?}");
+
+    // S4: Login ohne S3 = fail-closed (Shutdown).
+    let no_s3 = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/login/passbox",
+        "body": {
+            "space": "space-test", "username": "kreuz", "password": "pw-test",
+            "hw_pem": world["hw_pem"], "salt": "salt-test"
+        }
+    })
+    .to_string();
+    let r = z8run_browser::facade(&no_s3).await;
+    assert!(r.contains("\"status\":503"), "kein fail-closed: {r}");
+    assert!(r.contains("\"shutdown\":true"), "kein Shutdown: {r}");
+    println!("NO_S3_FAILCLOSED {r}");
     let exec = serde_json::json!({
         "method": "POST",
         "path": "/v1/db/exec",
@@ -76,8 +121,7 @@ async fn kern_im_worker_opfs_und_fassade() {
         !sealed.windows(15).any(|w| w == b"SQLite format 3"),
         "Klartext-SQLite in OPFS"
     );
-    let dbkey = z8run_browser::db_key(&master, "kdb");
-    let plain = z8run_browser::open_sealed(&dbkey, &sealed).unwrap();
+    let plain = z8run_browser::test_db_plain_dump("kdb").expect("DB nicht entsiegelbar");
     assert!(plain.starts_with(b"SQLite format 3"));
     println!("DB_Z8FC1 bytes={} plain={}", sealed.len(), plain.len());
 
