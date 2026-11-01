@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::{ConnectInfo, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
@@ -58,13 +58,31 @@ fn zeile(msg: &str) -> String {
     msg.replace(['\n', '\r'], " ")
 }
 
+/// CSRF/Origin-Schutz: ein Cross-Origin-Browser-Request darf die lokale
+/// Setup-Engine nicht ausloesen. Same-Origin (Origin-Host == Host) oder
+/// kein Origin (curl/CLI, lokal) sind erlaubt.
+fn origin_erlaubt(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok()) else {
+        return true;
+    };
+    let Some(host) = headers.get(axum::http::header::HOST).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let origin_host = origin.split("://").nth(1).unwrap_or("");
+    origin_host.eq_ignore_ascii_case(host)
+}
+
 async fn init(
     State(_state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<InitReq>,
 ) -> Response {
     if !ist_lokal(ConnectInfo(peer)) {
         return fehler(StatusCode::FORBIDDEN, "Setup-UI ist nur lokal erreichbar");
+    }
+    if !origin_erlaubt(&headers) {
+        return fehler(StatusCode::FORBIDDEN, "Setup-UI: fremde Origin abgewiesen");
     }
     if body.space.trim().is_empty() || body.users.is_empty() {
         return fehler(StatusCode::BAD_REQUEST, "space und mindestens ein Benutzer sind Pflicht");
@@ -187,5 +205,18 @@ mod tests {
         assert!(!ist_lokal(axum::extract::ConnectInfo(
             "203.0.113.7:5000".parse().unwrap()
         )));
+    }
+
+    #[test]
+    fn fremde_origin_wird_abgewiesen() {
+        use axum::http::{HeaderMap, HeaderValue};
+        let mut h = HeaderMap::new();
+        h.insert("host", HeaderValue::from_static("127.0.0.1:7711"));
+        h.insert("origin", HeaderValue::from_static("http://127.0.0.1:7711"));
+        assert!(super::origin_erlaubt(&h));
+        h.insert("origin", HeaderValue::from_static("http://evil.example"));
+        assert!(!super::origin_erlaubt(&h));
+        h.remove("origin");
+        assert!(super::origin_erlaubt(&h));
     }
 }
