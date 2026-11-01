@@ -1,6 +1,6 @@
 # VERIFY-BERICHT Z8-PROXY3 — Stand 01.11.2026
 
-Repo: `/data/z8run-test/src`, Branch `z8-proxy3`, Code-HEAD `494a6df` (letzter getesteter Stand).
+Repo: `/data/z8run-test/src`, Branch `z8-proxy3`, Code-HEAD `494a6df`; installierter Stand `f3b8db9` (nur Bericht neuer).
 Bauplan: `/data/ghosthand/bauplan-z8-proxy3.md`.
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy3/`.
 
@@ -28,7 +28,7 @@ ausdrücklich benannt (G6) — keine stille Ausnahme.
 | S5 Exporter native | GRÜN | `s5-native-export.log` (Linux gebaut, Win/mac `build_bar:true`), `s5-native-run.log` |
 | S5 Exporter browser | GRÜN | `s5-browser-bundle.log`; `s5-browser-443.log` (`FASSADE={"status":200,...}`, Worker über 443) |
 | S5 CORS | GRÜN mit Blocker | `s5-cors-set.log`: GET fremde Origin 200, PUT fremde Origin 403, PUT eigene Origin 200; One-Bucket-Wildcard-GET = dokumentierter Blocker |
-| S6 Installation | GRÜN | `s6-install-proof.log`: nur 443, `/` `/wasm/` `/proxy` `/login` = 200, PQC `X25519MLKEM768` true, Legacy X25519 |
+| S6 Installation | GRÜN | `s6-install-proof.log` (HEAD f3b8db9): nur 443, `/` `/wasm/` `/proxy` `/login` = 200, PQC `X25519MLKEM768` true, Legacy X25519 |
 | S6 Tests | GRÜN | `final3-test-1/2/3.log`: je **533 passed / 0 failed**, 100 s Pause (HEAD 494a6df) |
 | S6 Doku | GRÜN | `docs/z8-proxy3.md` (Port-Map, udsv3, RAM, Z8FC1, Browser, AutoLock/Offline/Konflikt, Exporter, CORS, WAMR/iOS/Mobile, Abgrenzungen) |
 | S6 Zero-Kontext-Audit | GRÜN (durchgeführt) | Externer Audit hat GELB/ROT gefunden; Fixes: Replay cross-connection+Random-Nonce, Engine-UDS udsv3, kv_auth-UDS, kv-login mlock/zeroize, Fixtures beidseitig, persist/quota-Asserts, Konflikt-Event. Restliche Abgrenzungen bleiben deklariert. |
@@ -41,12 +41,12 @@ ss -tlnp | grep -E ':7700|:7710|:7800|:443'
 
 curl / /wasm/index.html /proxy/v1/status /login/v1/health → 200/200/200/200
 z8-tls-proof → GRUPPE X25519MLKEM768 PQC true (legacy X25519 false)
-/proc/<pid>/status → VmLck 100/80 kB
+/proc/<pid>/status → VmLck 84/76/68 kB
 Z8FC1 live → 5a38464331 (demo/meta-cluster/otel)
 WASM_VEC_VERSION=v0.1.9
 WASM_NATIVE_COMPAT_OK / NATIVE_TO_WASM_OK
 FASSADE={"body":{"kern":"z8run-browser","sqlite":"wasm","worker":true},"status":200}
-cargo test --workspace → 532 passed ×3
+cargo test --workspace → 533 passed ×3
 ```
 
 ## Bewusste Abgrenzungen (G6)
