@@ -71,8 +71,6 @@ pub mod kv_proxy_node;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kv_stream_node;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod kv_auth;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod linefs_nodes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ordner_nodes;
@@ -190,12 +188,6 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
     ] {
         engine.register_node_type(factory).await;
     }
-    engine
-        .register_node_type(Arc::new(kv_auth::KvLoginNodeFactory) as Arc<dyn NodeExecutorFactory>)
-        .await;
-    engine
-        .register_node_type(Arc::new(kv_auth::KvDeriveNodeFactory) as Arc<dyn NodeExecutorFactory>)
-        .await;
     engine
         .register_node_type(
             Arc::new(kv3_nodes::Kv3AdresseNodeFactory) as Arc<dyn NodeExecutorFactory>

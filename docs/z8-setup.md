@@ -168,23 +168,17 @@ Die Krypto-/S3-Wahrheit liegt außerhalb dieses Repos als path-Dependency:
 (SigV4). Beide werden mit dem lokalen Worktree-Stand gebaut; für
 Reproduzierbarkeit sind die Commit-Hashes im VERIFY-Bericht dokumentiert.
 
-## Bewusste Abweichung: setup-world-Orchestrator
+## Setup-Engine (verbindlich)
 
-Der Bauplan beschreibt die per-User-Kette als sichtbare Canvas-Nodes. Der
-z8-Canvas ist ein **statischer DAG**; der `loop`-Node emittiert pro Element
-eine Nachricht, aggregiert aber keine Ergebnisse, und ein `join` hat eine
-feste Eingangszahl. Für **N Userspaces atomar** (eine Registry, ein
-Quorum, alle Dateien erst am Ende) ist eine per-User-Canvas-Kette daher
-nicht korrekt abbildbar. Deshalb orchestriert `setup-world` die Schritte
-Adresse → Shamir → Passbox/HW-Box → Hashdatei → DB → Escrow intern über
-dieselben Helfer, die auch die S1-Nodes verwenden.
+Der Setup-Flow ist ein dünner Wrapper: `unix-in -> setup-engine ->
+setup-summary -> http-out`. Die Wahrheit liegt in
+`z8run_core::nodes::setup_nodes::setup_kern` und wird von `bins/z8-setup`
+UND dem Flow-Node importiert (keine Kopie). Details, Provider/Quorum und
+die Node-/Flow-Endliste: `docs/z8-plattform-kern.md`.
 
-Die S1-Nodes (`pem-gen`, `shamir-split2`, `passbox-seal`, `hwbox-seal`,
-`hashdatei-write`, `s3-put`, `s3-list`, `setup-keygen`, `setup-auth`) sind
-implementiert und registriert. Die Krypto-/Format-Nodes sind unit-getestet;
-die S3-/Keygen-/Auth-Nodes werden zusätzlich per E2E (Hook/Export) geprüft.
-Sie stehen für Einzel-User-Flows/Erweiterungen bereit. Die S2-Abnahme wird über das
-Endprodukt (Welt + Verify) bewiesen, nicht über die Canvas-Optik.
+Die früheren Selbstbau-Nodes `pem-gen`, `shamir-split2`, `passbox-seal`
+und `hwbox-seal` sind ENTFERNT; ihre Logik lebt ausschließlich im
+Setup-Kern (`keygen`, `hashfmt /3`, `pqc`, `registry`, `world-build`).
 
 ## Grenzen
 

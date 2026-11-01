@@ -23,8 +23,6 @@ pub mod setup_registry;
 pub mod setup_rotate;
 pub mod setup_rotate_reseal;
 pub mod setup_s3_list;
-pub mod setup_seal_boxes;
-pub mod setup_seal_keys;
 pub mod setup_store_nodes;
 pub mod setup_summary;
 pub mod setup_validate;
@@ -56,8 +54,6 @@ pub async fn registrieren(engine: &FlowEngine) {
     use setup_pubkey::*;
     use setup_rotate::*;
     use setup_s3_list::*;
-    use setup_seal_boxes::*;
-    use setup_seal_keys::*;
     use setup_store_nodes::*;
     use setup_summary::*;
     use setup_validate::*;
@@ -66,10 +62,6 @@ pub async fn registrieren(engine: &FlowEngine) {
     use setup_webauthn_register::*;
     use setup_world_factory::*;
     let factories: Vec<Arc<dyn NodeExecutorFactory>> = vec![
-        Arc::new(PemGenNodeFactory),
-        Arc::new(ShamirSplit2NodeFactory),
-        Arc::new(PassboxSealNodeFactory),
-        Arc::new(HwboxSealNodeFactory),
         Arc::new(HashdateiWriteNodeFactory),
         Arc::new(S3PutNodeFactory),
         Arc::new(S3ListNodeFactory),

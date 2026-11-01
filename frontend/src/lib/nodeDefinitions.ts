@@ -744,42 +744,6 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     defaultConfig: { dbId: "", pfad: "", pfadPath: "pfad" },
   },
   {
-    type: "kv-login",
-    label: "KV Login",
-    category: "data",
-    icon: "ShieldCheck",
-    description: "Login at the KronVault service and keep the session token",
-    inputs: [{ id: "input", name: "Input", type: "any" }],
-    outputs: [
-      { id: "output", name: "Session", type: "object" },
-      { id: "error", name: "Error", type: "any" },
-    ],
-    defaultConfig: {
-      url: "http://127.0.0.1:7710/v1/login",
-      bodyPath: "req.body",
-      timeoutSecs: 30,
-    },
-  },
-  {
-    type: "kv-derive",
-    label: "KV Derive DB Key",
-    category: "data",
-    icon: "ShieldCheck",
-    description: "Derive the per-database key from the session token",
-    inputs: [{ id: "input", name: "Input", type: "any" }],
-    outputs: [
-      { id: "output", name: "DB Key", type: "object" },
-      { id: "error", name: "Error", type: "any" },
-    ],
-    defaultConfig: {
-      url: "http://127.0.0.1:7710/v1/derive",
-      keyFile: "/etc/kv-login/internal.key",
-      tokenPath: "sessionToken",
-      dbPath: "dbAlias",
-      timeoutSecs: 30,
-    },
-  },
-  {
     type: "mqtt",
     label: "MQTT",
     category: "data",
