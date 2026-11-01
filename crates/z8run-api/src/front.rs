@@ -18,7 +18,7 @@ pub struct FrontConfig {
     pub cert: PathBuf,
     pub key: PathBuf,
     pub proxy_socket: PathBuf,
-    pub login_socket: PathBuf,
+
 }
 
 impl FrontConfig {
@@ -32,15 +32,12 @@ impl FrontConfig {
         let key = std::env::var("Z8_TLS_KEY").ok()?;
         let proxy = std::env::var("Z8_PROXY_SOCK")
             .unwrap_or_else(|_| "/data/z8run/kv-proxy-admin.sock".into());
-        let login = std::env::var("Z8_LOGIN_SOCK")
-            .unwrap_or_else(|_| "/data/z8run/kv-login.sock".into());
         Some(Self {
             bind: std::env::var("Z8_HTTPS_BIND").unwrap_or_else(|_| "0.0.0.0".into()),
             port: port.parse().ok()?,
             cert: cert.into(),
             key: key.into(),
             proxy_socket: proxy.into(),
-            login_socket: login.into(),
         })
     }
 }
@@ -51,7 +48,6 @@ pub async fn serve(app: Router, cfg: FrontConfig) -> anyhow::Result<()> {
     tracing::info!(
         address = %addr,
         proxy = %cfg.proxy_socket.display(),
-        login = %cfg.login_socket.display(),
         "Ein-Port-Front bereit (443)"
     );
     serve_listener(app, cfg, listener).await
@@ -100,15 +96,13 @@ async fn handle(
     tracing::info!(peer = %peer, gruppe = ?group, pqc, "TLS-Handshake verhandelt");
     let io = TokioIo::new(tls);
     let proxy = cfg.proxy_socket.clone();
-    let login = cfg.login_socket.clone();
     let service = hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
         let app = app.clone();
         let proxy = proxy.clone();
-        let login = login.clone();
         async move {
             let (parts, body) = req.into_parts();
             let req = hyper::Request::from_parts(parts, Body::new(body));
-            Ok::<_, std::convert::Infallible>(route(req, app, proxy, login, peer).await)
+            Ok::<_, std::convert::Infallible>(route(req, app, proxy, peer).await)
         }
     });
     hyper::server::conn::http1::Builder::new()
@@ -122,7 +116,6 @@ async fn route(
     mut req: hyper::Request<Body>,
     app: Router,
     proxy: PathBuf,
-    login: PathBuf,
     peer: SocketAddr,
 ) -> Response {
     let path = req.uri().path().to_string();
@@ -132,7 +125,6 @@ async fn route(
     if path.starts_with("/login/v1/") || path == "/kvlogin" || path.starts_with("/kvlogin/") {
         return fehler(410, "Login /2 entfernt — nur noch /3");
     }
-    let _ = &login;
     let target = if path == "/proxy" || path.starts_with("/proxy/") {
         Some((proxy, "/proxy", "admin"))
     } else {

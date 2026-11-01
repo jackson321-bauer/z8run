@@ -63,7 +63,6 @@ async fn ein_port_handshake_und_pfad_routing() {
     std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
 
     let proxy = upstream("proxy", "admin", dir.path()).await;
-    let login = upstream("login", "kv-login", dir.path()).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let cfg = z8run_api::front::FrontConfig {
@@ -72,7 +71,6 @@ async fn ein_port_handshake_und_pfad_routing() {
         cert: cert_path,
         key: key_path,
         proxy_socket: proxy,
-        login_socket: login,
     };
     tokio::spawn(async move {
         let _ = z8run_api::front::serve_listener(engine(), cfg, listener).await;
@@ -121,10 +119,11 @@ async fn ein_port_handshake_und_pfad_routing() {
     let (_, status, body) = get(&connector, addr, "/proxy/v1/status").await;
     assert!(status.contains("200"), "{status}");
     assert_eq!(body, "proxy:/v1/status");
+    // /2-Login ist ENTFERNT: kein toter Socket-Pfad, klare 410-Antwort.
     let (_, status, body) = get(&connector, addr, "/login/v1/health").await;
-    assert!(status.contains("200"), "{status}");
-    assert_eq!(body, "login:/v1/health");
-    let (_, _, body) = get(&connector, addr, "/kvlogin/v1/login").await;
-    assert_eq!(body, "login:/v1/login");
+    assert!(status.contains("410"), "{status}");
+    assert!(body.contains("entfernt"), "{body}");
+    let (_, status, _) = get(&connector, addr, "/kvlogin/v1/login").await;
+    assert!(status.contains("410"), "{status}");
     println!("EIN_PORT gruppe={group} routing ok");
 }

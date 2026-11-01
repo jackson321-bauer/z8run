@@ -71,7 +71,6 @@ async fn ws_upgrade_durch_pqc_front() {
     std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
 
     let proxy = echo_upstream("admin", dir.path(), "proxy").await;
-    let login = echo_upstream("kv-login", dir.path(), "login").await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let cfg = z8run_api::front::FrontConfig {
@@ -80,7 +79,6 @@ async fn ws_upgrade_durch_pqc_front() {
         cert: cert_path,
         key: key_path,
         proxy_socket: proxy,
-        login_socket: login,
     };
     tokio::spawn(async move {
         let _ = z8run_api::front::serve_listener(Router::new(), cfg, listener).await;
