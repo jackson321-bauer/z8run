@@ -70,11 +70,19 @@ Dev-S3-Zugang wurde gelöscht, der Auditbericht redigiert; im Repo/
 Worktree/History waren nie Secrets; (d) `docs/z8-proxy3b.md` ist trotz
 `.gitignore (/docs/)` per `git add -f` committet.
 
-**Offener Betriebs-Hinweis:** Der im gelöschten DOM-Log sichtbare
-b2b-Lesezugang ist ein Dev-Read-Only-Key. Eine Rotation ist mit den
-vorhandenen S3-Rechten nicht möglich (kein `CreateAccessKey`/Bucket-
-Admin); der Key ist nur lesend auf den Dev-b2b-Prefix. Empfehlung:
-durch den Bucket-Admin rotieren und `kv-login` neu starten.
+**Offener Betriebs-Hinweis (bewiesener Blocker):** Der im gelöschten
+DOM-Log sichtbare b2b-Lesezugang ist ein Dev-Read-Only-Key. Eine
+Rotation ist mit den vorhandenen S3-Rechten NICHT möglich:
+`CreateAccessKey` ⇒ MethodNotAllowed, `CreateBucket` ⇒ AccessDenied
+(unabhängig geprüft). Der Key ist nur lesend auf den Dev-b2b-Prefix.
+Erforderlich: Provider-/Bucket-Admin rotiert den Key, danach
+`/etc/kv-login/b2b-s3.json` + `kv-login` neu starten. Bis dahin bleibt
+dieser eine Audit-Punkt GELB — kein Code-/Log-Leak mehr im Repo.
+
+**Vorbestehender Repo-Fund (nicht proxy3b):** Das welt2-Testpasswort in
+`docs/z8-export.md` / `bins/z8-export/scripts/kette_ref.py` wurde in
+HEAD durch `<TEST_PASSWORT>` ersetzt (Test-Fixture, kein Produktiv-
+Secret; Historie unverändert).
 
 Zusätzlich: Der erfolgreiche S3-E2E nutzte eine eigens erzeugte Test-Welt
 im dev-Prefix `sim2/welt2/` (bekanntes Passwort/PEM), weil das Passwort
