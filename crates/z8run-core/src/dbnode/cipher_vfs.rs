@@ -20,7 +20,7 @@ pub const VFS_NAME: &str = "z8cipher";
 const SQLITE_OK: i32 = 0;
 
 static INSTALL: Once = Once::new();
-type Job = (PathBuf, Option<Vec<u8>>, Vec<u8>);
+type Job = PathBuf;
 static DIRTY: OnceLock<Mutex<HashMap<String, Job>>> = OnceLock::new();
 static VFS_PTR: OnceLock<usize> = OnceLock::new();
 static KEYS: Mutex<Option<HashMap<String, Vec<u8>>>> = Mutex::new(None);
@@ -38,9 +38,22 @@ pub fn persist_path_sync(path: &Path) -> bool {
         return false;
     };
     let app = unsafe { <EncStore as VfsStore<EncFile, _>>::app_data(vfs) };
-    let map = app.lock().unwrap_or_else(|e| e.into_inner());
-    match map.get(&path.to_string_lossy().to_string()) {
-        Some(f) => f.persist_sync().is_ok(),
+    // Copy unter Lock, Schreiben/Encrypt NACH dem Lock (kein Writer-Stau).
+    let job = {
+        let map = app.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get(&path.to_string_lossy().to_string()) {
+            Some(f) if f.persist => {
+                f.plain_bytes().ok().and_then(|plain| {
+                    f.key.clone().map(|key| (f.path.clone(), key, plain))
+                })
+            }
+            _ => None,
+        }
+    };
+    match job {
+        Some((p, key, plain)) => {
+            file_cipher::write_encrypted(&p, &key, &plain).is_ok()
+        }
         None => false,
     }
 }
@@ -90,11 +103,11 @@ fn start_persister() {
                 let mut map = d.lock().unwrap_or_else(|e| e.into_inner());
                 map.drain().map(|(_, job)| job).collect()
             };
-            for (path, key, plain) in jobs {
-                if let Some(key) = key {
-                    if let Err(e) = file_cipher::write_encrypted(&path, &key, &plain) {
-                        tracing::warn!(error = %e, pfad = %path.display(), "Cipher-Flush fehlgeschlagen");
-                    }
+            for path in jobs {
+                // Der Hintergrund liest den aktuellen Stand aus dem VFS und
+                // schreibt synchron; xSync selbst kopiert nichts.
+                if !persist_path_sync(&path) {
+                    tracing::warn!(pfad = %path.display(), "Cipher-Flush: Pfad nicht im VFS");
                 }
             }
         })
@@ -131,12 +144,13 @@ impl EncFile {
         if !self.persist {
             return Ok(());
         }
-        let Some(key) = &self.key else { return Ok(()) };
-        let plain = self.plain_bytes()?;
+        if self.key.is_none() {
+            return Ok(());
+        }
         if let Some(d) = DIRTY.get() {
             d.lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(self.path.to_string_lossy().to_string(), (self.path.clone(), Some(key.clone()), plain));
+                .insert(self.path.to_string_lossy().to_string(), self.path.clone());
         }
         Ok(())
     }

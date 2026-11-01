@@ -1,5 +1,5 @@
 //! SQLite Exec node: executes one SQL statement against an encrypted SQLite
-//! file (SQLCipher).
+//! file (Z8FC1/cipher VFS).
 //!
 //! The file is supplied by the S3 DB Fetch node (`dbPath`). The node opens the
 //! file on demand, applies `PRAGMA key` from the key file, executes exactly one
@@ -120,9 +120,8 @@ impl SqliteExecNode {
     }
 }
 
-/// Opens a SQLite/SQLCipher connection and applies the key before any page is
-/// read. A missing or malformed key is an error; it never falls back to
-/// plaintext for an encrypted file.
+/// Opens a Z8FC1 database via the cipher VFS. A missing or malformed key is
+/// an error; it never falls back to plaintext for an encrypted file.
 async fn open_conn(
     path: &Path,
     key_file: &str,

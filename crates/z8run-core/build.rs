@@ -1,5 +1,5 @@
 //! Baut die sqlite-vec C-Quelle (v0.1.9, SHA256 im S1-Log) in den
-//! SQLCipher-Bundled-Build ein. Kein load_extension: die Registrierung
+//! bundled-plain-SQLite-Build ein. Kein load_extension: die Registrierung
 //! passiert per sqlite3_auto_extension (siehe dbnode/vec.rs).
 
 use std::path::PathBuf;
@@ -29,7 +29,7 @@ fn main() {
 }
 
 /// Fallback: sqlite3.h aus dem Cargo-Registry-Quellbaum des gebundelten
-/// libsqlite3-sys (SQLCipher-Variante).
+/// libsqlite3-sys (plain bundled).
 fn registry_include() -> Option<PathBuf> {
     let home = std::env::var("CARGO_HOME").ok().map(PathBuf::from)?;
     let src = home.join("registry").join("src");
@@ -39,7 +39,7 @@ fn registry_include() -> Option<PathBuf> {
             let pkg = pkg.ok()?;
             let name = pkg.file_name();
             if name.to_string_lossy().starts_with("libsqlite3-sys-") {
-                let dir = pkg.path().join("sqlcipher");
+                let dir = pkg.path().join("sqlite3");
                 if dir.join("sqlite3.h").exists() {
                     return Some(dir);
                 }
