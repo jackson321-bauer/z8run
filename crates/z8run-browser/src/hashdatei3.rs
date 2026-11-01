@@ -53,7 +53,10 @@ pub fn parse(text: &str) -> Result<(Vec<(String, String)>, Vec<(String, String)>
         if l.is_empty() {
             continue;
         }
-        let (a, b) = l.split_once('=').ok_or_else(|| format!("Adresszeile: {l}"))?;
+        let (a, b) = l
+            .split_once(" = ")
+            .or_else(|| l.rsplit_once('='))
+            .ok_or_else(|| format!("Adresszeile: {l}"))?;
         addrs.push((a.trim().to_string(), b.trim().to_string()));
     }
     let mut blocks = Vec::new();
@@ -73,8 +76,12 @@ fn box_aus(text: &str) -> Result<Value, String> {
 fn share(v: &Value, feld: &str) -> Result<(u8, Vec<u8>), String> {
     let s = &v[feld];
     let x = s["x"].as_u64().ok_or_else(|| format!("{feld}: x fehlt"))? as u8;
+    let y_text = s["y_b64"]
+        .as_str()
+        .or_else(|| s["y"].as_str())
+        .ok_or_else(|| format!("{feld}: y fehlt"))?;
     let y = B64
-        .decode(s["y"].as_str().ok_or_else(|| format!("{feld}: y fehlt"))?)
+        .decode(y_text)
         .map_err(|e| format!("{feld} y: {e}"))?;
     Ok((x, y))
 }

@@ -14,6 +14,8 @@ mod cipher;
 mod kernel;
 #[cfg(target_arch = "wasm32")]
 mod hashdatei3;
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
+mod hashdatei3_test;
 #[cfg(target_arch = "wasm32")]
 mod login;
 #[cfg(target_arch = "wasm32")]
@@ -357,31 +359,48 @@ async fn passbox_login(body: &Value) -> String {
     let password = body["password"].as_str().unwrap_or("");
     let hw_pem = body["hw_pem"].as_str().unwrap_or("");
     let salt = body["salt"].as_str().unwrap_or("");
-    if space.is_empty() || username.is_empty() || password.is_empty() || hw_pem.is_empty() || salt.is_empty() {
-        return json!({"status": 400, "body": {"error": "Login-Felder unvollstaendig"}}).to_string();
-    }
     let v3 = body["schema"].as_str() == Some("Argon2IDHashDatei/3")
         || body["version"].as_u64() == Some(3);
+    if space.is_empty()
+        || username.is_empty()
+        || password.is_empty()
+        || hw_pem.is_empty()
+        || (!v3 && salt.is_empty())
+    {
+        return json!({"status": 400, "body": {"error": "Login-Felder unvollstaendig"}}).to_string();
+    }
     let ok = if v3 {
         let addr = match hashdatei3::user_addr(space, username) {
             Ok(a) => a,
             Err(e) => return json!({"status": 400, "body": {"error": e}}).to_string(),
         };
-        if body["s3"].is_null() {
-            SESSION.with(|s| { s.borrow_mut().s3_probe(false); });
-            return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
-        }
-        let b2b = match login::s3_get_bytes(&body["s3"], &format!("b2b/{addr}.txt")).await {
-            Ok(b) => b,
-            Err(e) => { SESSION.with(|s| { s.borrow_mut().s3_probe(false); }); return login_err(e); }
-        };
-        let hw = match login::s3_get_bytes(&body["s3"], &format!("workspaces/{addr}/hw-shards.txt")).await {
-            Ok(b) => b,
-            Err(e) => { SESSION.with(|s| { s.borrow_mut().s3_probe(false); }); return login_err(e); }
+        let (b2b, hw) = if !body["s3"].is_null() {
+            let b2b = match login::s3_get_bytes(&body["s3"], &format!("b2b/{addr}.txt")).await {
+                Ok(b) => b,
+                Err(e) => { SESSION.with(|s| { s.borrow_mut().s3_probe(false); }); return login_err(e); }
+            };
+            let hw = match login::s3_get_bytes(&body["s3"], &format!("workspaces/{addr}/hw-shards.txt")).await {
+                Ok(b) => b,
+                Err(e) => { SESSION.with(|s| { s.borrow_mut().s3_probe(false); }); return login_err(e); }
+            };
+            (String::from_utf8_lossy(&b2b).to_string(), String::from_utf8_lossy(&hw).to_string())
+        } else {
+            #[cfg(feature = "test-login")]
+            {
+                match (body["v3_b2b"].as_str(), body["v3_hw"].as_str()) {
+                    (Some(a), Some(b)) => (a.to_string(), b.to_string()),
+                    _ => return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string(),
+                }
+            }
+            #[cfg(not(feature = "test-login"))]
+            {
+                SESSION.with(|s| { s.borrow_mut().s3_probe(false); });
+                return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
+            }
         };
         match hashdatei3::login_v3(
-            &String::from_utf8_lossy(&b2b),
-            &String::from_utf8_lossy(&hw),
+            &b2b,
+            &hw,
             space, username, password, hw_pem,
             body["kem_dk_b64"].as_str().unwrap_or(""),
         ) {
@@ -482,6 +501,13 @@ async fn passbox_login(body: &Value) -> String {
 #[wasm_bindgen]
 pub fn test_build_world(passwort: &str, salt: &str, space: &str, username: &str) -> String {
     login::build_test_world(passwort, salt, space, username).to_string()
+}
+
+/// Nur Test-Build: Inline-Welt im /3-Format (b2b + hw-shards + v3-Hybrid).
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
+#[wasm_bindgen]
+pub fn test_build_world_v3(passwort: &str, space: &str, username: &str) -> String {
+    hashdatei3_test::build_test_world_v3(passwort, space, username).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]

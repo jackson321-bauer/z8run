@@ -80,7 +80,7 @@ pub fn pruefe(world: &Path) -> Result<Value, String> {
 
         // 3) Master + Sollwert-Vergleich (UNVERÄNDERT)
         let master = kette::shamir::combine2(&provider, &hw)?;
-        let ist = hex::encode(&master);
+        let ist = sha_hex(&master);
         if ist != soll {
             return Err(format!("{name}: Master-Fingerprint geändert ({ist} != {soll})"));
         }

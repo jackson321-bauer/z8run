@@ -126,14 +126,15 @@ async fn route(
     peer: SocketAddr,
 ) -> Response {
     let path = req.uri().path().to_string();
-    // /proxy/* -> kv-proxy; /login/v1/* und /kvlogin/* -> kv-login.
-    // Exakt /login bleibt die z8run-SPA (sonst waere die UI tot).
+    // /proxy/* -> kv-proxy. /2-Login (kv-login) ist ENTFERNT: frueherer
+    // Dienst ist deinstalliert, es gibt keinen toten Socket-Pfad mehr.
+    // Exakt /login bleibt die z8run-SPA.
+    if path.starts_with("/login/v1/") || path == "/kvlogin" || path.starts_with("/kvlogin/") {
+        return fehler(410, "Login /2 entfernt — nur noch /3");
+    }
+    let _ = &login;
     let target = if path == "/proxy" || path.starts_with("/proxy/") {
         Some((proxy, "/proxy", "admin"))
-    } else if path.starts_with("/login/v1/") {
-        Some((login, "/login", "kv-login"))
-    } else if path == "/kvlogin" || path.starts_with("/kvlogin/") {
-        Some((login, "/kvlogin", "kv-login"))
     } else {
         None
     };
