@@ -11,6 +11,8 @@ pub mod setup_crypto;
 pub mod setup_db;
 pub mod setup_hashdatei;
 pub mod setup_hashfmt;
+pub mod setup_engine_node;
+pub mod setup_kern;
 pub mod setup_io;
 pub mod setup_multi;
 pub mod setup_quorum;
@@ -47,6 +49,7 @@ use std::sync::Arc;
 
 pub async fn registrieren(engine: &FlowEngine) {
     use setup_auth::*;
+    use setup_engine_node::*;
     use setup_hashdatei::*;
     use setup_keygen::*;
     use setup_plugin::*;
@@ -72,6 +75,7 @@ pub async fn registrieren(engine: &FlowEngine) {
         Arc::new(S3ListNodeFactory),
         Arc::new(SetupValidateNodeFactory),
         Arc::new(SetupKeygenNodeFactory),
+        Arc::new(SetupEngineNodeFactory),
         Arc::new(SetupWorldNodeFactory),
         Arc::new(SetupSummaryNodeFactory),
         Arc::new(SetupResultNodeFactory),

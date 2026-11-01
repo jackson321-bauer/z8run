@@ -5830,6 +5830,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "z8-setup"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "tokio",
+ "z8run-core",
+]
+
+[[package]]
 name = "z8-stahlgitter"
 version = "0.2.0"
 dependencies = [
