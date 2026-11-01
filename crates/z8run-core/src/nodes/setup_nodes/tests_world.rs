@@ -21,9 +21,13 @@ async fn setup_world_baut_zwei_userspaces_ohne_shared() {
     let pw_bernd = format!("dummy-bernd-{}", Uuid::new_v4());
     let mut registry = sc::leeres_registry("gamma");
     registry["setup_keys"] = json!([{"name": "setup-hw1", "pub_b64": "x", "x": 1}]);
+    let vec0 = ["/tmp/vecprobe/vec0.so", "/data/z8run/vec0.so"]
+        .into_iter()
+        .find(|p| std::path::Path::new(p).exists())
+        .unwrap_or("/data/z8run/vec0.so");
     let node = SetupWorldNodeFactory
         .create(json!({
-            "vec0Path": "/tmp/vecprobe/vec0.so",
+            "vec0Path": vec0,
             "registryKey": reg::REGISTRY_KEY,
         }))
         .await

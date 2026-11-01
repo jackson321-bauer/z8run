@@ -24,24 +24,21 @@ async fn oeffne(
     if key_hex.len() != 64 || !key_hex.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("db key muss 64 Hex-Zeichen haben".into());
     }
-    let mut opts = SqliteConnectOptions::new()
+    let raw_key = hex::decode(key_hex).map_err(|e| format!("db key hex: {e}"))?;
+    crate::dbnode::cipher_vfs::install();
+    crate::dbnode::cipher_vfs::register_key(Path::new(path), &raw_key);
+    let opts = SqliteConnectOptions::new()
         .filename(path)
+        .vfs("z8cipher")
         .create_if_missing(true);
-    let mut vec_versucht = false;
-    if !vec0_path.is_empty() && Path::new(vec0_path).exists() {
-        opts = opts.extension_with_entrypoint(vec0_path.to_string(), "sqlite3_vec_init");
-        vec_versucht = true;
-    }
+    // vec0 ist EINGEBRANNT (build.rs) — kein dlopen/kein .so noetig.
+    crate::dbnode::vec::register_auto_extension();
+    let vec_versucht = !vec0_path.is_empty();
     let mut conn = SqliteConnection::connect_with(&opts)
         .await
         .map_err(|e| format!("DB open {path}: {e}"))?;
-    sqlx::query(&format!("PRAGMA key = \"x'{key_hex}'\";"))
-        .execute(&mut conn)
-        .await
-        .map_err(|e| format!("PRAGMA key: {e}"))?;
     sqlx::query(
-        "PRAGMA cipher_memory_security = ON;
-         PRAGMA journal_mode = WAL;
+        "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
          PRAGMA temp_store = MEMORY;
          PRAGMA cache_size = -65536;

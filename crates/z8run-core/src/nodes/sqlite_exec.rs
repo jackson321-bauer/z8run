@@ -129,14 +129,6 @@ async fn open_conn(
     key_override: Option<&str>,
     create: bool,
 ) -> Result<SqliteConnection, String> {
-    let opts = SqliteConnectOptions::new()
-        .filename(path)
-        .create_if_missing(create)
-        .read_only(false);
-    let mut conn = SqliteConnection::connect_with(&opts)
-        .await
-        .map_err(|e| format!("open database: {e}"))?;
-
     let key = match key_override {
         Some(k) if !k.trim().is_empty() => Some(k.trim().to_string()),
         Some(_) => return Err("dbKey is empty".to_string()),
@@ -147,28 +139,34 @@ async fn open_conn(
         }
         None => None,
     };
-    if let Some(key) = key {
-        if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err("key must contain exactly 64 hex characters".to_string());
-        }
-        sqlx::query(&format!("PRAGMA key = \"x'{key}'\";"))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| format!("apply key: {e}"))?;
-        sqlx::query(
-            "PRAGMA cipher_memory_security = ON;
-             PRAGMA temp_store = MEMORY;
-             PRAGMA busy_timeout = 5000;",
-        )
-        .execute(&mut conn)
-        .await
-        .map_err(|e| format!("cipher pragmas: {e}"))?;
-        sqlx::query_as::<_, (i64,)>("SELECT count(*) FROM sqlite_master")
-            .fetch_one(&mut conn)
-            .await
-            .map_err(|_| "wrong key or damaged database".to_string())?;
+    let key = key
+        .ok_or_else(|| "kein dbKey (Z8FC1-Dateien brauchen den Master)".to_string())?;
+    if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("key must contain exactly 64 hex characters".to_string());
     }
-
+    let raw_key = hex::decode(&key).map_err(|e| format!("key hex: {e}"))?;
+    crate::dbnode::cipher_vfs::install();
+    crate::dbnode::cipher_vfs::verify_key(path, &raw_key)?;
+    crate::dbnode::cipher_vfs::register_key(path, &raw_key);
+    let opts = SqliteConnectOptions::new()
+        .filename(path)
+        .vfs("z8cipher")
+        .create_if_missing(create)
+        .read_only(false);
+    let mut conn = SqliteConnection::connect_with(&opts)
+        .await
+        .map_err(|e| format!("open database: {e}"))?;
+    sqlx::query(
+        "PRAGMA temp_store = MEMORY;
+         PRAGMA busy_timeout = 5000;",
+    )
+    .execute(&mut conn)
+    .await
+    .map_err(|e| format!("pragmas: {e}"))?;
+    sqlx::query_as::<_, (i64,)>("SELECT count(*) FROM sqlite_master")
+        .fetch_one(&mut conn)
+        .await
+        .map_err(|_| "wrong key or damaged database".to_string())?;
     Ok(conn)
 }
 

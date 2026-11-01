@@ -1,5 +1,6 @@
 //! Verbindungsaufbau: SQLCipher-Key-Hülle + WAL + vec-Registrierung.
 
+use crate::dbnode::cipher_vfs;
 use crate::dbnode::crypto::KeyEnvelope;
 use crate::dbnode::types::{DbError, DbResult};
 use crate::dbnode::vec;
@@ -8,14 +9,21 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
 
-/// Öffnet eine SQLCipher-Verbindung mit Key-Hülle (vec ist registriert).
+/// Öffnet eine Verbindung ueber den Z8CIPHER-VFS (SQLite plain, Datei
+/// ausschliesslich Z8FC1-Chiffre; vec ist registriert).
 pub fn open_encrypted(path: &Path, key: &KeyEnvelope) -> DbResult<Connection> {
     vec::register_auto_extension();
-    let conn = Connection::open(path)?;
-    let hex = hex::encode(key.as_bytes());
-    conn.execute_batch(&format!("PRAGMA key = \"x'{hex}'\";"))?;
+    cipher_vfs::install();
+    cipher_vfs::verify_key(path, key.as_bytes()).map_err(|e| DbError::new("KEY", e))?;
+    cipher_vfs::register_key(path, key.as_bytes());
+    let conn = Connection::open_with_flags(
+        cipher_vfs::uri(path),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+            | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
     conn.busy_timeout(Duration::from_secs(30))?;
-    // Erster DB-Zugriff entscheidet über den Key (sonst "file is not a database").
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))?;
     Ok(conn)
 }
@@ -66,14 +74,16 @@ pub fn ensure_blob_tables(conn: &Connection) -> DbResult<()> {
 /// Frische Readonly-Verbindung: paralleles Lesen ohne Reservierung.
 pub fn open_readonly(path: &Path, key: &KeyEnvelope) -> DbResult<Connection> {
     vec::register_auto_extension();
+    cipher_vfs::install();
+    cipher_vfs::verify_key(path, key.as_bytes()).map_err(|e| DbError::new("KEY", e))?;
+    cipher_vfs::register_key(path, key.as_bytes());
     let conn = Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        cipher_vfs::uri(path),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_URI
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    let hex = hex::encode(key.as_bytes());
-    conn.execute_batch(&format!(
-        "PRAGMA key = \"x'{hex}'\"; PRAGMA query_only=ON;"
-    ))?;
+    conn.execute_batch("PRAGMA query_only=ON;")?;
     conn.busy_timeout(Duration::from_secs(30))?;
     Ok(conn)
 }

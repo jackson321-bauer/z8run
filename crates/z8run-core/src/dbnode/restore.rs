@@ -180,6 +180,7 @@ pub async fn take_snapshot(h: &DbHandle, ws: &mut WriterState) -> DbResult<()> {
     }
     ws.conn
         .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    let _ = crate::dbnode::cipher_vfs::persist_path_sync(&h.db_path);
     let bytes = std::fs::read(&h.db_path)
         .map_err(|e| DbError::new("SNAPSHOT", format!("db lesen: {e}")))?;
     let nr = ws.state.last_wal;
