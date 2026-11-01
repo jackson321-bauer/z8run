@@ -9,6 +9,8 @@ use std::task::{Context, Poll};
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use zeroize::Zeroize;
+
 use crate::udsv3::{self, Mode, HEADER, MAX_FRAME};
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
@@ -29,6 +31,15 @@ pub struct Udsv3Stream<S> {
     out_pos: usize,
     accepted: Option<usize>,
     eof: bool,
+}
+
+impl<S> Drop for Udsv3Stream<S> {
+    fn drop(&mut self) {
+        self.key.zeroize();
+        self.plain.zeroize();
+        self.inbuf.zeroize();
+        self.out.zeroize();
+    }
 }
 
 impl<S> Udsv3Stream<S> {
@@ -53,8 +64,9 @@ impl<S> Udsv3Stream<S> {
 
 /// Klient-Seite: Key aus Env/Key-Datei, Kontext = Socket-Rolle.
 pub fn connect(path: &std::path::Path, context: &str) -> io::Result<Udsv3Stream<tokio::net::UnixStream>> {
-    let master = udsv3::master_from_env()?;
+    let mut master = udsv3::master_from_env()?;
     let key = udsv3::transport_key(&master, context);
+    master.zeroize();
     let stream = std::os::unix::net::UnixStream::connect(path)?;
     stream.set_nonblocking(true)?;
     let stream = tokio::net::UnixStream::from_std(stream)?;
@@ -65,8 +77,9 @@ pub fn connect(path: &std::path::Path, context: &str) -> io::Result<Udsv3Stream<
 pub fn server_io(stream: tokio::net::UnixStream, context: &str) -> io::Result<BoxIo> {
     match Mode::from_env() {
         Mode::Strict => {
-            let master = udsv3::master_from_env()?;
+            let mut master = udsv3::master_from_env()?;
             let key = udsv3::transport_key(&master, context);
+            master.zeroize();
             Ok(Box::new(Udsv3Stream::new(stream, key, context)))
         }
         Mode::DebugPlain => {
@@ -106,7 +119,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for Udsv3Stream<S> {
                 }
             } else if me.inbuf.len() >= 4 {
                 let total = u32::from_be_bytes(me.inbuf[0..4].try_into().unwrap()) as usize;
-                if total < HEADER || total > MAX_FRAME + 12 {
+                if total < HEADER || total > HEADER + MAX_FRAME {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "udsv3: Frame-Laenge ungueltig (Klartext-Downgrade?)",

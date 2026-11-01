@@ -8,19 +8,29 @@
 //! Der Transport-Master liegt NIE im Repo: Env `Z8_UDSV3_MASTER` oder die
 //! Key-Datei `Z8_UDSV3_KEYFILE` (Default `/data/z8run/udsv3.key`, 0600).
 
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
 use rand::RngCore;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 /// Obergrenze eines Frames (Payload). Der dbnode-Kanal erlaubt 32 MiB
 /// Kommandos; alles darueber ist ein Protokollfehler.
 pub const MAX_FRAME: usize = 64 * 1024 * 1024;
-pub const HEADER: usize = 16;
+pub const HEADER: usize = 24;
+
+/// Transkript-Replay-Schutz ueber Verbindungen hinweg: derselbe Frame
+/// (Kontext+Counter+Chiffre) wird innerhalb des Fensters nur EINMAL
+/// akzeptiert. Der Counter allein reicht nicht, weil jede Verbindung
+/// wieder bei 0 beginnt.
+static SEEN: OnceLock<Mutex<HashMap<[u8; 32], Instant>>> = OnceLock::new();
+const REPLAY_WINDOW: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -174,12 +184,6 @@ pub fn transport_key(master: &[u8], context: &str) -> [u8; 32] {
     key
 }
 
-fn nonce_for(counter: u64) -> [u8; 12] {
-    let mut nonce = [0u8; 12];
-    nonce[4..].copy_from_slice(&counter.to_be_bytes());
-    nonce
-}
-
 fn aad(context: &str, counter: u64) -> Vec<u8> {
     let mut aad = Vec::with_capacity(context.len() + 8);
     aad.extend_from_slice(context.as_bytes());
@@ -190,19 +194,22 @@ fn aad(context: &str, counter: u64) -> Vec<u8> {
 /// Versiegelt einen Klartext in EINEN udsv3-Frame (inkl. Laengenkopf).
 pub fn seal_frame(key: &[u8; 32], context: &str, counter: u64, plain: &[u8]) -> Vec<u8> {
     let cipher = Aes256Gcm::new_from_slice(key).expect("32-Byte-Key");
+    let mut nonce = [0u8; 12];
+    rand::rngs::OsRng.fill_bytes(&mut nonce);
     let ct = cipher
         .encrypt(
-            Nonce::from_slice(&nonce_for(counter)),
+            Nonce::from_slice(&nonce),
             Payload {
                 msg: plain,
                 aad: &aad(context, counter),
             },
         )
         .expect("AES-GCM-Verschluesselung");
-    let total = 8 + 4 + ct.len();
+    let total = 8 + 12 + 4 + ct.len();
     let mut out = Vec::with_capacity(4 + total);
     out.extend_from_slice(&(total as u32).to_be_bytes());
     out.extend_from_slice(&counter.to_be_bytes());
+    out.extend_from_slice(&nonce);
     out.extend_from_slice(&(ct.len() as u32).to_be_bytes());
     out.extend_from_slice(&ct);
     out
@@ -219,8 +226,9 @@ pub fn open_frame(
         return Err(proto("Frame zu kurz"));
     }
     let counter = u64::from_be_bytes(body[0..8].try_into().unwrap());
-    let ct_len = u32::from_be_bytes(body[8..12].try_into().unwrap()) as usize;
-    if ct_len != body.len() - 12 || ct_len > MAX_FRAME {
+    let nonce = &body[8..20];
+    let ct_len = u32::from_be_bytes(body[20..24].try_into().unwrap()) as usize;
+    if ct_len != body.len() - HEADER || ct_len > MAX_FRAME {
         return Err(proto("Frame-Laenge ungueltig"));
     }
     if counter != expected {
@@ -229,15 +237,33 @@ pub fn open_frame(
         )));
     }
     let cipher = Aes256Gcm::new_from_slice(key).expect("32-Byte-Key");
-    cipher
+    let plain = cipher
         .decrypt(
-            Nonce::from_slice(&nonce_for(counter)),
+            Nonce::from_slice(nonce),
             Payload {
-                msg: &body[12..],
+                msg: &body[HEADER..],
                 aad: &aad(context, counter),
             },
         )
-        .map_err(|_| proto("Entschluesselung/Integritaet fehlgeschlagen"))
+        .map_err(|_| proto("Entschluesselung/Integritaet fehlgeschlagen"))?;
+    // Replay-Fenster: Hash ueber Kontext + kompletter Frame.
+    let mut h = Sha256::new();
+    h.update(context.as_bytes());
+    h.update(body);
+    let id: [u8; 32] = h.finalize().into();
+    let seen = SEEN.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let mut map = seen.lock().unwrap_or_else(|e| e.into_inner());
+        if map.len() > 20_000 {
+            map.retain(|_, t| t.elapsed() < REPLAY_WINDOW);
+        }
+        let now = Instant::now();
+        if map.get(&id).is_some_and(|t| t.elapsed() < REPLAY_WINDOW) {
+            return Err(proto("Replay: Frame bereits gesehen"));
+        }
+        map.insert(id, now);
+    }
+    Ok(plain)
 }
 
 fn proto(msg: &str) -> io::Error {

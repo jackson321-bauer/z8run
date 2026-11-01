@@ -515,7 +515,14 @@ async fn cmd_serve(
                                 Ok((stream, _)) => {
                                     let app = uds_app.clone();
                                     tokio::spawn(async move {
-                                        let io = TokioIo::new(stream);
+                                        let io = match z8run_core::udsv3_stream::server_io(stream, "engine") {
+                                            Ok(io) => io,
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "Engine-UDS: udsv3-Schluessel fehlt");
+                                                return;
+                                            }
+                                        };
+                                        let io = TokioIo::new(io);
                                         let service = service_fn(
                                             move |req: hyper::Request<hyper::body::Incoming>| {
                                                 let app = app.clone();

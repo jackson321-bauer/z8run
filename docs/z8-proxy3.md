@@ -19,7 +19,11 @@ zusätzlich Loopback-TCP öffnen; `serve`/Produktion nie.
 
 ## UDSV3 (FEST 10/18)
 
-Frame: `[u32 len][u64 counter][u32 ct_len][ciphertext]`, alle Zahlen BE.
+Frame: `[u32 len][u64 counter][12 nonce][u32 ct_len][ciphertext]`, alle
+Zahlen BE. Nonce ist ZUFÄLLIG je Frame (gleicher Klartext erzeugt nie
+zweimal dieselben Bytes); Replay derselben Bytes wird zusätzlich über
+ein transkriptweites 300-s-Fenster abgewiesen (Hash aus Kontext+Frame),
+damit ein Mitschnitt auf einer NEUEN Verbindung nicht wieder greift.
 Schlüssel = `HKDF-SHA256(Transport-Master, Salt "z8-udsv3",
 Info "udsv3|<socket-kontext>")`, AES-256-GCM, Nonce = 4 Nullbytes +
 Counter, AAD = Kontext + Counter. Jede Richtung hat einen eigenen
@@ -29,7 +33,8 @@ Counter; ein Frame mit erwartetem Counter wird genau einmal akzeptiert
 nie im Repo.
 
 Kontexte: `login` (veralteter Handoff), `admin` (Proxy-Admin-UDS),
-`dbnode-msg` (Proxy → z8run DB-Node), `kv-login` (443-Front → kv-login).
+`dbnode-msg` (Proxy → z8run DB-Node), `kv-login` (443-Front → kv-login),
+`engine` (z8run.sock).
 Klartext ist im Default VERBOTEN. Nur `Z8_UDSV3=off` erlaubt Klartext
 und schreibt ein Meta-Ereignis `udsv3_downgrade` (JSONL, `meta=true`).
 
@@ -83,6 +88,13 @@ lesbar).
   ab `local+1` + UI-Meldung; gleicher Stand + andere Kette ⇒
   `ChainMismatch`.
 - COOP/COEP werden NICHT gesetzt (kein Multi-Worker/SAB nötig).
+- `persist()` und `Quota` werden über `navigator.storage.persist()` /
+  `estimate()` abgefragt; der Selftest liefert `persisted`/`quota` im
+  JSON. iOS-Safari-Quirk: `SyncAccessHandle` ist in Safari < 17 nicht
+  verfügbar und der `persist()`-Grant ist dort nicht garantiert —
+  der Worker nutzt in diesem Fall den async `createWritable()`-Fallback
+  (kein Multi-Worker, keine harten Garantien); Quota muss nach dem
+  ersten Schreibvorgang erneut gelesen werden.
 
 ## Exporter-Allziel
 
@@ -106,6 +118,30 @@ Regeln (Reihenfolge ist wichtig; DO matcht die erste passende Regel):
 
 Preflight-Beweise: `s5-cors-set.log` (GET von fremder Origin = 200,
 PUT von fremder Origin = 403, PUT eigene Origin = 200).
+
+## WAMR-Ausweichpfad
+
+Apps laufen im Browser NICHT (wasmi fehlt, s. Abgrenzung 2). Falls später
+Multi-Worker/SAB nötig wird, ist WAMR (wasm-micro-runtime) der im Plan
+genannte Ausweichpfad; COOP/COEP würden dann NUR dafür gesetzt. Aktuell
+gibt es keinen Multi-Worker und keine SAB-Abhängigkeit.
+
+## Mobile-Spalten (nur vorbereitet, NICHT gebaut)
+
+`aarch64-linux-android`, `aarch64-apple-ios`, `aarch64-apple-ios-sim`
+stehen als Ziel-Spalten im Exporter-Konzept; es gibt keine Mobile-
+Binaries, keine Telefonie-App, kein APNs/P2P in diesem Build.
+
+## CORS-Blocker (DD-One-Bucket)
+
+S3-CORS kann NICHT nach Prefix unterscheiden. Der Bucket enthält
+b2b-Hashdateien UND session/WAL-Objekte; die Regel `*` für GET/HEAD
+gilt daher technisch für den ganzen Bucket (auch session/WAL-GET von
+fremden Origins). Das ist die im Plan genannte DD-CORS-Falle: kein
+stilles Umgehen, sondern dokumentierter Blocker. Saubere Lösung wäre
+ein eigener Bucket/Host für b2b-Hashdateien (Hausmeister-Weg) — nicht
+in diesem Build umgesetzt. PUT/POST/DELETE sind weiterhin auf die
+eigenen Origins beschränkt.
 
 ## Bewusste Abgrenzungen (G6, keine stille Ausnahme)
 

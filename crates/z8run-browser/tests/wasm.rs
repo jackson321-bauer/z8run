@@ -46,6 +46,13 @@ async fn vec_opfs_cipher_und_fassade() {
     );
     assert!(r.contains("\"locked\":true"), "{r}");
 
+    // Nativ -> WASM: native Z8FC1-Datei im Browser entsiegeln.
+    let native = include_bytes!("fixtures/native-db.z8fc");
+    let plain = z8run_browser::open_sealed(&[9u8; 32], native).unwrap();
+    assert!(plain.starts_with(b"SQLite format 3"), "native Fixture nicht lesbar");
+    assert!(plain.windows(b"native-nach-wasm".len()).any(|w| w == b"native-nach-wasm"));
+    println!("NATIVE_TO_WASM_OK bytes={}", plain.len());
+
     // Offline-Regel: S3-Kontakt fehlt => SHUTDOWN.
     let r = z8run_browser::facade(
         r#"{"method":"POST","path":"/v1/s3/probe","body":{"ok":false}}"#,

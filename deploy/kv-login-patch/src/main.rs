@@ -118,9 +118,35 @@ impl HashSource {
     }
 }
 
+#[cfg(unix)]
+fn mlock_bytes(b: &[u8]) -> bool {
+    extern "C" {
+        fn mlock(addr: *const std::os::raw::c_void, len: usize) -> std::os::raw::c_int;
+    }
+    !b.is_empty() && unsafe { mlock(b.as_ptr() as *const _, b.len()) == 0 }
+}
+
+#[cfg(unix)]
+fn munlock_bytes(b: &[u8]) {
+    extern "C" {
+        fn munlock(addr: *const std::os::raw::c_void, len: usize) -> std::os::raw::c_int;
+    }
+    if !b.is_empty() {
+        unsafe {
+            let _ = munlock(b.as_ptr() as *const _, b.len());
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn mlock_bytes(_b: &[u8]) -> bool { false }
+#[cfg(not(unix))]
+fn munlock_bytes(_b: &[u8]) {}
+
 struct Session {
     #[allow(dead_code)]
     master: Zeroizing<Vec<u8>>,
+    mlocked: bool,
     username: String,
     space_addr: String,
     user_addr: String,
@@ -129,6 +155,16 @@ struct Session {
     /// Bucket/prefix list from the passbox payload.
     buckets: Option<Value>,
     last_seen: Instant,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.master.zeroize();
+        if self.mlocked {
+            munlock_bytes(&self.master);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -288,8 +324,10 @@ async fn login(State(state): State<AppState>, Json(req): Json<LoginReq>) -> Resp
 
     let master_fingerprint = hex::encode(Sha256::digest(&login.master_key));
     let token = new_token();
+    let mlocked = mlock_bytes(&login.master_key);
     let session = Session {
         master: Zeroizing::new(login.master_key),
+        mlocked,
         username: login.username.clone(),
         space_addr: login.space_addr.clone(),
         user_addr: login.user_addr.clone(),

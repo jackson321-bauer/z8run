@@ -3,12 +3,9 @@
 
 #[test]
 fn wasm_datei_ist_nativ_lesbar() {
-    let Ok(path) = std::env::var("Z8_WASM_FIXTURE") else {
-        eprintln!("SKIP: Z8_WASM_FIXTURE nicht gesetzt");
-        return;
-    };
+    // Fester, im browser-repo erzeugter WASM-Fixture (kein Skip moeglich).
+    let sealed: Vec<u8> = include_bytes!("fixtures/z8-wasm-db.z8fc").to_vec();
     let key = [7u8; 32];
-    let sealed = std::fs::read(&path).unwrap();
     assert_eq!(&sealed[..5], z8run_core::dbnode::file_cipher::MAGIC);
     let plain = z8run_core::dbnode::file_cipher::open_bytes(&key, &sealed).unwrap();
     // Nativ denselben VFS oeffnen (Datei liegt als Chiffre auf Platte).

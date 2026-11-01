@@ -17,6 +17,10 @@ use crate::configure_fields;
 use crate::engine::NodeExecutor;
 use crate::error::{Z8Error, Z8Result};
 use crate::message::FlowMessage;
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::client::conn::http1;
+use hyper_util::rt::TokioIo;
 use crate::node_factory;
 use crate::utils::node_helpers::{error_output, require_non_empty};
 
@@ -37,6 +41,71 @@ fn as_object(value: &Value) -> Value {
     } else {
         json!({ "req": value.clone() })
     }
+}
+
+/// HTTP-Semantik ueber den internen UDS (udsv3). `uds:///pfad.sock/v1/x`
+/// bleibt intern; eine http(s)-URL nutzt den Legacy-Client.
+async fn post_json(
+    url: &str,
+    body: &Value,
+    headers: &[(&str, &str)],
+    timeout_secs: u64,
+) -> Result<(u16, Value), String> {
+    if let Some(rest) = url.strip_prefix("uds://") {
+        let (sock, path) = match rest.find('/') {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, "/"),
+        };
+        let run = async {
+            let stream = crate::udsv3_stream::connect(std::path::Path::new(sock), "kv-login")
+                .map_err(|e| format!("udsv3 {sock}: {e}"))?;
+            let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
+                .await
+                .map_err(|e| e.to_string())?;
+            tokio::spawn(async move {
+                let _ = conn.await;
+            });
+            let bytes = serde_json::to_vec(body).map_err(|e| e.to_string())?;
+            let mut builder = hyper::Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("host", "localhost")
+                .header("content-type", "application/json");
+            for (k, v) in headers {
+                builder = builder.header(*k, *v);
+            }
+            let req = builder
+                .body(Full::new(Bytes::from(bytes)))
+                .map_err(|e| e.to_string())?;
+            let resp = sender.send_request(req).await.map_err(|e| e.to_string())?;
+            let status = resp.status().as_u16();
+            let raw = resp
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| e.to_string())?
+                .to_bytes();
+            let value = serde_json::from_slice(&raw)
+                .unwrap_or_else(|_| serde_json::json!({"raw": String::from_utf8_lossy(&raw)}));
+            Ok::<_, String>((status, value))
+        };
+        return tokio::time::timeout(Duration::from_secs(timeout_secs.max(1)), run)
+            .await
+            .map_err(|_| "timeout".to_string())?;
+    }
+    let client = reqwest::Client::new();
+    let mut rb = client.post(url).json(body);
+    for (k, v) in headers {
+        rb = rb.header(*k, *v);
+    }
+    let response = tokio::time::timeout(Duration::from_secs(timeout_secs.max(1)), rb.send())
+        .await
+        .map_err(|_| "timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+    let status = response.status().as_u16();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    let parsed = serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({ "raw": text }));
+    Ok((status, parsed))
 }
 
 pub struct KvLoginNode {
@@ -60,23 +129,10 @@ impl NodeExecutor for KvLoginNode {
             ));
         }
 
-        let client = reqwest::Client::new();
-        let response = tokio::time::timeout(
-            Duration::from_secs(self.timeout_secs.max(1)),
-            client.post(&self.url).json(&body).send(),
-        )
-        .await;
-        let response = match response {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => return Ok(error_output(&msg, &format!("kv-login: {e}"))),
-            Err(_) => return Ok(error_output(&msg, "kv-login: timeout")),
+        let (status, parsed) = match post_json(&self.url, &body, &[], self.timeout_secs).await {
+            Ok(v) => v,
+            Err(e) => return Ok(error_output(&msg, &format!("kv-login: {e}"))),
         };
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| Z8Error::Internal(format!("kv-login body: {e}")))?;
-        let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
 
         let mut out = as_object(&msg.payload);
         out["login"] = parsed.clone();
@@ -120,7 +176,7 @@ impl NodeExecutor for KvLoginNode {
 
 node_factory!(KvLoginNodeFactory, KvLoginNode, "kv-login", {
     name: String::new(),
-    url: "http://127.0.0.1:7710/v1/login".to_string(),
+    url: "uds:///data/z8run/kv-login.sock/v1/login".to_string(),
     body_path: "req.body".to_string(),
     timeout_secs: 30
 });
@@ -165,27 +221,17 @@ impl NodeExecutor for KvDeriveNode {
             return Ok(error_output(&msg, "kv-derive: key file is empty"));
         }
 
-        let client = reqwest::Client::new();
-        let response = tokio::time::timeout(
-            Duration::from_secs(self.timeout_secs.max(1)),
-            client
-                .post(&self.url)
-                .header("x-kv-internal", internal)
-                .json(&json!({ "token": token, "db": db }))
-                .send(),
+        let (status, parsed) = match post_json(
+            &self.url,
+            &json!({ "token": token, "db": db }),
+            &[("x-kv-internal", internal)],
+            self.timeout_secs,
         )
-        .await;
-        let response = match response {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => return Ok(error_output(&msg, &format!("kv-derive: {e}"))),
-            Err(_) => return Ok(error_output(&msg, "kv-derive: timeout")),
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => return Ok(error_output(&msg, &format!("kv-derive: {e}"))),
         };
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|e| Z8Error::Internal(format!("kv-derive body: {e}")))?;
-        let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "raw": text }));
 
         let mut out = as_object(&msg.payload);
         out["derive"] = parsed.clone();
@@ -241,7 +287,7 @@ impl NodeExecutor for KvDeriveNode {
 
 node_factory!(KvDeriveNodeFactory, KvDeriveNode, "kv-derive", {
     name: String::new(),
-    url: "http://127.0.0.1:7710/v1/derive".to_string(),
+    url: "uds:///data/z8run/kv-login.sock/v1/derive".to_string(),
     key_file: "/etc/kv-login/internal.key".to_string(),
     token_path: "sessionToken".to_string(),
     db_path: "dbAlias".to_string(),
