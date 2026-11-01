@@ -12,6 +12,8 @@ pub mod setup_db;
 pub mod setup_hashdatei;
 pub mod setup_hashfmt;
 pub mod setup_io;
+pub mod setup_multi;
+pub mod setup_quorum;
 pub mod setup_keygen;
 pub mod setup_plugin;
 pub mod setup_pubkey;

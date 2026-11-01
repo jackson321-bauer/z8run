@@ -1,42 +1,45 @@
 //! S3-/Payload-Verkabelung der Setup-Nodes. S3 läuft ausschließlich über
-//! `kv-store` (SigV4) — kein aws-cli, kein zweiter HTTP-Client.
+//! `kv-store` (SigV4) — kein aws-cli, kein zweiter HTTP-Client. Einzel- und
+//! Provider-Set-Config (Mehrfach-Quorum) teilen sich DIESELBE S3Cfg.
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use kv_store::s3::S3Endpoint;
 use serde_json::Value;
 
+use super::setup_multi::{self, Multi, WriteInfo};
+use super::setup_quorum as q;
+
 #[derive(Clone)]
 pub struct S3Cfg {
     pub endpoint: S3Endpoint,
     pub bucket: String,
     pub prefix: String,
+    pub multi: Option<Multi>,
 }
 
 impl S3Cfg {
     pub fn aus_datei(path: &str) -> Result<Self, String> {
+        Self::aus_datei_mit(path, None, None)
+    }
+
+    /// Liest Einzel- ODER Provider-Set-Config (Keys nur in der Config).
+    pub fn aus_datei_mit(
+        path: &str,
+        bucket: Option<&str>,
+        prefix: Option<&str>,
+    ) -> Result<Self, String> {
         let raw = std::fs::read_to_string(path).map_err(|e| format!("s3 config {path}: {e}"))?;
         let cfg: Value = serde_json::from_str(&raw).map_err(|e| format!("s3 parse: {e}"))?;
-        let endpoint = S3Endpoint {
-            host: cfg["host"].as_str().ok_or("s3.host fehlt")?.to_string(),
-            region: cfg["region"].as_str().unwrap_or("us-east-1").to_string(),
-            access_key: cfg["access_key"]
-                .as_str()
-                .ok_or("s3.access_key fehlt")?
-                .to_string(),
-            secret_key: cfg["secret_key"]
-                .as_str()
-                .ok_or("s3.secret_key fehlt")?
-                .to_string(),
-        };
+        let p = setup_multi::parse(&cfg, bucket, prefix)?;
         Ok(Self {
-            endpoint,
-            bucket: cfg["bucket"].as_str().unwrap_or_default().to_string(),
-            prefix: cfg["prefix"].as_str().unwrap_or_default().to_string(),
+            endpoint: p.endpoint,
+            bucket: p.bucket,
+            prefix: p.prefix,
+            multi: p.multi,
         })
     }
 
-    /// Override aus Request/Config: bucket/prefix/host/region/keys gewinnen.
     pub fn mit_override(&self, ov: &Value) -> Result<Self, String> {
         let mut out = self.clone();
         if let Some(v) = ov.get("bucket").and_then(|v| v.as_str()) {
@@ -68,21 +71,48 @@ impl S3Cfg {
         format!("{}{name}", self.prefix)
     }
 
+    pub fn targets(&self) -> Vec<q::Target> {
+        match &self.multi {
+            Some(m) => m
+                .targets
+                .iter()
+                .map(|t| (t.label.clone(), t.endpoint.clone(), t.bucket.clone()))
+                .collect(),
+            None => vec![("default".into(), self.endpoint.clone(), self.bucket.clone())],
+        }
+    }
+
+    pub fn quorum_min(&self) -> usize {
+        self.multi.as_ref().map(|m| m.quorum_min).unwrap_or(1)
+    }
+
+    pub async fn health(&self) -> Vec<(String, bool)> {
+        q::health(&self.targets()).await
+    }
+
+    pub async fn ensure_quorum(&self) -> Result<Vec<(String, bool)>, String> {
+        let h = self.health().await;
+        let ok = h.iter().filter(|(_, v)| *v).count();
+        if ok < self.quorum_min() {
+            return Err(format!(
+                "Zwangsquorum verfehlt: {ok}/{} erreichbar, min {} — fail-closed",
+                h.len(),
+                self.quorum_min()
+            ));
+        }
+        Ok(h)
+    }
+
+    pub async fn put_quorum(&self, name: &str, data: Vec<u8>) -> Result<WriteInfo, String> {
+        q::put(&self.targets(), &self.key(name), data, self.quorum_min()).await
+    }
+
     pub async fn put(&self, name: &str, data: Vec<u8>) -> Result<String, String> {
-        let key = self.key(name);
-        self.endpoint
-            .put_object(&self.bucket, &key, data)
-            .await
-            .map_err(|e| format!("S3 PUT {key}: {e}"))?;
-        Ok(key)
+        Ok(self.put_quorum(name, data).await?.key)
     }
 
     pub async fn get(&self, name: &str) -> Result<Vec<u8>, String> {
-        let key = self.key(name);
-        self.endpoint
-            .get_object(&self.bucket, &key)
-            .await
-            .map_err(|e| format!("S3 GET {key}: {e}"))
+        q::get(&self.targets(), &self.key(name)).await
     }
 
     pub async fn exists(&self, name: &str) -> bool {
@@ -90,21 +120,19 @@ impl S3Cfg {
     }
 
     pub async fn list(&self, name_prefix: &str) -> Result<Vec<(String, u64)>, String> {
-        let key = self.key(name_prefix);
-        let objs = self
-            .endpoint
-            .list_objects(&self.bucket, &key)
-            .await
-            .map_err(|e| format!("S3 LIST {key}: {e}"))?;
-        Ok(objs.into_iter().map(|o| (o.key, o.size)).collect())
+        q::list(&self.targets(), &self.key(name_prefix)).await
     }
 
     pub async fn delete(&self, name: &str) -> Result<(), String> {
-        let key = self.key(name);
-        self.endpoint
-            .delete_object(&self.bucket, &key)
-            .await
-            .map_err(|e| format!("S3 DELETE {key}: {e}"))
+        q::delete(&self.targets(), &self.key(name)).await
+    }
+
+    pub async fn create_buckets(&self) -> Result<Vec<(String, String)>, String> {
+        q::create_buckets(&self.targets()).await
+    }
+
+    pub async fn replicas_eq(&self, name: &str) -> Result<Vec<(String, String)>, String> {
+        q::replicas_eq(&self.targets(), &self.key(name)).await
     }
 }
 
