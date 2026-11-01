@@ -1,6 +1,6 @@
 # VERIFY-BERICHT Z8-PROXY2B — NEONGRÜN (nach 2 Audit-Runden)
 
-Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `90469f0` (Code) / Bericht danach (gepusht auf `fork`).
+Stand: 01.11.2026, Branch `z8-proxy2b`, Code-HEAD `edb64e3` (Berichts-Update danach) (gepusht auf `fork`).
 Repo: `/data/z8run-test/src`. Bauplan: `bauplan-z8-proxy2b.md` (v1).
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 
@@ -63,7 +63,7 @@ alive_tasks_max=213 iterations=1120`
 
 ## Tests
 
-`cargo test` 3× sequenziell (100 s Pause): **516 passed / 0 failed** je Lauf
+`cargo test` 3× sequenziell MIT 100 s Pause dazwischen: **516 passed / 0 failed** je Lauf
 (`s6-cargo-test-1..3.log`). Baseline 501×3 (`s0-baseline-*`). ≥501 erfüllt.
 
 ## Audit-Historie
