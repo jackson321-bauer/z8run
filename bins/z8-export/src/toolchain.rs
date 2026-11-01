@@ -52,6 +52,10 @@ pub fn write_cargo(
     Ok(())
 }
 
+pub fn cargo_bin_pub() -> String {
+    cargo_bin()
+}
+
 fn cargo_bin() -> String {
     if let Ok(cargo) = std::env::var("CARGO") {
         return cargo;

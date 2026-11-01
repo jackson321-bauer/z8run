@@ -1,6 +1,8 @@
 //! `z8-export`: turns a z8run flow into a standalone, server-less project.
 
+mod browser;
 mod codegen;
+mod cross;
 mod loader;
 mod obfuscate;
 mod secrets;
@@ -27,6 +29,7 @@ enum ModeArg {
 enum TargetArg {
     Native,
     Wasm,
+    Browser,
 }
 
 /// Exports a z8run flow as a Cargo project (optionally built).
@@ -88,6 +91,20 @@ async fn load(args: &Args) -> Result<Flow> {
 
 fn run(args: Args) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
+    if matches!(args.target, TargetArg::Browser) {
+        let b = browser::build(&args.out, args.core_path.as_deref())?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "target": "browser",
+                "bundle": b.dir,
+                "js": b.js,
+                "wasm": b.wasm,
+                "worker": b.worker,
+            }))?
+        );
+        return Ok(());
+    }
     let flow = rt.block_on(load(&args))?;
     let triggers = triggers::collect_triggers(&flow)?;
 
@@ -98,7 +115,7 @@ fn run(args: Args) -> Result<()> {
             ModeArg::Server => codegen::Mode::Server,
         },
         target: match args.target {
-            TargetArg::Native => codegen::Target::Native,
+            TargetArg::Native | TargetArg::Browser => codegen::Target::Native,
             TargetArg::Wasm => codegen::Target::Wasm,
         },
         readable: args.readable,
@@ -111,7 +128,11 @@ fn run(args: Args) -> Result<()> {
         "flow_id": flow.id,
         "flow_name": flow.name,
         "mode": match args.mode { ModeArg::Cli => "cli", ModeArg::Server => "server" },
-        "target": match args.target { TargetArg::Native => "native", TargetArg::Wasm => "wasm" },
+        "target": match args.target {
+            TargetArg::Native | TargetArg::Browser => "native",
+            TargetArg::Wasm => "wasm"
+        },
+        "cross": if matches!(args.target, TargetArg::Native) { cross::columns() } else { serde_json::json!([]) },
         "project": generated.dir,
         "binary": generated.binary,
         "triggers": triggers,

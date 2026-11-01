@@ -45,7 +45,7 @@ axum = { version = "0.8", features = ["ws", "macros"] }
 axum-extra = { version = "0.12", features = ["typed-header"] }
 tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "fs"] }
 hyper = { version = "1.8", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"

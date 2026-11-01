@@ -112,6 +112,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .nest("/ws", ws::ws_routes());
 
+    // Browser-Buendel (/wasm/*) aus dem konfigurierten Verzeichnis; kein
+    // file://-Test, echter Ursprung ueber den 443-Front.
+    let router = match std::env::var("Z8_WASM_DIR") {
+        Ok(dir) if !dir.trim().is_empty() => router.nest_service(
+            "/wasm",
+            tower_http::services::ServeDir::new(dir),
+        ),
+        _ => router,
+    };
+
     // Standalone binaries serve the web editor themselves (Docker uses Nginx).
     #[cfg(feature = "embed-ui")]
     let router = router.fallback(ui::serve);
