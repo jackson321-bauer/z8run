@@ -28,7 +28,51 @@ Die Ausgabe nennt Space-Adresse, User-Adressen und Dateien. Das
 Setup-JSON enthält die Setup-PEMs → 0600 aufbewahren, nie teilen.
 Der gleiche Vorgang ist als Flow `Z8-Setup` im Canvas verfügbar.
 
+### 2a. Setup-Wizard (nur lokal, Desktop)
+
+Der native Client startet mit `Z8_DESKTOP_TCP=1` einen Loopback-Listener.
+Dort liegt `/setup-ui/` — über die 443-Front ist der Pfad bewusst 404
+(„Setup-UI nur lokal“). Der Wizard führt in 7 Schritten durch dieselbe
+Engine wie `z8-setup init`:
+
+1. Provider-Config (nur der **Pfad**, der Inhalt wird nie gelesen/geloggt),
+   Bucket, Prefix, Quorum.
+2. Space-Name.
+3. Benutzer + Passwörter.
+4. Hardware-Keys: Anzahl, Key-Verzeichnis (PEMs entstehen dort, 0600).
+5. Übersicht (was angelegt wird).
+6. Ausführung mit Live-Log der Engine.
+7. Ergebnis; das Setup-JSON liegt unter dem gewählten Pfad (0600).
+
+Ein zweiter Lauf auf derselben Welt verweigert die Engine
+(„Welt bereits initialisiert“) — der Wizard zeigt das als Dialog.
+
+![Setup-Wizard](img/setup-ui.png)
+
 ## 3. Login
+
+### Login-Wizard (Login-UI)
+
+`/login-ui/` ist eine statische Seite (auch als Datei lauffähig), die im
+embed-ui des nativen Clients mitgeliefert wird. Sie ist ein dünner Client:
+
+1. **Space** (B2B-Space-Adresse)
+2. **Benutzer**
+3. **Passwort**
+4. **Hardware-Key** (PEM + KEM-Datei) oder **Passkey** über
+   `navigator.credentials.get` (Assertion wird als Parameter an den Kern
+   weitergereicht; der HW-Shard wird lokal im Worker geöffnet).
+
+Die Seite holt sich Hashdatei + HW-Shards über
+`/login-ui/v1/world` (Schlüssel bleiben serverseitig in der S3-Config) und
+führt den `/3`-Login im WASM-Kern aus. Fehler (falsches Passwort, falsche
+Space-Adresse, abgelehnter Hardware-Key) erscheinen **inline**, nie als
+Alert. Design folgt hell/dunkel dem System; ohne Systeminfo ist **dunkel**
+der Standard. Abmelden löscht Token/Session und beendet den Kern-Worker.
+
+![Login-Wizard](img/login-ui.png)
+
+### Native/WebAuthn-Endpunkte
 
 - Browser: Login-Seite öffnen, Space + Benutzer + Passwort + Hardware-PEM
   (Dev) bzw. Passkey-Assertion eingeben. Der Browser liest die

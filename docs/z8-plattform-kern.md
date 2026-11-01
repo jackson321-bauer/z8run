@@ -86,3 +86,27 @@ BLEIBEN (Plattform): `setup-engine`, `setup-summary`, `setup-result`,
 
 Keys/URLs nur in der Gateway-/Provider-Config. Keine Klartext-Keys in
 Registry (verschlüsselt), Logs oder Repo. Session-Master nur im RAM/UDS.
+
+## 7. UI-Clients (dumm)
+
+Beide Oberflächen sind statische HTML/CSS/JS-Dateien im Repo
+(`login-ui/`, `setup-ui/`, gemeinsame Tokens in `ui/design-system.css`)
+und werden mit `embed-ui` aus dem Binary ausgeliefert. Sie enthalten
+keine Krypto- oder Setup-Logik — nur Zustandsmaschine, Ein-/Ausgabe.
+
+- **Login-UI** (`/login-ui/`): 4 Schritte. Holt Hashdatei + HW-Shards über
+  `GET /login-ui/v1/world?space=&user=` (Server liest S3 mit der
+  Gateway-Config; der Browser sieht nur Argon2-Datei und Chiffren) und
+  ruft den WASM-Kern im Dedicated Worker (`/v1/login/passbox`). Der
+  WebAuthn-Weg nutzt `POST /hook/<flow>/challenge` + `/login`; die
+  Assertion entsteht per `navigator.credentials` in der Seite, der
+  HW-Shard wird lokal geöffnet (`open_shard_v3`). Kein Direkt-Master.
+- **Setup-UI** (`/setup-ui/`): 7 Schritte, ruft
+  `POST /setup-ui/v1/init` (SSE-Live-Log) und damit
+  `setup_kern::init_welt_mit` — dieselbe Engine wie `bins/z8-setup`.
+  Der Handler ist auf Loopback/UDS begrenzt; die 443-Front liefert für
+  `/setup-ui*` bewusst 404. Das Setup-JSON wird 0600 geschrieben, der
+  Browser bekommt nur Name + Adresse (nie PEMs/Private Keys).
+- Ein zweiter Init auf einer existierenden Welt wird von der Engine
+  verweigert („Welt bereits initialisiert“) und im Wizard als Dialog
+  gezeigt.

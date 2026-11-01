@@ -103,7 +103,7 @@ impl TokenManager {
                 grace_until: None,
             },
         );
-        if self.issued.fetch_add(1, Ordering::Relaxed) % 256 == 0 {
+        if self.issued.fetch_add(1, Ordering::Relaxed).is_multiple_of(256) {
             let now = self.clock.now_ms();
             self.sweep(now);
         }
