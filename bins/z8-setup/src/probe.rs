@@ -1,6 +1,7 @@
 //! `z8-setup put|replicas`: Quorum-Schreiben und Byte-Beweis je Provider.
 
 use super::init::cfg_aus;
+use z8run_core::nodes::setup_nodes::setup_quorum as q;
 
 #[derive(clap::Args)]
 pub struct Put {
@@ -67,6 +68,44 @@ pub async fn replicas(a: Replicas) -> Result<(), String> {
     );
     if werte.len() != 1 {
         return Err("Replikate sind NICHT byte-gleich".into());
+    }
+    Ok(())
+}
+
+
+#[derive(clap::Args)]
+pub struct Purge {
+    #[arg(long = "providers-config")]
+    pub providers_config: String,
+    #[arg(long)]
+    pub bucket: Option<String>,
+    #[arg(long)]
+    pub prefix: String,
+    /// Loeschen wirklich ausfuehren (ohne: nur anzeigen).
+    #[arg(long)]
+    pub yes: bool,
+}
+
+/// Alle Objekte unter `prefix` auf ALLEN Providern loeschen (Throwaway-Welten).
+pub async fn purge(a: Purge) -> Result<(), String> {
+    let cfg = cfg_aus(&a.providers_config, a.bucket.as_deref(), Some(&a.prefix), None)?;
+    let objs = cfg.list("").await?;
+    println!("PURGE prefix={} objects={}", a.prefix, objs.len());
+    for (key, size) in &objs {
+        println!("  {key} ({size} bytes)");
+    }
+    if !a.yes {
+        println!("PURGE dry-run (--yes fehlt)");
+        return Ok(());
+    }
+    for (key, _) in &objs {
+        q::delete(&cfg.targets(), key).await?;
+        println!("DELETE {key}");
+    }
+    let rest = cfg.list("").await?;
+    println!("PURGE rest={}", rest.len());
+    if !rest.is_empty() {
+        return Err(format!("{} Objekte blieben unter {}", rest.len(), a.prefix));
     }
     Ok(())
 }

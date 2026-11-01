@@ -13,6 +13,7 @@
   const result = $("result");
   let step = 1;
   let mode = "hw";
+  let busy = false;
 
   const fields = {
     1: () => $("space"),
@@ -89,13 +90,17 @@
   }
 
   async function doLogin() {
+    if (busy) return;
+    busy = true;
     const hw = await hardware();
     if (mode === "hw" && (!hw.pem || !hw.kem)) {
+      busy = false;
       showError("Hardware-Key fehlt: PEM und KEM-Datei auswählen (oder Passkey nutzen).");
       return;
     }
     const formData = { space: values.space, user: values.user, password: values.password };
     if (!formData.space || !formData.user || !formData.password) {
+      busy = false;
       showError("Bitte alle Schritte ausfüllen.");
       return;
     }
@@ -120,6 +125,7 @@
       const msg = String(err && err.message ? err.message : err);
       showError(msg, step === 3 ? $("password") : null);
     } finally {
+      busy = false;
       setBusy(false);
     }
   }
@@ -164,6 +170,7 @@
 
   $("logout").addEventListener("click", async () => {
     try { await Z8.logout(); } catch (_) { /* lokal abmelden genügt */ }
+    Z8.shutdown();
     window.__z8_token = "";
     result.hidden = true;
     form.hidden = false;

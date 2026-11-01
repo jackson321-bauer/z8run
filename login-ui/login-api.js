@@ -70,6 +70,16 @@
     return callCore(request);
   }
 
+  /* Worker samt OPFS-Handles beenden (Logout/Neustart des Wizards). */
+  function shutdown() {
+    if (worker) {
+      try { worker.terminate(); } catch (_) { /* egal */ }
+    }
+    worker = null;
+    workerReady = false;
+    waiting.length = 0;
+  }
+
   function sessionId() {
     let id = sessionStorage.getItem("z8.session");
     if (!id) {
@@ -175,5 +185,5 @@
     return data;
   }
 
-  global.Z8 = { serverBase, wanted, readText, world, passboxLogin, passkeyLogin, logout, sessionId };
+  global.Z8 = { serverBase, wanted, readText, world, passboxLogin, passkeyLogin, logout, shutdown, sessionId };
 })(window);

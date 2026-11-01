@@ -23,6 +23,8 @@ enum Cmd {
     Put(probe::Put),
     /// Byte-Gleichheit eines Keys ueber ALLE Provider zeigen
     Replicas(probe::Replicas),
+    /// Alle Objekte unter einem Prefix auf allen Providern loeschen
+    Purge(probe::Purge),
 }
 
 #[tokio::main]
@@ -33,6 +35,7 @@ async fn main() {
         Cmd::Health(h) => health::run(h).await,
         Cmd::Put(p) => probe::put(p).await,
         Cmd::Replicas(r) => probe::replicas(r).await,
+        Cmd::Purge(p) => probe::purge(p).await,
     };
     if let Err(e) = r {
         eprintln!("Z8-SETUP FEHLER: {e}");
