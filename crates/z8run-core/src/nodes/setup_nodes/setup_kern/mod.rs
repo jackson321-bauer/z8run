@@ -48,10 +48,39 @@ pub fn pfade(req: &Value) -> (String, String, String) {
     (base, db, vec0)
 }
 
+/// S3-Config aus der Provider-Datei (+ optionalen Overrides). EINE Regel für
+/// Binary, Flow und Setup-UI — keine zweite Config-Auslegung.
+pub fn cfg_aus(
+    path: &str,
+    bucket: Option<&str>,
+    prefix: Option<&str>,
+    min: Option<usize>,
+) -> Result<S3Cfg, String> {
+    let mut cfg = S3Cfg::aus_datei_mit(path, bucket, prefix)?;
+    if let (Some(m), Some(v)) = (cfg.multi.as_mut(), min) {
+        m.quorum_min = v.clamp(1, m.targets.len());
+    }
+    Ok(cfg)
+}
+
 /// Kompletter Erstaufbau: Registry prüfen, Keys, Welt, Quorum-Write.
 pub async fn init_welt(cfg: &S3Cfg, req: &Value) -> Result<Value, String> {
+    init_welt_mit(cfg, req, |_| {}).await
+}
+
+/// Wie `init_welt`, meldet aber echte Engine-Fortschritte an den Aufrufer
+/// (Setup-UI-Live-Log). Keine Kopie der Logik — nur eine Naht um dieselben
+/// Schritte.
+pub async fn init_welt_mit<F: FnMut(&str) + Send>(
+    cfg: &S3Cfg,
+    req: &Value,
+    mut meldung: F,
+) -> Result<Value, String> {
+    meldung("Schritt 1/4: Setup-Keys erzeugen (2-of-N, PQC, Registry-Check)");
     let k = keys::erzeugen(cfg, req).await?;
+    meldung("Schritt 2/4: Welt bauen (Userspaces, Passbox, HW-Boxen, DBs)");
     let w = welt::bauen(cfg, req, &k).await?;
+    meldung("Schritt 3/4: Registry siegeln");
     let registry_text = sc::box_b64(
         &sc::registry_siegeln(&k.master_hex, &w.registry).map_err(|e| format!("registry: {e}"))?,
     )?;
@@ -63,6 +92,7 @@ pub async fn init_welt(cfg: &S3Cfg, req: &Value) -> Result<Value, String> {
         .collect();
     files.push(datei_eintrag(registry_key, registry_text.into_bytes(), "utf8"));
 
+    meldung(&format!("Schritt 4/4: Quorum-Write {} Dateien", files.len()));
     let mut puts = Vec::new();
     let mut degraded = false;
     for f in &files {
@@ -80,7 +110,19 @@ pub async fn init_welt(cfg: &S3Cfg, req: &Value) -> Result<Value, String> {
             "replicas_failed": info.replicas_failed,
             "degraded": info.degraded,
         }));
+        meldung(&format!(
+            "  {key}: {}/{} Provider{}",
+            info.replicas_ok.len(),
+            info.replicas_ok.len() + info.replicas_failed.len(),
+            if info.degraded { " (degraded)" } else { "" }
+        ));
     }
+    meldung(&format!(
+        "Fertig: space={} users={} degraded={}",
+        req["space"].as_str().unwrap_or_default(),
+        w.users.len(),
+        degraded
+    ));
     let dateien: Vec<Value> = files
         .iter()
         .map(|f| json!({"key": f["key"], "sha256": f["sha256"], "bytes": f["bytes"]}))

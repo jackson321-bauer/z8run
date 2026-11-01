@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280">
+<meta name="color-scheme" content="dark light">
+<title>Z8 · Setup</title>
+<link rel="stylesheet" href="../ui/design-system.css">
+<link rel="stylesheet" href="setup.css">
+</head>
+<body class="setup-body">
+<div class="logo-slot" aria-hidden="true"></div>
+
+<main class="setup-shell">
+  <aside class="side">
+    <div class="side-head">
+      <p class="eyebrow">Z8 Setup</p>
+      <h1>Welt aufbauen</h1>
+      <p class="lede">Geführter Erstaufbau über drei Provider. Nur lokal.</p>
+    </div>
+    <ol id="stepnav" class="stepnav">
+      <li data-step="1"><span>1</span>Provider</li>
+      <li data-step="2"><span>2</span>Space</li>
+      <li data-step="3"><span>3</span>Benutzer</li>
+      <li data-step="4"><span>4</span>Hardware</li>
+      <li data-step="5"><span>5</span>Übersicht</li>
+      <li data-step="6"><span>6</span>Ausführung</li>
+      <li data-step="7"><span>7</span>Ergebnis</li>
+    </ol>
+    <p class="side-foot" id="local-note">Nur über den nativen Client erreichbar.</p>
+  </aside>
+
+  <section class="content">
+    <form id="wizard" novalidate autocomplete="off">
+      <fieldset class="panel" data-panel="1">
+        <legend>Provider-Config</legend>
+        <label for="providers-config">Pfad zur Provider-Datei</label>
+        <input id="providers-config" type="text" placeholder="/etc/z8run/s3-multi-providers.json" spellcheck="false">
+        <p class="hint">Der Inhalt wird nie gelesen, geloggt oder angezeigt — nur der Pfad geht an die Engine.</p>
+        <div class="grid-2">
+          <div>
+            <label for="bucket">Bucket</label>
+            <input id="bucket" type="text" placeholder="mein-bucket" spellcheck="false">
+          </div>
+          <div>
+            <label for="prefix">Prefix</label>
+            <input id="prefix" type="text" placeholder="dev/" spellcheck="false">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <label for="quorum-min">Quorum-Minimum</label>
+            <input id="quorum-min" type="number" min="1" max="3" value="2">
+          </div>
+          <label class="check"><input id="create-buckets" type="checkbox"> Buckets anlegen</label>
+        </div>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="2" hidden>
+        <legend>Space</legend>
+        <label for="space">Space-Name</label>
+        <input id="space" type="text" placeholder="meinspace" spellcheck="false">
+        <p class="hint">Bestimmt die Space-Adresse (Argon2id) und alle Weltpfade.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="3" hidden>
+        <legend>Benutzer und Passwörter</legend>
+        <div id="users" class="users"></div>
+        <button type="button" id="add-user" class="ghost">Benutzer hinzufügen</button>
+        <p class="hint">Passwörter gehen nur an die Engine und erscheinen in keinem Log.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="4" hidden>
+        <legend>Hardware-Keys (PEM-Ablage)</legend>
+        <div class="grid-2">
+          <div>
+            <label for="setup-keys">Setup-Keys (2-of-N)</label>
+            <input id="setup-keys" type="number" min="2" max="16" value="3">
+          </div>
+          <div>
+            <label for="hw-keys">User-HW-Keys</label>
+            <input id="hw-keys" type="number" min="2" max="16" value="2">
+          </div>
+        </div>
+        <label for="key-dir">Key-Verzeichnis (PEMs, 0600)</label>
+        <input id="key-dir" type="text" placeholder="/data/z8run/setup-keys/meinspace" spellcheck="false">
+        <label for="db-dir">DB-Verzeichnis</label>
+        <input id="db-dir" type="text" placeholder="(leer = Key-Verzeichnis/db)" spellcheck="false">
+        <label for="vec0">vec0-Pfad</label>
+        <input id="vec0" type="text" value="/data/z8run/vec0.so" spellcheck="false">
+        <p class="hint">Die Engine erzeugt die PEMs und setzt Modus 0600.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="5" hidden>
+        <legend>Übersicht</legend>
+        <div id="summary" class="summary"></div>
+        <label for="out">Setup-JSON-Ablage</label>
+        <input id="out" type="text" spellcheck="false">
+        <p class="hint">Die Datei wird mit Modus 0600 geschrieben. Enthält Setup-PEMs — nie teilen.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="6" hidden>
+        <legend>Ausführung</legend>
+        <p class="hint">Live-Ausgabe der Setup-Engine. Fenster nicht schließen.</p>
+        <pre id="engine-log" class="engine-log" aria-live="polite"></pre>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="7" hidden>
+        <legend>Ergebnis</legend>
+        <p class="badge ok">Welt angelegt</p>
+        <div id="result" class="summary"></div>
+        <div class="callout">
+          <strong>Setup-JSON:</strong> <code id="out-path"></code><br>
+          Modus <code>0600</code> — nur für dich, nie ins Repo oder in einen Chat.
+        </div>
+      </fieldset>
+
+      <p class="error" id="error" role="alert" hidden></p>
+      <div class="actions">
+        <button type="button" id="back" class="ghost" hidden>Zurück</button>
+        <button type="button" id="next" class="primary">Weiter</button>
+        <button type="button" id="run" class="primary" hidden>Ausführen</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<dialog id="fehler-dialog" class="dialog">
+  <h2>Setup verweigert</h2>
+  <p id="dialog-text"></p>
+  <form method="dialog"><button class="primary">Schließen</button></form>
+</dialog>
+
+<script src="setup.js"></script>
+</body>
+</html>

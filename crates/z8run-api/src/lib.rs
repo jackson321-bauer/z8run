@@ -16,6 +16,7 @@ pub mod state;
 pub mod tls;
 pub mod ui;
 pub mod ui_login;
+pub mod ui_setup;
 pub mod ws;
 
 use axum::http::{header, HeaderValue, Method};
@@ -136,7 +137,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .nest("/ws", ws::ws_routes())
         // Dünne UI-Naht: öffentliche Weltdateien für die Login-Seite.
-        .merge(ui_login::routes());
+        .merge(ui_login::routes())
+        // Setup-UI/Engine nur lokal (Handler prüft Loopback).
+        .merge(ui_setup::routes());
 
     // Browser-Buendel (/wasm/*) aus dem konfigurierten Verzeichnis; kein
     // file://-Test, echter Ursprung ueber den 443-Front.

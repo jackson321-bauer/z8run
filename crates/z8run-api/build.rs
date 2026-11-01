@@ -33,9 +33,9 @@ fn main() {
     // Die beiden Wizard-UIs liegen als eigenstaendige statische Ordner im Repo
     // (identischer Code fuer embed-ui UND herunterladbare Kopie).
     let repo = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
-    for (name, mount) in [("login-ui", "login-ui"), ("setup-ui", "setup-ui")] {
+    for (name, mount) in [("login-ui", "login-ui"), ("setup-ui", "setup-ui"), ("ui", "ui")] {
         let dir = repo.join(name);
-        if dir.join("index.html").is_file() {
+        if dir.is_dir() {
             collect(&dir, &dir, &format!("{mount}/"), &mut files);
             println!("cargo:rerun-if-changed={}", dir.display());
         }

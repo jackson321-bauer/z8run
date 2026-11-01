@@ -125,6 +125,10 @@ async fn route(
     if path.starts_with("/login/v1/") || path == "/kvlogin" || path.starts_with("/kvlogin/") {
         return fehler(410, "Login /2 entfernt — nur noch /3");
     }
+    // Setup-UI ist an den nativen Client gebunden: nie über das Netz.
+    if path == "/setup-ui" || path.starts_with("/setup-ui/") {
+        return fehler(404, "Setup-UI nur lokal");
+    }
     let target = if path == "/proxy" || path.starts_with("/proxy/") {
         Some((proxy, "/proxy", "admin"))
     } else {

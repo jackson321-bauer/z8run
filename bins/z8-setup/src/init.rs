@@ -40,11 +40,7 @@ pub struct Init {
 }
 
 pub fn cfg_aus(path: &str, bucket: Option<&str>, prefix: Option<&str>, min: Option<usize>) -> Result<S3Cfg, String> {
-    let mut cfg = S3Cfg::aus_datei_mit(path, bucket, prefix)?;
-    if let (Some(m), Some(v)) = (cfg.multi.as_mut(), min) {
-        m.quorum_min = v.clamp(1, m.targets.len());
-    }
-    Ok(cfg)
+    setup_kern::cfg_aus(path, bucket, prefix, min)
 }
 
 pub async fn run(a: Init) -> Result<(), String> {
