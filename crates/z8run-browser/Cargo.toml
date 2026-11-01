@@ -26,7 +26,7 @@ async-trait = { workspace = true }
 # ECHTER Kern (target-sauber) auch im Browser: gleiche Token-/Session-/App-
 # Logik wie nativ; nur die Adapter (DB/Storage) sind Browser-Implementierungen.
 proxy-kern = { workspace = true }
-z8run-core = { workspace = true, default-features = false }
+z8run-core = { path = "../../crates/z8run-core", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 sqlite-wasm-rs = "0.5.5"
