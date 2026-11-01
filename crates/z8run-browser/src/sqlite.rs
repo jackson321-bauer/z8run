@@ -135,6 +135,136 @@ impl Db {
         Ok(())
     }
 
+    /// Parameterbelegung fuer den Kernel-Pfad (DbPort): JSON -> SQLite.
+    /// Werte werden gebunden, nie in SQL interpoliert.
+    fn bind_params(&self, stmt: *mut ffi::sqlite3_stmt, params: &[serde_json::Value]) -> Result<(), String> {
+        for (i, v) in params.iter().enumerate() {
+            let idx = (i + 1) as c_int;
+            let rc = match v {
+                serde_json::Value::Null => unsafe { ffi::sqlite3_bind_null(stmt, idx) },
+                serde_json::Value::Bool(b) => unsafe { ffi::sqlite3_bind_int(stmt, idx, *b as c_int) },
+                serde_json::Value::Number(n) => {
+                    if let Some(i64v) = n.as_i64() {
+                        unsafe { ffi::sqlite3_bind_int64(stmt, idx, i64v) }
+                    } else {
+                        unsafe { ffi::sqlite3_bind_double(stmt, idx, n.as_f64().unwrap_or(0.0)) }
+                    }
+                }
+                serde_json::Value::String(s) => unsafe {
+                    ffi::sqlite3_bind_text(
+                        stmt,
+                        idx,
+                        s.as_ptr().cast::<c_char>(),
+                        s.len() as c_int,
+                        ffi::SQLITE_TRANSIENT(),
+                    )
+                },
+                other => {
+                    let s = other.to_string();
+                    unsafe {
+                        ffi::sqlite3_bind_text(
+                            stmt,
+                            idx,
+                            s.as_ptr().cast::<c_char>(),
+                            s.len() as c_int,
+                            ffi::SQLITE_TRANSIENT(),
+                        )
+                    }
+                }
+            };
+            if rc != ffi::SQLITE_OK {
+                return Err(format!("bind {idx} rc={rc}"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Schreib-/DDL-Statement mit gebundenen Parametern.
+    pub fn exec_params(&self, sql: &str, params: &[serde_json::Value]) -> Result<u64, String> {
+        let c = CString::new(sql).map_err(|e| e.to_string())?;
+        let mut stmt: *mut ffi::sqlite3_stmt = std::ptr::null_mut();
+        let rc = unsafe { ffi::sqlite3_prepare_v2(self.p, c.as_ptr(), -1, &mut stmt, std::ptr::null_mut()) };
+        if rc != ffi::SQLITE_OK {
+            return Err(self.err(rc));
+        }
+        if let Err(e) = self.bind_params(stmt, params) {
+            unsafe { ffi::sqlite3_finalize(stmt) };
+            return Err(e);
+        }
+        let rc = unsafe { ffi::sqlite3_step(stmt) };
+        let changed = unsafe { ffi::sqlite3_changes(self.p) } as u64;
+        unsafe { ffi::sqlite3_finalize(stmt) };
+        if rc != ffi::SQLITE_DONE && rc != ffi::SQLITE_ROW {
+            return Err(self.err(rc));
+        }
+        Ok(changed)
+    }
+
+    /// Lese-Statement mit gebundenen Parametern (JSON-Zellen).
+    pub fn query_params(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<(Vec<String>, Vec<Vec<serde_json::Value>>), String> {
+        let c = CString::new(sql).map_err(|e| e.to_string())?;
+        let mut stmt: *mut ffi::sqlite3_stmt = std::ptr::null_mut();
+        let rc = unsafe { ffi::sqlite3_prepare_v2(self.p, c.as_ptr(), -1, &mut stmt, std::ptr::null_mut()) };
+        if rc != ffi::SQLITE_OK {
+            return Err(self.err(rc));
+        }
+        if let Err(e) = self.bind_params(stmt, params) {
+            unsafe { ffi::sqlite3_finalize(stmt) };
+            return Err(e);
+        }
+        let n = unsafe { ffi::sqlite3_column_count(stmt) };
+        let mut cols = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let p = unsafe { ffi::sqlite3_column_name(stmt, i) };
+            cols.push(if p.is_null() {
+                String::new()
+            } else {
+                unsafe { CStr::from_ptr(p) }.to_string_lossy().to_string()
+            });
+        }
+        let mut rows = Vec::new();
+        loop {
+            let rc = unsafe { ffi::sqlite3_step(stmt) };
+            if rc == ffi::SQLITE_DONE {
+                break;
+            }
+            if rc != ffi::SQLITE_ROW {
+                unsafe { ffi::sqlite3_finalize(stmt) };
+                return Err(self.err(rc));
+            }
+            let mut row = Vec::with_capacity(n as usize);
+            for i in 0..n {
+                let t = unsafe { ffi::sqlite3_column_type(stmt, i) };
+                row.push(match t {
+                    ffi::SQLITE_NULL => serde_json::Value::Null,
+                    ffi::SQLITE_INTEGER => {
+                        serde_json::Value::from(unsafe { ffi::sqlite3_column_int64(stmt, i) })
+                    }
+                    ffi::SQLITE_FLOAT => serde_json::Value::from(unsafe {
+                        ffi::sqlite3_column_double(stmt, i)
+                    }),
+                    _ => {
+                        let p = unsafe { ffi::sqlite3_column_text(stmt, i) };
+                        if p.is_null() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::Value::String(
+                                unsafe { CStr::from_ptr(p.cast()) }.to_string_lossy().to_string(),
+                            )
+                        }
+                    }
+                });
+            }
+            rows.push(row);
+        }
+        unsafe { ffi::sqlite3_finalize(stmt) };
+        Ok((cols, rows))
+    }
+
     pub fn vec_version(&self) -> Result<String, String> {
         let rows = self.query("SELECT vec_version()")?;
         rows.first()

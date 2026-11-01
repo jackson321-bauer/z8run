@@ -5824,6 +5824,7 @@ name = "z8run-browser"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
+ "async-trait",
  "base64",
  "cc",
  "getrandom 0.2.17",
@@ -5831,6 +5832,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "js-sys",
+ "proxy-kern",
  "rand 0.8.8",
  "serde",
  "serde_json",
@@ -5839,6 +5841,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "z8run-core",
  "zeroize",
 ]
 

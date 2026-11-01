@@ -59,6 +59,67 @@ export async function z8_fetch(url, method, headers, body) {
   const buf = new Uint8Array(await r.arrayBuffer());
   return { status: r.status, bytes: buf };
 }
+async function z8_dir_for(path, create) {
+  const parts = String(path).split('/').filter((p) => p.length > 0);
+  const name = parts.pop();
+  let dir = await navigator.storage.getDirectory();
+  for (const p of parts) dir = await dir.getDirectoryHandle(p, { create });
+  return [dir, name];
+}
+export async function z8_opfs_write_path(path, bytes) {
+  const [dir, name] = await z8_dir_for(path, true);
+  const h = await dir.getFileHandle(name, { create: true });
+  if (typeof h.createSyncAccessHandle === "function") {
+    const sh = await h.createSyncAccessHandle();
+    try { sh.truncate(0); sh.write(bytes, { at: 0 }); sh.flush(); }
+    finally { sh.close(); }
+  } else {
+    const w = await h.createWritable();
+    await w.write(bytes);
+    await w.close();
+  }
+  return bytes.length;
+}
+export async function z8_opfs_read_path(path) {
+  try {
+    const [dir, name] = await z8_dir_for(path, false);
+    const h = await dir.getFileHandle(name);
+    if (typeof h.createSyncAccessHandle === "function") {
+      const sh = await h.createSyncAccessHandle();
+      try { const n = sh.getSize(); const b = new Uint8Array(n); sh.read(b, { at: 0 }); return b; }
+      finally { sh.close(); }
+    }
+    const f = await h.getFile();
+    return new Uint8Array(await f.arrayBuffer());
+  } catch (e) { return null; }
+}
+export async function z8_opfs_delete_path(path) {
+  try {
+    const [dir, name] = await z8_dir_for(path, false);
+    await dir.removeEntry(name);
+    return true;
+  } catch (e) { return false; }
+}
+export async function z8_opfs_list_path(path) {
+  const out = [];
+  async function walk(dir, prefix) {
+    for await (const [name, h] of dir.entries()) {
+      if (h.kind === "directory") await walk(h, prefix + name + "/");
+      else out.push(prefix + name);
+    }
+  }
+  try {
+    const [dir, name] = await z8_dir_for(path, false);
+    if (name) {
+      const h = await dir.getDirectoryHandle(name);
+      await walk(h, path.replace(/\/$/, "") + "/");
+    } else {
+      await walk(dir, "");
+    }
+  } catch (e) { /* leer */ }
+  out.sort();
+  return out;
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = z8_opfs_write)]
@@ -75,6 +136,14 @@ extern "C" {
     pub fn quota() -> js_sys::Promise;
     #[wasm_bindgen(js_name = z8_fetch)]
     pub fn fetch(url: &str, method: &str, headers: JsValue, body: JsValue) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = z8_opfs_write_path)]
+    pub fn write_path(path: &str, bytes: &[u8]) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = z8_opfs_read_path)]
+    pub fn read_path(path: &str) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = z8_opfs_delete_path)]
+    pub fn delete_path(path: &str) -> js_sys::Promise;
+    #[wasm_bindgen(js_name = z8_opfs_list_path)]
+    pub fn list_path(path: &str) -> js_sys::Promise;
 }
 
 pub async fn write_async(name: &str, bytes: &[u8]) -> Result<usize, String> {
@@ -108,4 +177,29 @@ pub async fn delete_async(name: &str) -> bool {
         .ok()
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
+}
+
+pub async fn write_path_async(path: &str, bytes: &[u8]) -> Result<usize, String> {
+    let v = wasm_bindgen_futures::JsFuture::from(write_path(path, bytes))
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(v.as_f64().unwrap_or(0.0) as usize)
+}
+
+pub async fn read_path_async(path: &str) -> Option<Vec<u8>> {
+    let v = wasm_bindgen_futures::JsFuture::from(read_path(path)).await.ok()?;
+    if v.is_null() || v.is_undefined() {
+        return None;
+    }
+    js_sys::Uint8Array::new(&v).to_vec().into()
+}
+
+pub async fn list_path_async(path: &str) -> Vec<String> {
+    let Ok(v) = wasm_bindgen_futures::JsFuture::from(list_path(path)).await else {
+        return Vec::new();
+    };
+    js_sys::Array::from(&v)
+        .iter()
+        .map(|x| x.as_string().unwrap_or_default())
+        .collect()
 }

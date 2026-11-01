@@ -2,10 +2,15 @@
 
 use wasm_bindgen_test::*;
 
-wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 #[wasm_bindgen_test]
-async fn vec_opfs_cipher_und_fassade() {
+async fn kern_im_worker_opfs_und_fassade() {
     let key = [7u8; 32];
     let out = z8run_browser::browser_selftest(&key).await.unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -17,57 +22,114 @@ async fn vec_opfs_cipher_und_fassade() {
     assert!(v["persisted"].is_boolean(), "persist() fehlt: {out}");
     println!("WASM_SELFTEST {out}");
 
-    // Fassade mit HTTP-Semantik (Worker postMessage).
-    let r = z8run_browser::facade(r#"{"method":"GET","path":"/v1/status"}"#);
+    // S2: ECHTER Kern (proxy-kern) + dbnode im Worker-Status.
+    let status = z8run_browser::kernel_status();
+    let st: serde_json::Value = serde_json::from_str(&status).unwrap();
+    assert_eq!(st["kern"], "proxy-kern", "Kern nicht aktiv: {status}");
+    assert_eq!(st["dbnode"], "wasm-vfs+z8fc1", "dbnode nicht aktiv: {status}");
+    let r = z8run_browser::facade(r#"{"method":"GET","path":"/v1/status"}"#).await;
     assert!(r.contains("\"status\":200"), "{r}");
-    let r = z8run_browser::facade(
-        r#"{"method":"POST","path":"/v1/db/exec","body":{"sql":"CREATE TABLE f (x TEXT)"}}"#,
-    );
-    assert!(r.contains("\"status\":200"), "{r}");
-    let r = z8run_browser::facade(
-        r#"{"method":"POST","path":"/v1/db/exec","body":{"sql":"INSERT INTO f VALUES ('facade-ok')"}}"#,
-    );
-    assert!(r.contains("\"status\":200"), "{r}");
-    let r = z8run_browser::facade(
-        r#"{"method":"POST","path":"/v1/db/query","body":{"sql":"SELECT x FROM f"}}"#,
-    );
-    assert!(r.contains("facade-ok"), "{r}");
+    assert!(r.contains("proxy-kern"), "Kern fehlt in /v1/status: {r}");
+    println!("KERN_STATUS {status}");
 
-    // AutoLock via Fassade (Default 300, dann 1 s im Test).
-    let r = z8run_browser::facade(
-        r#"{"method":"POST","path":"/v1/session/login","body":{"master_b64":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="}}"#,
-    );
-    assert!(r.contains("\"status\":200"), "{r}");
-    z8run_browser::facade(r#"{"method":"POST","path":"/v1/session/check","body":{"now_ms":1000}}"#);
-    let r = z8run_browser::facade(
-        r#"{"method":"POST","path":"/v1/session/autolock","body":{"sec":1}}"#,
-    );
-    assert!(r.contains("\"autolock_sec\":1"), "{r}");
-    let r = z8run_browser::facade(
-        r#"{"method":"POST","path":"/v1/session/check","body":{"now_ms":2500}}"#,
-    );
-    assert!(r.contains("\"locked\":true"), "{r}");
+    // S2: Fassade spricht Kern-API (Login -> Token -> DB oeffnen/schreiben/lesen).
+    let master = [7u8; 32];
+    let login = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/kernel/login",
+        "body": {"master_b64": b64(&master), "session_id": "s2", "db_id": "kdb"}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&login).await;
+    assert!(r.contains("\"status\":200"), "Kernel-Login: {r}");
+    assert!(r.contains("\"token\":"), "Token fehlt: {r}");
+    assert!(r.contains("\"adapter\":\"opfs\""), "DB-Status im Login fehlt: {r}");
+    println!("KERN_LOGIN {r}");
+    let exec = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/db/exec",
+        "body": {"db_id": "kdb", "session_id": "s2", "sql": "CREATE TABLE k (x TEXT)"}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&exec).await;
+    assert!(r.contains("\"status\":200"), "Kern exec: {r}");
+    let ins = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/db/exec",
+        "body": {"db_id": "kdb", "session_id": "s2", "sql": "INSERT INTO k VALUES ('kern-ok')"}
+    })
+    .to_string();
+    assert!(z8run_browser::facade(&ins).await.contains("\"status\":200"));
+    let q = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/db/query",
+        "body": {"db_id": "kdb", "sql": "SELECT x FROM k"}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&q).await;
+    assert!(r.contains("kern-ok"), "Kern query: {r}");
 
-    // Nativ -> WASM: native Z8FC1-Datei im Browser entsiegeln.
+    // S2: DB-Datei in OPFS = Z8FC1-Chiffre (Worker-Side-Dump).
+    let sealed = z8run_browser::db_sealed_dump("kdb").expect("kein DB-Dump");
+    assert_eq!(&sealed[..5], b"Z8FC1", "DB-Datei ist keine Z8FC1-Chiffre");
+    assert!(
+        !sealed.windows(15).any(|w| w == b"SQLite format 3"),
+        "Klartext-SQLite in OPFS"
+    );
+    let dbkey = z8run_browser::db_key(&master, "kdb");
+    let plain = z8run_browser::open_sealed(&dbkey, &sealed).unwrap();
+    assert!(plain.starts_with(b"SQLite format 3"));
+    println!("DB_Z8FC1 bytes={} plain={}", sealed.len(), plain.len());
+
+    // S2: OpfsBackend am gemeinsamen StorageBackend-Trait (Roundtrip).
+    let r = z8run_browser::opfs_backend_selftest().await.unwrap();
+    assert!(r.contains("\"kind\":\"opfs\""), "Trait-Adapter: {r}");
+    assert!(r.contains("opfs-trait-1"), "Trait-Read: {r}");
+    println!("OPFS_TRAIT {r}");
+
+    // S2: nativ erzeugte Z8FC1-Datei in OPFS lesen (Kompatibilitaet).
     let native = include_bytes!("fixtures/native-db.z8fc");
-    let plain = z8run_browser::open_sealed(&[9u8; 32], native).unwrap();
+    z8run_browser::opfs_write_raw("z8db/native/native.z8fc", native)
+        .await
+        .unwrap();
+    let back = z8run_browser::opfs_read_raw("z8db/native/native.z8fc")
+        .await
+        .expect("OPFS read leer");
+    assert_eq!(back, native);
+    let plain = z8run_browser::open_sealed(&[9u8; 32], &back).unwrap();
     assert!(plain.starts_with(b"SQLite format 3"), "native Fixture nicht lesbar");
     assert!(plain.windows(b"native-nach-wasm".len()).any(|w| w == b"native-nach-wasm"));
     println!("NATIVE_TO_WASM_OK bytes={}", plain.len());
 
+    // AutoLock via Fassade (Default 300, dann 1 s im Test).
+    z8run_browser::facade(r#"{"method":"POST","path":"/v1/session/check","body":{"now_ms":1000}}"#).await;
+    let r = z8run_browser::facade(
+        r#"{"method":"POST","path":"/v1/session/autolock","body":{"sec":1}}"#,
+    )
+    .await;
+    assert!(r.contains("\"autolock_sec\":1"), "{r}");
+    let r = z8run_browser::facade(
+        r#"{"method":"POST","path":"/v1/session/check","body":{"now_ms":2500}}"#,
+    )
+    .await;
+    assert!(r.contains("\"locked\":true"), "{r}");
+
     // Konflikt: aelterer OPFS-Stand + neuere S3-WAL => Replay + UI-Event.
     let r = z8run_browser::facade(
         r#"{"method":"POST","path":"/v1/conflict","body":{"local_wal":7,"local_hash":"aa","remote_wal":9,"remote_hash":"bb"}}"#,
-    );
+    )
+    .await;
     assert!(r.contains("ReplayRemote"), "Konflikt-Event fehlt: {r}");
     let r = z8run_browser::facade(
         r#"{"method":"POST","path":"/v1/conflict","body":{"local_wal":9,"local_hash":"aa","remote_wal":9,"remote_hash":"bb"}}"#,
-    );
+    )
+    .await;
     assert!(r.contains("ChainMismatch"), "Kettenkonflikt fehlt: {r}");
 
     // Offline-Regel: S3-Kontakt fehlt => SHUTDOWN.
     let r = z8run_browser::facade(
         r#"{"method":"POST","path":"/v1/s3/probe","body":{"ok":false}}"#,
-    );
+    )
+    .await;
     assert!(r.contains("\"alive\":false"), "{r}");
 }
