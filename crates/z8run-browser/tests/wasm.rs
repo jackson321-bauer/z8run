@@ -27,20 +27,22 @@ async fn kern_im_worker_opfs_und_fassade() {
     assert!(r.contains("proxy-kern"), "Kern fehlt in /v1/status: {r}");
     println!("KERN_STATUS {status}");
 
-    // S2/S4: Fassade spricht Kern-API ueber den ECHTEN Passbox-Login
+    // S2/S4: Fassade spricht Kern-API ueber den ECHTEN /3-Login
     // (Test-Welt inline, nur Feature `test-login`; kein Direkt-Master).
     let world: serde_json::Value =
-        serde_json::from_str(&z8run_browser::test_build_world(
-            "pw-test", "salt-test", "space-test", "kreuz",
+        serde_json::from_str(&z8run_browser::test_build_world_v3(
+            "pw-test", "space-test", "kreuz",
         ))
         .unwrap();
     let mut login_body = serde_json::json!({
+        "schema": "Argon2IDHashDatei/3",
         "space": "space-test",
         "username": "kreuz",
         "password": "pw-test",
         "hw_pem": world["hw_pem"],
-        "salt": "salt-test",
-        "hashdatei": world["hashdatei"],
+        "v3_b2b": world["v3_b2b"],
+        "v3_hw": world["v3_hw"],
+        "kem_dk_b64": world["kem_dk_b64"],
         "session_id": "s2",
         "db_id": "kdb"
     });
@@ -55,44 +57,6 @@ async fn kern_im_worker_opfs_und_fassade() {
     assert!(r.contains("\"token\":"), "Token fehlt: {r}");
     assert!(r.contains("\"adapter\":\"opfs\""), "DB-Status im Login fehlt: {r}");
     println!("PASSBOX_LOGIN {r}");
-
-    // S2/S3: /3-Format (b2b + hw-shards) mit v3-Hybrid-Box im Browser.
-    let w3: serde_json::Value =
-        serde_json::from_str(&z8run_browser::test_build_world_v3(
-            "pw-v3", "space-v3", "kreuz",
-        ))
-        .unwrap();
-    let mut v3_body = serde_json::json!({
-        "schema": "Argon2IDHashDatei/3",
-        "space": "space-v3",
-        "username": "kreuz",
-        "password": "pw-v3",
-        "hw_pem": w3["hw_pem"],
-        "v3_b2b": w3["v3_b2b"],
-        "v3_hw": w3["v3_hw"],
-        "kem_dk_b64": w3["kem_dk_b64"],
-        "session_id": "s3",
-        "db_id": "kdb3"
-    });
-    let r = z8run_browser::facade(
-        &serde_json::json!({"method": "POST", "path": "/v1/login/passbox", "body": v3_body})
-            .to_string(),
-    )
-    .await;
-    assert!(r.contains("\"status\":200"), "V3-Login: {r}");
-    assert!(
-        r.contains(w3["master_check_sha256"].as_str().unwrap()),
-        "V3-Master weicht ab: {r}"
-    );
-    println!("PASSBOX_LOGIN_V3 {r}");
-    v3_body["password"] = serde_json::json!("falsch");
-    let r = z8run_browser::facade(
-        &serde_json::json!({"method": "POST", "path": "/v1/login/passbox", "body": v3_body})
-            .to_string(),
-    )
-    .await;
-    assert!(r.contains("\"status\":401"), "V3 falsches Passwort nicht 401: {r}");
-    assert!(!r.contains("\"token\":"), "V3 Token trotz falschem Passwort: {r}");
 
     // S4: falsches Passwort = klare Abweisung (kein Token).
     login_body["password"] = serde_json::json!("falsch");
@@ -251,8 +215,9 @@ async fn kern_im_worker_opfs_und_fassade() {
         "method": "POST",
         "path": "/v1/login/passbox",
         "body": {
+            "schema": "Argon2IDHashDatei/3",
             "space": "space-test", "username": "kreuz", "password": "pw-test",
-            "hw_pem": world["hw_pem"], "salt": "salt-test"
+            "hw_pem": world["hw_pem"]
         }
     })
     .to_string();

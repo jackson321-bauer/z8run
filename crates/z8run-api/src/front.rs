@@ -1,5 +1,5 @@
 //! EIN PORT (F20): z8run bindet 443 direkt mit PQC-TLS und routet per Pfad:
-//! /proxy/* -> kv-proxy, /login/* -> kv-login, alles andere -> Engine.
+//! /proxy/* -> kv-proxy, /login/v1/* -> 410 (/2 entfernt), alles andere -> Engine.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

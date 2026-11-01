@@ -358,18 +358,15 @@ async fn passbox_login(body: &Value) -> String {
     let username = body["username"].as_str().unwrap_or("");
     let password = body["password"].as_str().unwrap_or("");
     let hw_pem = body["hw_pem"].as_str().unwrap_or("");
-    let salt = body["salt"].as_str().unwrap_or("");
     let v3 = body["schema"].as_str() == Some("Argon2IDHashDatei/3")
         || body["version"].as_u64() == Some(3);
-    if space.is_empty()
-        || username.is_empty()
-        || password.is_empty()
-        || hw_pem.is_empty()
-        || (!v3 && salt.is_empty())
-    {
+    if space.is_empty() || username.is_empty() || password.is_empty() || hw_pem.is_empty() {
         return json!({"status": 400, "body": {"error": "Login-Felder unvollstaendig"}}).to_string();
     }
-    let ok = if v3 {
+    if !v3 {
+        return json!({"status": 410, "body": {"error": "alte Hashdatei entfernt — nur /3"}}).to_string();
+    }
+    let ok = {
         let addr = match hashdatei3::user_addr(space, username) {
             Ok(a) => a,
             Err(e) => return json!({"status": 400, "body": {"error": e}}).to_string(),
@@ -407,41 +404,6 @@ async fn passbox_login(body: &Value) -> String {
             Ok(v) => v,
             Err(e) => return json!({"status": 401, "body": {"error": e, "code": "UNAUTHORIZED"}}).to_string(),
         }
-    } else {
-    let hash = if !body["s3"].is_null() {
-        let key = body["hash_key"].as_str().unwrap_or("Argon2IDHashDatei.txt");
-        match login::s3_get_json(&body["s3"], key).await {
-            Ok(v) => v,
-            Err(e) => {
-                // Ohne S3-Kontakt: Kern fail-closed (SHUTDOWN).
-                SESSION.with(|s| {
-                    s.borrow_mut().s3_probe(false);
-                });
-                return login_err(e);
-            }
-        }
-    } else {
-        #[cfg(feature = "test-login")]
-        if body["hashdatei"].is_object() {
-            body["hashdatei"].clone()
-        } else {
-            SESSION.with(|s| {
-                s.borrow_mut().s3_probe(false);
-            });
-            return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
-        }
-        #[cfg(not(feature = "test-login"))]
-        {
-            SESSION.with(|s| {
-                s.borrow_mut().s3_probe(false);
-            });
-            return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
-        }
-    };
-    match login::login_from_hashdatei(&hash, space, username, password, hw_pem, salt) {
-        Ok(v) => v,
-        Err(e) => return login_err(e),
-    }
     };
     SESSION.with(|s| {
         s.borrow_mut().login(ok.master.to_vec());
@@ -494,13 +456,6 @@ async fn passbox_login(body: &Value) -> String {
         }
     })
     .to_string()
-}
-
-/// Nur Test-Build: Inline-Welt (Hashdatei+PEM+Passwort) fuer Browser-Tests.
-#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
-#[wasm_bindgen]
-pub fn test_build_world(passwort: &str, salt: &str, space: &str, username: &str) -> String {
-    login::build_test_world(passwort, salt, space, username).to_string()
 }
 
 /// Nur Test-Build: Inline-Welt im /3-Format (b2b + hw-shards + v3-Hybrid).
