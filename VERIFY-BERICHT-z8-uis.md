@@ -15,7 +15,7 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
 | S0 Sicherung | GRÜN | `s0-sicherung.log` (Branch z8-uis, DB-Backup, 28 GB frei); `s0-baseline.log` = 530 passed / 0 failed; `s0-replicas.log` = 5 Keys je 3 Provider byte-gleich |
 | S1 Login-UI | GRÜN | `s1-proof.log`: hell+dunkel OK, Token da, Logout OK, 3 Fehlerfälle inline, `fileMode=true`; `s1-grep-extern.log` = 0 externe URLs; `shots/s1-*.png` |
 | S2 Setup-UI | GRÜN | `s2-proof.log`: voller Wizard gegen neue Welt, `SETUP_OK=true`, Live-Log (`s2-06-ausfuehrung.png`), Setup-JSON 600, Re-Init-Dialog (`s2-08-reinit-fehler.png`); `/setup-ui*` über 443 = 404; `s2-init-sse.log` enthält **keine** PEMs/Privatkeys (grep = 0); fremde Origin = 403 |
-| S3 Vision-Beweise | GRÜN | 5 Formate gegen **dev2/** (je 4 Schritte + Ergebnis + Inline-Fehler, `s3-<format>-*.png`); `s3-formats.log`; `s3-vision-urteil.log`; hell/dunkel + Default-Dunkel-CSS; Zoom 100/150/200; VNC-/X-Klick-Läufe `vncx-setup-*` + `vncx-login-*` (`s3-vnc-x-setup.log`, `s3-vnc-x-login.log`); zusätzliche CDP-VNC-Kette `s3-vnc.log` |
+| S3 Vision-Beweise | GRÜN | 5 Formate gegen **dev2/** (je 4 Schritte + Ergebnis + Inline-Fehler, `s3-<format>-*.png`) **und zusätzlich als VNC-/X-Klick-Läufe** `vncx-<format>-*` (`s3-vnc-x-formats.log`); `s3-formats.log`; `s3-vision-urteil.log`; hell/dunkel + Default-Dunkel-CSS; Zoom 100/150/200; VNC-/X-Klick-Kette `vncx-setup-*` + `vncx-login-*` (`s3-vnc-x-setup.log`, `s3-vnc-x-login.log`); zusätzliche CDP-VNC-Kette `s3-vnc.log` |
 | S4 Tests/Doku | GRÜN | `s4-test-1..3.log` = je 534 passed / 0 failed; `s4-clippy.log` EXIT 0 / 0 Fehler; `s4-cleanup.log` = uis1…uis7 `PURGE rest=0`; Doku `docs/z8-nutzer-doku.md` (Wizards + Bilder), `docs/z8-plattform-kern.md` (UI=dumm) |
 
 ## Abnahmekriterien (Bauplan)
@@ -45,6 +45,10 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
 - 5 Formate, Tokens: 1920 `3d64445641…`, 1366 `46a6b5d87d…`,
   390 `7b0b9fff1c…`, 820 `995f288c00…`, 320 `08cd0cfdeb…`
   (`shots/s3-<format>-5-ergebnis.png`, `s3-<format>-fehler.png`).
+- 5 Formate zusätzlich im VNC-Fenster (:99, xdotool): `s3-vnc-x-formats.log`,
+  Tokens 1920 `e97f0ee887…`, 1366 `b85be483f4…`, 390 `9917cfb690…`,
+  820 `9bb79fa890…`, 320 `0238adb148…`; Screenshots `vncx-<format>-1-space` …
+  `-5-ergebnis`, `vncx-<format>-fehler`.
 - VNC-/X-Klick-Kette: `s3-vnc-x-setup.log`
   `{ok:true, lines:4, out:…/z8uis7/setup.json, mode:"600"}`;
   `s3-vnc-x-login.log` `{ok:true, token:"ada1508ff3f1", error:"Passwort falsch…"}`.
@@ -73,12 +77,13 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
    Space/User und dem dokumentierten Passwort über die Setup-Engine neu
    aufgebaut (`s3-dev2-neu.log`), 3/3 verifiziert und für die 5 Formate
    genutzt. Die alte dev2-Welt war eine Dev-/Throwaway-Welt.
-2. **VNC-Klicks.** Die 5 Formate liefen in echtem Chrome mit exakter
-   Viewport-Emulation und echten CDP-Maus-Events (Screenshot je Schritt).
-   Der VNC-/X-Klick-Lauf (headful Chrome auf `DISPLAY=:99`, xdotool-X-Events,
-   Framebuffer-Screenshots) deckt Setup + Login-Kette 1920x1080 ab. Einzige
-   Ausnahme dort: die Datei-Inputs wurden über die Browser-API gesetzt
-   (der native Datei-Dialog ist kein Wizard-Schritt).
+2. **VNC-Klicks.** Alle 5 Formate wurden ZUSÄTZLICH als VNC-/X-Klick-Läufe
+   gefahren (headful Chrome auf `DISPLAY=:99`, Fenster per xdotool auf die
+   Zielgröße, Klicks/Tippen als echte X-Events, Fenster-Screenshots); zusätzlich
+   die Setup→Login-Kette 1920x1080. Einzige Ausnahme: die Datei-Inputs wurden
+   über die Browser-API gesetzt (der native Datei-Dialog ist kein
+   Wizard-Schritt). Die headless-CDP-Läufe bleiben als zweite, unabhängige
+   Beweisreihe erhalten.
 3. **„Dunkel ohne Systeminfo“.** Chrome meldet immer eine Präferenz (hier
    light). Default-Dunkel ist strukturell bewiesen (`ui/design-system.css`:
    dunkle Basis, hell nur im `@media (prefers-color-scheme: light)`) plus
@@ -104,7 +109,8 @@ cargo clippy --workspace --all-targets # 0 Fehler
 Z8_DESKTOP_TCP=1 z8run --data-dir /tmp/z8node serve --bind 127.0.0.1 --port 7711
 # Login: https://<host>/login-ui/ (Weltzeiger: Z8_LOGIN_S3_CONFIG, Default /etc/z8run/kv3-s3.json)
 # Beweise:
-node /data/z8run-test/verify-logs/z8-uis/tools/s3-formats.mjs   # 5 Formate dev2
-DISPLAY=:99 node .../tools/s3-vnc-x-setup.mjs                   # xdotool-Setup
+node /data/z8run-test/verify-logs/z8-uis/tools/s3-formats.mjs        # 5 Formate dev2
+DISPLAY=:99 node .../tools/s3-vnc-x-formats.mjs                      # 5 Formate VNC/xdotool
+DISPLAY=:99 node .../tools/s3-vnc-x-setup.mjs                        # xdotool-Setup
 DISPLAY=:99 node .../tools/s3-vnc-x-login.mjs                   # xdotool-Login
 ```
