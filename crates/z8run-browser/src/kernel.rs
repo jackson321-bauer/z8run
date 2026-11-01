@@ -394,6 +394,7 @@ impl DbPort for BrowserDbPort {
 }
 
 /// Versiegelte DB-Datei aus dem OPFS-Container (Worker-Side-Dump fuer Tests).
+#[cfg(feature = "test-login")]
 pub fn dump_db(db_id: &str) -> Option<Vec<u8>> {
     with_kernel(|k| {
         let dbs = k.dbs.borrow();

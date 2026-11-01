@@ -60,19 +60,19 @@ pub fn open_sealed(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>, JsValue> {
 }
 
 /// Rohes Schreiben/Lesen in OPFS (Tests + native Fixtures).
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub async fn opfs_write_raw(path: &str, bytes: &[u8]) -> Result<usize, JsValue> {
     opfs::write_path_async(path, bytes).await.map_err(err)
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub async fn opfs_read_raw(path: &str) -> Option<Vec<u8>> {
     opfs::read_path_async(path).await
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub async fn opfs_list_raw(path: &str) -> Vec<String> {
     opfs::list_path_async(path).await
@@ -160,7 +160,7 @@ fn db_err(e: z8run_core::dbnode_contract_types::DbError) -> JsValue {
 }
 
 /// Versiegelte DB-Datei (Z8FC1) aus OPFS — Beweis der Chiffre-Form.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub fn db_sealed_dump(db_id: &str) -> Option<Vec<u8>> {
     kernel::dump_db(db_id)
@@ -174,7 +174,7 @@ pub fn test_db_plain_dump(db_id: &str) -> Option<Vec<u8>> {
 }
 
 /// Test-Naht: App-WASM gegen den Browser-wasmi-Host fahren (Trap-Beweis).
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub fn wasmi_call_bytes(wasm: &[u8], input_json: &str) -> Result<String, JsValue> {
     let input: Value = serde_json::from_str(input_json).map_err(err)?;
@@ -183,13 +183,13 @@ pub fn wasmi_call_bytes(wasm: &[u8], input_json: &str) -> Result<String, JsValue
         .map_err(|e| err(e.to_string()))
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub fn prompt_insert(name: &str, content: &str) {
     kernel::with_kernel(|k| k.prompts.insert(name, content.as_bytes().to_vec()));
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub fn app_names() -> Vec<String> {
     kernel::with_kernel(|k| k.app_names())
@@ -323,6 +323,16 @@ pub async fn facade(request_json: &str) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn offline_guard() -> Option<String> {
+    let ok = SESSION.with(|s| s.borrow().write_allowed());
+    if ok {
+        None
+    } else {
+        Some(json!({"status": 503, "body": {"error": "Kern offline (fail-closed)", "shutdown": true}}).to_string())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 fn login_err(e: login::LoginError) -> String {
     let status = match e.code {
         "UNAUTHORIZED" => 401,
@@ -441,6 +451,7 @@ pub fn test_build_world(passwort: &str, salt: &str, space: &str, username: &str)
 
 #[cfg(target_arch = "wasm32")]
 async fn db_open(body: &Value) -> String {
+    if let Some(r) = offline_guard() { return r; }
     if let Err(e) = opfs_backend::init().await {
         return json!({"status": 500, "body": {"error": e}}).to_string();
     }
@@ -467,6 +478,7 @@ async fn db_open(body: &Value) -> String {
 #[cfg(target_arch = "wasm32")]
 async fn db_exec(body: &Value) -> String {
     use proxy_kern::DbPort;
+    if let Some(r) = offline_guard() { return r; }
     let db_id = body["db_id"].as_str().unwrap_or("main");
     let session_id = body["session_id"].as_str().unwrap_or("browser");
     let sql = body["sql"].as_str().unwrap_or("");
@@ -480,6 +492,7 @@ async fn db_exec(body: &Value) -> String {
 #[cfg(target_arch = "wasm32")]
 async fn db_query(body: &Value) -> String {
     use proxy_kern::DbPort;
+    if let Some(r) = offline_guard() { return r; }
     let db_id = body["db_id"].as_str().unwrap_or("main");
     let sql = body["sql"].as_str().unwrap_or("");
     let params = body["params"].as_array().cloned().unwrap_or_default();

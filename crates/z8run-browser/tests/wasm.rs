@@ -90,6 +90,16 @@ async fn kern_im_worker_opfs_und_fassade() {
     assert!(r.contains("\"status\":503"), "kein fail-closed: {r}");
     assert!(r.contains("\"shutdown\":true"), "kein Shutdown: {r}");
     println!("NO_S3_FAILCLOSED {r}");
+    let blocked = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/db/exec",
+        "body": {"db_id": "kdb", "session_id": "s2", "sql": "INSERT INTO k VALUES ('darf-nicht')"}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&blocked).await;
+    assert!(r.contains("\"status\":503"), "Shutdown blockiert Schreiben nicht: {r}");
+    assert!(r.contains("fail-closed"), "kein fail-closed-Grund: {r}");
+    println!("SHUTDOWN_BLOCK {r}");
     let exec = serde_json::json!({
         "method": "POST",
         "path": "/v1/db/exec",

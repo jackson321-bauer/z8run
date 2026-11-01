@@ -100,6 +100,7 @@ impl WasmiApp {
 }
 
 /// Test-Naht: beliebiges App-WASM gegen denselben Host fahren (Trap-Beweis).
+#[cfg(feature = "test-login")]
 pub fn call_bytes(wasm: &[u8], input: &Value) -> Result<Value, ProxyError> {
     let app = WasmiApp::load("inline", "0", wasm)?;
     Ok(app.call(input)?.payload)

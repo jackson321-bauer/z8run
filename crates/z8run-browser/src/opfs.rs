@@ -179,6 +179,7 @@ pub async fn delete_async(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(feature = "test-login")]
 pub async fn write_path_async(path: &str, bytes: &[u8]) -> Result<usize, String> {
     let v = wasm_bindgen_futures::JsFuture::from(write_path(path, bytes))
         .await
@@ -186,6 +187,7 @@ pub async fn write_path_async(path: &str, bytes: &[u8]) -> Result<usize, String>
     Ok(v.as_f64().unwrap_or(0.0) as usize)
 }
 
+#[cfg(feature = "test-login")]
 pub async fn read_path_async(path: &str) -> Option<Vec<u8>> {
     let v = wasm_bindgen_futures::JsFuture::from(read_path(path)).await.ok()?;
     if v.is_null() || v.is_undefined() {
@@ -194,6 +196,7 @@ pub async fn read_path_async(path: &str) -> Option<Vec<u8>> {
     js_sys::Uint8Array::new(&v).to_vec().into()
 }
 
+#[cfg(feature = "test-login")]
 pub async fn list_path_async(path: &str) -> Vec<String> {
     let Ok(v) = wasm_bindgen_futures::JsFuture::from(list_path(path)).await else {
         return Vec::new();
