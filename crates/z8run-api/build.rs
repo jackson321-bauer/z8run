@@ -29,7 +29,17 @@ fn main() {
     }
 
     let mut files = Vec::new();
-    collect(&dist, &dist, &mut files);
+    collect(&dist, &dist, "", &mut files);
+    // Die beiden Wizard-UIs liegen als eigenstaendige statische Ordner im Repo
+    // (identischer Code fuer embed-ui UND herunterladbare Kopie).
+    let repo = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    for (name, mount) in [("login-ui", "login-ui"), ("setup-ui", "setup-ui")] {
+        let dir = repo.join(name);
+        if dir.join("index.html").is_file() {
+            collect(&dir, &dir, &format!("{mount}/"), &mut files);
+            println!("cargo:rerun-if-changed={}", dir.display());
+        }
+    }
     files.sort();
 
     let mut out = String::from("pub static ASSETS: &[(&str, &[u8])] = &[\n");
@@ -48,13 +58,13 @@ fn main() {
     fs::write(dest, out).unwrap();
 }
 
-/// Files under `dir`, as (path relative to `root` with `/` separators, absolute path).
-fn collect(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) {
+/// Files under `dir`, as (mount prefix + path relative to `root`, absolute path).
+fn collect(root: &Path, dir: &Path, prefix: &str, files: &mut Vec<(String, PathBuf)>) {
     for entry in fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
             println!("cargo:rerun-if-changed={}", path.display());
-            collect(root, &path, files);
+            collect(root, &path, prefix, files);
         } else {
             let rel = path.strip_prefix(root).unwrap();
             let rel = rel
@@ -62,7 +72,7 @@ fn collect(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) {
                 .map(|c| c.as_os_str().to_string_lossy())
                 .collect::<Vec<_>>()
                 .join("/");
-            files.push((rel, path));
+            files.push((format!("{prefix}{rel}"), path));
         }
     }
 }

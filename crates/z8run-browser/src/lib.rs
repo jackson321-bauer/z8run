@@ -385,17 +385,16 @@ async fn passbox_login(body: &Value) -> String {
             };
             (String::from_utf8_lossy(&b2b).to_string(), String::from_utf8_lossy(&hw).to_string())
         } else {
-            #[cfg(feature = "test-login")]
-            {
-                match (body["v3_b2b"].as_str(), body["v3_hw"].as_str()) {
-                    (Some(a), Some(b)) => (a.to_string(), b.to_string()),
-                    _ => return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string(),
+            // Die Login-UI holt Hashdatei + HW-Shards über die Server-Naht
+            // (/login-ui/v1/world, Schlüssel bleiben serverseitig) und reicht
+            // sie hier herein. Der eigentliche Schutz bleibt Passwort + lokal
+            // geöffnete HW-Box — kein Test-Backdoor.
+            match (body["v3_b2b"].as_str(), body["v3_hw"].as_str()) {
+                (Some(a), Some(b)) => (a.to_string(), b.to_string()),
+                _ => {
+                    SESSION.with(|s| { s.borrow_mut().s3_probe(false); });
+                    return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
                 }
-            }
-            #[cfg(not(feature = "test-login"))]
-            {
-                SESSION.with(|s| { s.borrow_mut().s3_probe(false); });
-                return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
             }
         };
         match hashdatei3::login_v3(
@@ -466,6 +465,19 @@ async fn passbox_login(body: &Value) -> String {
 #[wasm_bindgen]
 pub fn test_build_world_v3(passwort: &str, space: &str, username: &str) -> String {
     hashdatei3_test::build_test_world_v3(passwort, space, username).to_string()
+}
+
+/// Öffnet den HW-Shard lokal (Faktor 2) für die native WebAuthn-Ceremony.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn open_shard_v3(
+    hw_shards: &str,
+    hw_pem: &str,
+    kem_dk_b64: &str,
+) -> Result<String, JsValue> {
+    hashdatei3::open_shard_v3(hw_shards, hw_pem, kem_dk_b64)
+        .map(|v| v.to_string())
+        .map_err(err)
 }
 
 #[cfg(target_arch = "wasm32")]

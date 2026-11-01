@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Z8 · Anmeldung</title>
+<link rel="stylesheet" href="login.css">
+</head>
+<body>
+<div class="logo-slot" aria-hidden="true"></div>
+
+<main class="shell">
+  <header class="masthead">
+    <p class="eyebrow">Z8</p>
+    <h1>Willkommen zurück</h1>
+    <p class="lede">Vier Schritte bis zum entschlüsselten Arbeitsbereich.</p>
+  </header>
+
+  <nav class="steps" aria-label="Fortschritt">
+    <ol id="step-dots">
+      <li data-step="1"><span>1</span><em>Space</em></li>
+      <li data-step="2"><span>2</span><em>Benutzer</em></li>
+      <li data-step="3"><span>3</span><em>Passwort</em></li>
+      <li data-step="4"><span>4</span><em>Hardware</em></li>
+    </ol>
+  </nav>
+
+  <section class="card" aria-live="polite">
+    <form id="wizard" novalidate autocomplete="off">
+
+      <fieldset class="panel" data-panel="1">
+        <legend>B2B-Space</legend>
+        <label for="space">Space-Adresse</label>
+        <input id="space" name="z8_space" type="text" inputmode="text"
+               placeholder="meinspace" autocapitalize="none" spellcheck="false" autocomplete="one-time-code" required>
+        <p class="hint">Der Name des Arbeitsbereichs, den die Setup-Engine angelegt hat.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="2" hidden>
+        <legend>Benutzer</legend>
+        <label for="user">Benutzername</label>
+        <input id="user" name="z8_user" type="text" placeholder="anna"
+               autocapitalize="none" spellcheck="false" autocomplete="one-time-code" required>
+        <p class="hint">Deine Adresse wird aus Space + Name abgeleitet.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="3" hidden>
+        <legend>Passwort</legend>
+        <label for="password">Passwort</label>
+        <input id="password" name="z8_secret" type="password" autocomplete="new-password" required>
+        <p class="hint">Öffnet deine Passbox. Bleibt ausschließlich im Browser.</p>
+      </fieldset>
+
+      <fieldset class="panel" data-panel="4" hidden>
+        <legend>Hardware-Key oder Passkey</legend>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab is-active" data-tab="hw" role="tab">Hardware-Datei</button>
+          <button type="button" class="tab" data-tab="passkey" role="tab">Passkey</button>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="hw">
+          <label for="hw-pem">Hardware-PEM</label>
+          <input id="hw-pem" name="hw-pem" type="file" accept=".pem,text/plain">
+          <label for="hw-kem">KEM-Privatekey (.kem)</label>
+          <input id="hw-kem" name="hw-kem" type="file" accept=".kem,text/plain">
+          <p class="hint">Die Datei verlässt dein Gerät nicht; der Shard wird lokal geöffnet.</p>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="passkey" hidden>
+          <button type="button" id="passkey-btn" class="ghost">Passkey verwenden</button>
+          <p class="hint" id="passkey-hint">Fordert eine WebAuthn-Assertion über <code>navigator.credentials</code> an.</p>
+        </div>
+      </fieldset>
+
+      <p class="error" id="error" role="alert" hidden></p>
+
+      <div class="actions">
+        <button type="button" id="back" class="ghost" hidden>Zurück</button>
+        <button type="button" id="next" class="primary">Weiter</button>
+        <button type="submit" id="submit" class="primary" hidden>Anmelden</button>
+      </div>
+    </form>
+
+    <div id="result" class="result" hidden>
+      <p class="badge ok">Angemeldet</p>
+      <dl>
+        <div><dt>Space</dt><dd id="res-space"></dd></div>
+        <div><dt>Benutzer</dt><dd id="res-user"></dd></div>
+        <div><dt>Master-Fingerprint</dt><dd id="res-fp" class="mono"></dd></div>
+        <div><dt>Token</dt><dd id="res-token" class="mono"></dd></div>
+      </dl>
+      <button type="button" id="logout" class="primary">Abmelden</button>
+    </div>
+  </section>
+
+  <details class="advanced">
+    <summary>Erweitert</summary>
+    <label for="server">Server-Basis (leer = gleiche Herkunft)</label>
+    <input id="server" type="text" placeholder="leer = gleiche Herkunft" autocapitalize="none">
+    <p class="hint">Nur nötig, wenn die Seite als lokale Datei geöffnet wird.</p>
+  </details>
+
+  <footer class="foot">
+    <span>Z8 · dünner Client</span>
+    <span id="theme-note">Design folgt dem System</span>
+  </footer>
+</main>
+
+<script src="login-api.js"></script>
+<script src="login.js"></script>
+</body>
+</html>

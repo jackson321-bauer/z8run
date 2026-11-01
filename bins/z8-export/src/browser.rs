@@ -79,10 +79,16 @@ const WORKER: &str = r#"import init, * as core from './wasm/z8run_browser.js';
 await init();
 self.onmessage = async (e) => {
   try {
+    // Login-UI: HW-Shard lokal öffnen (nur {x,y_b64} verlässt den Worker).
+    if (e.data && e.data.__z8 === 'open_shard_v3') {
+      const out = core.open_shard_v3(e.data.hw_shards, e.data.hw_pem, e.data.kem_dk_b64);
+      self.postMessage(out);
+      return;
+    }
     const req = typeof e.data === 'string' ? e.data : JSON.stringify(e.data);
     self.postMessage(await core.facade(req));
   } catch (err) {
-    self.postMessage(JSON.stringify({status: 500, body: {error: String(err)}}));
+    self.postMessage(JSON.stringify({error: String(err), status: 500, body: {error: String(err)}}));
   }
 };
 self.postMessage(JSON.stringify({status: 200, body: {ready: true}}));

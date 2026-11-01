@@ -93,6 +93,33 @@ pub fn pem_pub_b64(pem: &str) -> Result<String, String> {
     ))
 }
 
+/// Öffnet NUR den HW-Shard (Faktor 2) lokal — für den nativen WebAuthn-Weg.
+/// Der Server sieht später nur `{x, y_b64}`, nie PEM oder KEM-Privatekey.
+pub fn open_shard_v3(hw_shards: &str, hw_pem: &str, kem_dk_b64: &str) -> Result<Value, String> {
+    let kem_dk = B64
+        .decode(kem_dk_b64.trim())
+        .map_err(|e| format!("ML-KEM-Privatekey (Base64): {e}"))?;
+    let (ha, hb) = parse(hw_shards)?;
+    let pub_b64 = pem_pub_b64(hw_pem)?;
+    let hblock = ha
+        .iter()
+        .find(|(a, _)| a == &pub_b64)
+        .map(|(_, b)| b.clone())
+        .ok_or("Kein Hardwarekey dieser Box passend")?;
+    let hcipher = hb
+        .iter()
+        .find(|(b, _)| b == &hblock)
+        .map(|(_, c)| c.clone())
+        .ok_or("HW-Chiffre fehlt")?;
+    let hbox = box_aus(&hcipher)?;
+    let priv_key = p256::SecretKey::from_sec1_pem(hw_pem).map_err(|e| format!("HW-PEM: {e}"))?;
+    let plain = crate::umschlag::oeffnen(&hbox, &priv_key, &kem_dk)
+        .map_err(|e| format!("HW-Box: {e}"))?;
+    let hval: Value = serde_json::from_slice(&plain).map_err(|e| format!("HW-Inhalt: {e}"))?;
+    let (x, y) = share(&hval, "shamir_hw")?;
+    Ok(serde_json::json!({ "x": x, "y_b64": B64.encode(y), "pub_b64": pub_b64 }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn login_v3(
     b2b: &str,

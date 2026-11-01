@@ -18,8 +18,8 @@ mod embedded {
 
 /// Same policy as the SPA block in `deploy/nginx.conf`.
 const CSP: &str = "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; \
-                   style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; \
-                   base-uri 'self'; frame-ancestors 'self'";
+                   style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; \
+                   font-src 'self' data:; base-uri 'self'; frame-ancestors 'self'";
 
 /// Server routes; unmatched paths under them are API 404s, never the SPA.
 const API_PREFIXES: &[&str] = &["/api", "/auth", "/hook", "/ws"];
@@ -49,11 +49,20 @@ fn respond(assets: Assets, method: &Method, path: &str) -> Response<Body> {
         return status(StatusCode::NOT_FOUND);
     }
 
-    let wanted = match path.trim_start_matches('/') {
-        "" => "index.html",
-        p => p,
-    };
     let find = |name: &str| assets.iter().find(|(p, _)| *p == name);
+    let trimmed = path.trim_start_matches('/');
+    // Static sub-sites (login-ui/, setup-ui/) own an index.html per directory.
+    let mut wanted = trimmed.to_string();
+    if wanted.is_empty() {
+        wanted = "index.html".to_string();
+    } else if wanted.ends_with('/') {
+        wanted.push_str("index.html");
+    } else if !wanted.rsplit('/').next().unwrap_or("").contains('.')
+        && find(&format!("{wanted}/index.html")).is_some()
+    {
+        wanted.push_str("/index.html");
+    }
+    let wanted = wanted.as_str();
     // Client-side routes (/flows/123) get the app shell; missing files
     // (anything with an extension) stay 404 so broken asset links show.
     let last_segment = wanted.rsplit('/').next().unwrap_or(wanted);
@@ -103,6 +112,18 @@ fn respond(assets: Assets, method: &Method, path: &str) -> Response<Body> {
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
+    // Die Wizard-UIs brauchen Cross-Origin-Isolation: der WASM-Kern nutzt
+    // OPFS-SyncAccess + SharedArrayBuffer/Atomics (SQLite-Locking) im Worker.
+    if name.starts_with("login-ui/") || name.starts_with("setup-ui/") {
+        h.insert(
+            header::HeaderName::from_static("cross-origin-opener-policy"),
+            HeaderValue::from_static("same-origin"),
+        );
+        h.insert(
+            header::HeaderName::from_static("cross-origin-embedder-policy"),
+            HeaderValue::from_static("require-corp"),
+        );
+    }
     resp
 }
 
@@ -203,6 +224,27 @@ mod tests {
         }
         // Only exact prefixes: an app route that merely starts with "api" is fine.
         assert_eq!(get("/apis-overview").status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn static_subsites_get_their_own_index() {
+        let assets: &[(&str, &[u8])] = &[
+            ("index.html", b"<html>editor</html>"),
+            ("login-ui/index.html", b"<html>login</html>"),
+            ("login-ui/login.js", b"//js"),
+            ("setup-ui/index.html", b"<html>setup</html>"),
+        ];
+        for path in ["/login-ui", "/login-ui/", "/login-ui/index.html"] {
+            let resp = respond(assets, &Method::GET, path);
+            assert_eq!(resp.status(), StatusCode::OK, "{path}");
+            assert_eq!(body(resp).await, "<html>login</html>", "{path}");
+        }
+        assert_eq!(body(respond(assets, &Method::GET, "/setup-ui/")).await, "<html>setup</html>");
+        assert_eq!(
+            respond(assets, &Method::GET, "/login-ui/login.js").headers()[header::CONTENT_TYPE],
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(respond(assets, &Method::GET, "/login-ui/missing.js").status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

@@ -15,6 +15,7 @@ pub mod routes;
 pub mod state;
 pub mod tls;
 pub mod ui;
+pub mod ui_login;
 pub mod ws;
 
 use axum::http::{header, HeaderValue, Method};
@@ -69,6 +70,29 @@ fn build_cors_layer() -> CorsLayer {
         .allow_credentials(true)
 }
 
+/// Cross-Origin-Isolation für den WASM-Worker (OPFS + SQLite-Atomics).
+async fn isolation_headers(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(
+        axum::http::header::HeaderName::from_static("cross-origin-opener-policy"),
+        axum::http::HeaderValue::from_static("same-origin"),
+    );
+    h.insert(
+        axum::http::header::HeaderName::from_static("cross-origin-embedder-policy"),
+        axum::http::HeaderValue::from_static("require-corp"),
+    );
+    // Kein veraltetes WASM im Browser-Cache (Deploy = neue Kern-Version).
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    resp
+}
+
 /// Builds the main application router.
 pub fn build_router(state: Arc<AppState>) -> Router {
     // Initialize rate limiters from env vars
@@ -110,15 +134,21 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 ))
                 .layer(axum::middleware::from_fn(rate_limit::hook_rate_limit)),
         )
-        .nest("/ws", ws::ws_routes());
+        .nest("/ws", ws::ws_routes())
+        // Dünne UI-Naht: öffentliche Weltdateien für die Login-Seite.
+        .merge(ui_login::routes());
 
     // Browser-Buendel (/wasm/*) aus dem konfigurierten Verzeichnis; kein
     // file://-Test, echter Ursprung ueber den 443-Front.
     let router = match std::env::var("Z8_WASM_DIR") {
-        Ok(dir) if !dir.trim().is_empty() => router.nest_service(
-            "/wasm",
-            tower_http::services::ServeDir::new(dir),
-        ),
+        Ok(dir) if !dir.trim().is_empty() => {
+            // Der WASM-Worker muss wie die Wizard-Seite cross-origin-isoliert
+            // sein (OPFS-SyncAccess + SharedArrayBuffer/Atomics).
+            let wasm = axum::Router::new()
+                .fallback_service(tower_http::services::ServeDir::new(dir))
+                .layer(axum::middleware::from_fn(isolation_headers));
+            router.nest("/wasm", wasm)
+        }
         _ => router,
     };
 
