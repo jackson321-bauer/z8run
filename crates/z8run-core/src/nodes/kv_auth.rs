@@ -93,19 +93,7 @@ async fn post_json(
             .await
             .map_err(|_| "timeout".to_string())?;
     }
-    let client = reqwest::Client::new();
-    let mut rb = client.post(url).json(body);
-    for (k, v) in headers {
-        rb = rb.header(*k, *v);
-    }
-    let response = tokio::time::timeout(Duration::from_secs(timeout_secs.max(1)), rb.send())
-        .await
-        .map_err(|_| "timeout".to_string())?
-        .map_err(|e| e.to_string())?;
-    let status = response.status().as_u16();
-    let text = response.text().await.map_err(|e| e.to_string())?;
-    let parsed = serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({ "raw": text }));
-    Ok((status, parsed))
+    Err("nur uds://... erlaubt (Gateway-Gesetz; kein Direkt-HTTP)".to_string())
 }
 
 pub struct KvLoginNode {
