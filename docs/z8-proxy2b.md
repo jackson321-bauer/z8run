@@ -121,7 +121,7 @@ p99-Messung erfolgt WAEHREND die 100 Streams offen sind.
 | Connection-Ablehnung | **0** (2000/2000 WS) |
 | Proxy-RSS ueber Startwert < 15 MB | **14.1 MB** waehrend Last (7.7 MB am Rundenende) |
 | Token-Rotationen | **20.000** |
-| Task-Stau | keine (Sampler waehrend Last, max 271 Tasks) |
+| Task-Stau | keine (Sampler waehrend Last, max 213 Tasks) |
 
 Szenarien: 20 VNC-Streams, 40 Telefon-Sims, 200.000 Kleindaten-Events,
 100 Abonnenten Fan-out, 50 parallele Rotationen, 100 eingehende Streams.

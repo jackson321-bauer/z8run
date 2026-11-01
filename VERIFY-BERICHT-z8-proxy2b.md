@@ -30,7 +30,7 @@ alive_tasks_max=213 iterations=1120`
 - p99 Relay-Latenz **am `/v1/stream`-Endpunkt**: 2.146 ms < 5 ms.
 - p99 **bei 100 parallelen offenen Streams**: 0.261 ms < 5 ms.
 - Kein Head-of-Line: schneller Abonnent bekam alle Frames; Registry-HOL
-  unter CPU-Sättigung 5.4 ms (Info, nicht Kriterium).
+  unter CPU-Sättigung 3.384 ms (Info, nicht Kriterium).
 - 0 verlorene Aufnahme-Chunks; 0 Verbindungsablehnungen (2000/2000).
 - Telefonie: 4.480.000 Frames zugestellt (40 Gespräche × 2 Richtungen,
   20-ms-Takt, während der gesamten Dauer).
