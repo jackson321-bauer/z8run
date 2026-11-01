@@ -39,6 +39,15 @@ impl UiSession {
         &self.pending
     }
 
+    /// HARTER Logout: Master sofort nullen, Worker fail-closed bis Neu-Login.
+    pub fn wipe(&mut self) {
+        self.pending.zeroize();
+        self.pending.clear();
+        self.pending.shrink_to_fit();
+        self.shutdown = true;
+        self.online = false;
+    }
+
     pub fn touch(&mut self, now_ms: u64) {
         self.last_activity_ms = now_ms;
     }

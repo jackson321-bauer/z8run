@@ -812,13 +812,21 @@ impl NodeExecutor for Kv3SocketNode {
                 .filter(|s| !s.is_empty())
             {
                 if let Some(v) = msg.payload.get(feld) {
-                    dst.insert(feld.to_string(), v.clone());
+                    if feld == "proxy_session" {
+                        if let Some(map) = v.as_object() {
+                            for (k, w) in map {
+                                dst.insert(k.clone(), w.clone());
+                            }
+                        }
+                    } else {
+                        dst.insert(feld.to_string(), v.clone());
+                    }
                 }
             }
         }
         let body = uebergabe.to_string();
-        let senden = tokio::time::timeout(Duration::from_secs(5), async {
-            use tokio::io::AsyncWriteExt;
+        let senden = tokio::time::timeout(Duration::from_secs(10), async {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let mut s = crate::udsv3_stream::connect(
                 std::path::Path::new(&self.socket_path),
                 "login",
@@ -826,18 +834,36 @@ impl NodeExecutor for Kv3SocketNode {
             s.write_all(body.as_bytes()).await?;
             s.write_all(b"\n").await?;
             s.shutdown().await?;
-            Ok::<_, std::io::Error>(())
+            let mut reply = Vec::new();
+            let _ = s.read_to_end(&mut reply).await;
+            Ok::<_, std::io::Error>(reply)
         })
         .await;
-        let status = match senden {
-            Ok(Ok(())) => "gesendet".to_string(),
-            Ok(Err(e)) => format!("fehler: {e}"),
-            Err(_) => "timeout".to_string(),
+        let (status, reply) = match senden {
+            Ok(Ok(r)) => {
+                let text = String::from_utf8_lossy(&r).to_string();
+                let ok = serde_json::from_str::<Value>(text.trim())
+                    .map(|v| v["status"].as_u64() == Some(200) || v["ok"].as_bool() == Some(true))
+                    .unwrap_or(false);
+                (
+                    if ok { "gesendet".to_string() } else { format!("fehler: {text}") },
+                    serde_json::from_str::<Value>(text.trim()).ok(),
+                )
+            }
+            Ok(Err(e)) => (format!("fehler: {e}"), None),
+            Err(_) => ("timeout".to_string(), None),
         };
         let mut out = msg.payload.clone();
         if let Some(o) = out.as_object_mut() {
             o.insert("socket_status".into(), json!(status));
             o.insert("socket_target".into(), json!(self.socket_path));
+            if let Some(r) = reply {
+                for feld in ["session_id", "token", "expires_at_ms", "dbs", "trace_id"] {
+                    if let Some(v) = r.get(feld) {
+                        o.insert(format!("proxy_{feld}"), v.clone());
+                    }
+                }
+            }
             // Antwort-Grenze: Request-Body (Passwort/PEM/KEM) und interne
             // Öffnungs-Metadaten nie nach aussen spiegeln.
             o.remove("req");

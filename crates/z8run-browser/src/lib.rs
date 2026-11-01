@@ -306,11 +306,14 @@ pub async fn facade(request_json: &str) -> String {
         }
         ("POST", "/v1/session/logout") => {
             let sid = body["session_id"].as_str().unwrap_or("");
+            // HART: Tokens tot, Session+Master zeroize, Worker fail-closed.
             kernel::with_kernel(|k| {
                 k.tokens.revoke_session(sid);
                 k.sessions.remove(sid);
             });
-            json!({"status": 200, "body": {"ok": true}}).to_string()
+            SESSION.with(|s| s.borrow_mut().wipe());
+            json!({"status": 200, "body": {"ok": true, "tokens": 0, "master_zeroized": true}})
+                .to_string()
         }
         ("POST", "/v1/conflict") => {
             let lw = body["local_wal"].as_u64().unwrap_or(0);
@@ -520,7 +523,7 @@ async fn db_query(body: &Value) -> String {
 
 #[cfg(target_arch = "wasm32")]
 fn proxy_err(e: proxy_kern::ProxyError) -> String {
-    json!({"status": 400, "body": {"error": e.to_string(), "code": e.code()}}).to_string()
+    json!({"status": e.status(), "body": {"error": e.to_string(), "code": e.code()}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]

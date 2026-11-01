@@ -68,10 +68,8 @@ def build(prefix: str):
             "s3Config": S3, "addrPath": "addr_user", "challengeDir": CHALLENGE_DIR,
             "rpId": "localhost", "origin": "http://localhost:7700"}),
         node("master", "kv3-master", "Shamir 2-of-2 -> Master", {}),
-        node("sess", "unix-out", "Session an Proxy-UDS", {
-            "socketPath": PROXY_SOCK, "method": "POST", "path": "/session",
-            "bodyPath": "proxy_session", "timeoutMs": 5000,
-            "preserveInput": True, "stripFields": "proxy_session,req,opened_datei,uds_response"}, error=True),
+        node("sess", "kv3-socket", "Session an Proxy-UDS (udsv3)", {
+            "socketPath": PROXY_SOCK, "payloadFields": "proxy_session"}, error=True),
         node("ok", "http-out", "200 Login OK", {"statusCode": 200}, out=True),
         node("err-j", "http-out", "401 Join", {"statusCode": 401}, out=True),
         node("err-open", "http-out", "401 Open", {"statusCode": 401}, out=True),

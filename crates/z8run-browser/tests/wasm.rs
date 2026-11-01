@@ -58,6 +58,34 @@ async fn kern_im_worker_opfs_und_fassade() {
     assert!(r.contains("\"adapter\":\"opfs\""), "DB-Status im Login fehlt: {r}");
     println!("PASSBOX_LOGIN {r}");
 
+    // S3: HARTER Logout — Token sofort tot, Session/Master weg, Worker halt.
+    let lv: serde_json::Value = serde_json::from_str(&r).unwrap();
+    let token = lv["body"]["token"].as_str().unwrap().to_string();
+    let lo = z8run_browser::facade(
+        r#"{"method":"POST","path":"/v1/session/logout","body":{"session_id":"s2"}}"#,
+    )
+    .await;
+    assert!(lo.contains("\"status\":200"), "Logout: {lo}");
+    assert!(lo.contains("master_zeroized"), "Logout ohne Zeroize-Beleg: {lo}");
+    let chk = serde_json::json!({
+        "method": "POST", "path": "/v1/token/check", "body": {"token": token}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&chk).await;
+    assert!(r.contains("\"status\":401"), "Token nach Logout noch gueltig: {r}");
+    let r = z8run_browser::facade(r#"{"method":"GET","path":"/v1/kernel/status"}"#).await;
+    let st: serde_json::Value = serde_json::from_str(&r).unwrap();
+    assert_eq!(st["body"]["sessions"], 0, "Session nach Logout: {r}");
+    assert_eq!(st["body"]["tokens"], 0, "Tokens nach Logout: {r}");
+    println!("LOGOUT_HART {lo} STATUS {r}");
+    // Neu-Login fuer die restlichen Pruefungen.
+    let r = z8run_browser::facade(
+        &serde_json::json!({"method": "POST", "path": "/v1/login/passbox", "body": login_body})
+            .to_string(),
+    )
+    .await;
+    assert!(r.contains("\"status\":200"), "Re-Login: {r}");
+
     // S4: falsches Passwort = klare Abweisung (kein Token).
     login_body["password"] = serde_json::json!("falsch");
     let r = z8run_browser::facade(

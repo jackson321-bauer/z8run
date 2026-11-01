@@ -6,29 +6,6 @@ SHARDS = "setup/setup-shards.txt"
 
 
 
-def _opener() -> urllib.request.OpenerDirector:
-    jar = http.cookiejar.CookieJar()
-    return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-
-
-TOKEN = ""
-
-
-def _req(op, method, path, body=None):
-    data = json.dumps(body).encode() if body is not None else None
-    r = urllib.request.Request(BASE + path, data=data, method=method)
-    if data:
-        r.add_header("content-type", "application/json")
-    if TOKEN:
-        r.add_header("authorization", f"Bearer {TOKEN}")
-    try:
-        with op.open(r) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        raise SystemExit(f"{method} {path}: HTTP {e.code}: {e.read()[:400]!r}")
-
-
 def node(nid, typ, label, cfg, *, error=True, trigger=False, out=False):
     data = {"type": typ, "label": label, "config": cfg}
     if trigger:
