@@ -59,8 +59,9 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
 ## Sicherheits-/Naht-Nachweise
 
 - `/setup-ui*` über die 443-Front = 404 (`front.rs`); Setup-API verlangt
-  Loopback/UDS **und** gleiche Origin. Echter HTTP-Nachweis:
-  `s2-origin-403.log` = 403 „fremde Origin abgewiesen“ mit gültigem Body.
+  Loopback/UDS, **Loopback-Host** (blockt DNS-Rebinding) und gleiche Origin.
+  Echter HTTP-Nachweis: `s2-origin-403.log` = 403 „fremde Origin abgewiesen“
+  mit gültigem Body, sowohl bei fremder Origin als auch bei fremdem Host.
 - Die SSE-Antwort an den Browser enthält nur `name` + `addr_user`
   (keine PEMs/KEM/Private-Key-Pfade); `s2-init-sse.log` grep = 0.
 - Login-UI liest Weltdateien über `/login-ui/v1/world`; S3-Schlüssel bleiben

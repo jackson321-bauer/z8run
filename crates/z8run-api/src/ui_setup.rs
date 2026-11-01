@@ -61,12 +61,21 @@ fn zeile(msg: &str) -> String {
 /// CSRF/Origin-Schutz: ein Cross-Origin-Browser-Request darf die lokale
 /// Setup-Engine nicht ausloesen. Same-Origin (Origin-Host == Host) oder
 /// kein Origin (curl/CLI, lokal) sind erlaubt.
+/// Host muss ein Loopback-Name sein (blockt DNS-Rebinding auf 127.0.0.1).
+fn host_ist_lokal(host: &str) -> bool {
+    let h = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    h.eq_ignore_ascii_case("localhost") || h == "127.0.0.1" || h == "[::1]" || h == "::1"
+}
+
 fn origin_erlaubt(headers: &HeaderMap) -> bool {
-    let Some(origin) = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok()) else {
-        return true;
-    };
     let Some(host) = headers.get(axum::http::header::HOST).and_then(|v| v.to_str().ok()) else {
         return false;
+    };
+    if !host_ist_lokal(host) {
+        return false;
+    }
+    let Some(origin) = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok()) else {
+        return true;
     };
     let origin_host = origin.split("://").nth(1).unwrap_or("");
     origin_host.eq_ignore_ascii_case(host)
@@ -218,5 +227,8 @@ mod tests {
         assert!(!super::origin_erlaubt(&h));
         h.remove("origin");
         assert!(super::origin_erlaubt(&h));
+        // DNS-Rebinding: fremder Host wird abgewiesen.
+        h.insert("host", HeaderValue::from_static("evil.example"));
+        assert!(!super::origin_erlaubt(&h));
     }
 }
