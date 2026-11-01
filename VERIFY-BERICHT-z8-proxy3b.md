@@ -22,7 +22,7 @@ CORS-Wildcard entfernt. Die Abweichungen sind technisch begründet (G6).
 | S4 CORS | GRÜN mit Abweichung 1 | `s4-cors-set.log`, `s4-cors-preflight.log`: Wildcard entfernt, fremde Origin 403 für GET/PUT (auch b2b) |
 | S5 Exporter/Install | GRÜN | `s5-install-export.log`: Binary HEAD+embed-ui installiert, 443 only, `/` `/wasm/` `/proxy/v1/status` `/login/v1/health` 200, PQC X25519MLKEM768; Browser-Bündel über 443 zeigt proxy-kern+dbnode; nativer Export gebaut+gelaufen (`{"a":"null","b":"left","c":"right"}`, rc 0) |
 | S5 Doku | GRÜN | `docs/z8-proxy3b.md` |
-| S5 Tests | GRÜN | `final3-test-1/2/3.log` = je **533 passed / 0 failed** (100 s Pause), `final-wasm-test.log` ok, `final-clippy.log` rc 0 |
+| S5 Tests | GRÜN | `final3-test-1/2/3.log` (12:37/12:48/12:58, nach allen Fixes) = je **533 passed / 0 failed** (100 s Pause), `final-wasm-test.log` ok, `final-wasmi-probe.log` 2/0, `final-clippy.log` rc 0 |
 | S5 Greps | GRÜN | `final-abnahme-greps.log`: `master_b64` in Browser-Quellen/Browser-Tests = 0; keine Test-Exporte im ausgelieferten Bündel; Dual-Compile grün |
 
 ## Harte Beweise (Auszug)
@@ -58,6 +58,23 @@ cargo test   533 passed x3 (0 failed)
    Setup-Welt ist nicht implementiert. Der Hardware-Anteil kommt als PEM
    in den Login-Request (dev/FEST-15-Vorstufe); WebAuthn/Passkey-Bindung
    ist die nächste Großstufe (FEST 23a), nicht Teil von proxy3b.
+
+**Zero-Kontext-Audit-Fixes (zweite Runde):** (a) Fail-closed ist jetzt
+erzwungen: nach S3-Verlust antworten `db/exec|query|open` mit
+`503 fail-closed` (Test `SHUTDOWN_BLOCK`); (b) alle reinen Test-Nähte
+(`test_build_world`, `test_db_plain_dump`, `wasmi_call_bytes`,
+`opfs_*_raw`, `prompt_insert`, `db_sealed_dump`) sind hinter
+`feature = "test-login"` und im ausgelieferten Bündel nachweislich
+nicht enthalten; (c) der versehentlich erzeugte DOM-Rohlog mit
+Dev-S3-Zugang wurde gelöscht, der Auditbericht redigiert; im Repo/
+Worktree/History waren nie Secrets; (d) `docs/z8-proxy3b.md` ist trotz
+`.gitignore (/docs/)` per `git add -f` committet.
+
+**Offener Betriebs-Hinweis:** Der im gelöschten DOM-Log sichtbare
+b2b-Lesezugang ist ein Dev-Read-Only-Key. Eine Rotation ist mit den
+vorhandenen S3-Rechten nicht möglich (kein `CreateAccessKey`/Bucket-
+Admin); der Key ist nur lesend auf den Dev-b2b-Prefix. Empfehlung:
+durch den Bucket-Admin rotieren und `kv-login` neu starten.
 
 Zusätzlich: Der erfolgreiche S3-E2E nutzte eine eigens erzeugte Test-Welt
 im dev-Prefix `sim2/welt2/` (bekanntes Passwort/PEM), weil das Passwort
