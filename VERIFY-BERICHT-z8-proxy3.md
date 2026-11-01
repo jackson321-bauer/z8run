@@ -1,6 +1,6 @@
 # VERIFY-BERICHT Z8-PROXY3 — Stand 01.11.2026
 
-Repo: `/data/z8run-test/src`, Branch `z8-proxy3`, Code-HEAD `c03cd3a`.
+Repo: `/data/z8run-test/src`, Branch `z8-proxy3`, Code-HEAD `0b3852e` (letzter getesteter Stand).
 Bauplan: `/data/ghosthand/bauplan-z8-proxy3.md`.
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy3/`.
 
@@ -15,7 +15,7 @@ ausdrücklich benannt (G6) — keine stille Ausnahme.
 | Stufe | Ergebnis | Beweis |
 |---|---|---|
 | S0 Sicherung/Backup | GRÜN | `s0-sicherung.log`; Branch/Backup, >50 GB frei |
-| S0 Baseline 516×3 | GELB | Lauf 1: `s0-baseline-1.log` = **516 passed / 0 failed**. Läufe 2/3: siehe `s0-baseline-rc.log` (Platz/Neustart) |
+| S0 Baseline 516×3 | GRÜN | `s0-baseline-1/2/3.log` = je **516 passed / 0 failed**; `s0-baseline-rc.log` = rc 0/0/0 |
 | S1 Port-Kill | GRÜN | `s1-ss-vorher.log` (7700/7710/7800/443) vs. `s1-ss-nachher.log`/`s1-port-kill-grep.log` (nur 443); grep Bind = 0 Treffer |
 | S1 udsv3 | GRÜN | `s1-udsv3-e2e.log` (Chiffre, Replay inkl. neuer Verbindung, Downgrade strikt/debug); `s1-udsv3-live.log` (Login→Proxy→DB live, Frame-Hex=Chiffre, Token redigiert) |
 | S2 RAM | GRÜN | `s2-ram-vmlck.log`: z8run 100 kB, kv-proxy 80 kB; `ram::tests` (mlock+zeroize), `KeyEnvelope`/Session-mlock+zeroize, udsv3-Master zeroize |
@@ -29,7 +29,7 @@ ausdrücklich benannt (G6) — keine stille Ausnahme.
 | S5 Exporter browser | GRÜN | `s5-browser-bundle.log`; `s5-browser-443.log` (`FASSADE={"status":200,...}`, Worker über 443) |
 | S5 CORS | GRÜN mit Blocker | `s5-cors-set.log`: GET fremde Origin 200, PUT fremde Origin 403, PUT eigene Origin 200; One-Bucket-Wildcard-GET = dokumentierter Blocker |
 | S6 Installation | GRÜN | `s6-install-proof.log`: nur 443, `/` `/wasm/` `/proxy` `/login` = 200, PQC `X25519MLKEM768` true, Legacy X25519 |
-| S6 Tests | GRÜN | `s6-cargo-test-1/2/3.log`: je **532 passed / 0 failed**, 100 s Pause |
+| S6 Tests | GRÜN | `final2-test-1/2/3.log`: je **533 passed / 0 failed**, 100 s Pause (HEAD 0b3852e) |
 | S6 Doku | GRÜN | `docs/z8-proxy3.md` (Port-Map, udsv3, RAM, Z8FC1, Browser, AutoLock/Offline/Konflikt, Exporter, CORS, WAMR/iOS/Mobile, Abgrenzungen) |
 | S6 Zero-Kontext-Audit | GRÜN (durchgeführt) | Externer Audit hat GELB/ROT gefunden; Fixes: Replay cross-connection+Random-Nonce, Engine-UDS udsv3, kv_auth-UDS, kv-login mlock/zeroize, Fixtures beidseitig, persist/quota-Asserts, Konflikt-Event. Restliche Abgrenzungen bleiben deklariert. |
 
@@ -78,11 +78,15 @@ cargo test --workspace → 532 passed ×3
    öffnet Loopback für den Browser; `serve`/Produktion nur 443+UDS.
 9. **Alte dev-Welten** wurden einmal umbenannt (`*.alt-<ts>`) und werden
    beim nächsten Login/Setup neu als Z8FC1 angelegt.
+10. **Engine-UDS (`z8run.sock`)** spricht jetzt udsv3 (Kontext `engine`);
+    `unix-out` und die MCP-Setup/Login-Tools wurden angepasst, rohe
+    `curl --unix-socket`-Beispiele aus alten Docs nicht.
 
 ## Testzahlen
 
 - Baseline (`78f04ce`): **516 passed** (Lauf 1; weitere Läufe im Log).
-- Neuer Stand: **532 passed ×3** (100 s Pause), 0 failed.
+- Neuer Stand: **533 passed ×3** (100 s Pause), 0 failed (HEAD 0b3852e).
+- `cargo clippy --workspace --all-targets`: rc=0 (Warnungen, keine Fehler).
 - Neue Tests u. a.: udsv3 (Chiffre/Replay/Downgrade/Cross-Replay),
   RAM/mlock/zeroize, Z8FC1-Datei+VFS, WASM/nativ-Fixtures, SigV4,
   AutoLock/Offline/Konflikt, Browser-Selftest.
