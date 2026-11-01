@@ -4,7 +4,7 @@ Repo: `/data/z8run-test/src`, Branch `z8-proxy3b` (Basis `0ff4626`).
 Bauplan: `/data/ghosthand/bauplan-z8-proxy3b.md`.
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy3b/`.
 
-**Gesamturteil: GRÜN mit 3 benannten Abweichungen.** Alle fünf S4-Rot-
+**Gesamturteil: FUNKTIONAL GRÜN mit 3 benannten Abweichungen und 1 Betriebsblocker (Dev-Key-Rotation, Provider-seitig).** Alle fünf S4-Rot-
 Punkte aus PROXY-3 sind funktional geschlossen: echter Kern im Worker,
 wasmi-Apps, Passbox-Login über S3, OPFS am StorageBackend-Trait,
 CORS-Wildcard entfernt. Die Abweichungen sind technisch begründet (G6).
