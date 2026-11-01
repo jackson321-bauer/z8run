@@ -173,13 +173,6 @@ pub fn test_db_plain_dump(db_id: &str) -> Option<Vec<u8>> {
     kernel::dump_db_plain(db_id)
 }
 
-/// DB-Key-Ableitung (HKDF wie nativ) fuer den Fixture-Abgleich im Test.
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn db_key(master: &[u8], db_id: &str) -> Vec<u8> {
-    kernel::derive_db_key(master, db_id).unwrap_or_default().to_vec()
-}
-
 /// Test-Naht: App-WASM gegen den Browser-wasmi-Host fahren (Trap-Beweis).
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -387,7 +380,7 @@ async fn passbox_login(body: &Value) -> String {
         Err(e) => return login_err(e),
     };
     SESSION.with(|s| {
-        s.borrow_mut().login(ok.master.clone());
+        s.borrow_mut().login(ok.master.to_vec());
         s.borrow_mut().s3_probe(true);
     });
     let buckets: Vec<String> = ok
@@ -406,7 +399,7 @@ async fn passbox_login(body: &Value) -> String {
         .unwrap_or_else(|| format!("s-{}", js_sys::Date::now() as u64));
     let grant = kernel::with_kernel(|k| {
         k.login(
-            ok.master.clone(),
+            ok.master.to_vec(),
             session_id.clone(),
             ok.space_addr.clone(),
             ok.username.clone(),
@@ -415,13 +408,13 @@ async fn passbox_login(body: &Value) -> String {
             js_sys::Date::now() as u64,
         )
     });
-    let opened = match kernel::open_db(&db_id, &ok.master, &kernel::browser_cluster("browser")).await {
+    let opened = match kernel::open_db(&db_id, ok.master.as_slice(), &kernel::browser_cluster("browser")).await {
         Ok(st) => serde_json::to_value(st).unwrap_or(Value::Null),
         Err(e) => return proxy_err(e),
     };
     let fp = {
         use sha2::Digest;
-        hex::encode(sha2::Sha256::digest(&ok.master))
+        hex::encode(sha2::Sha256::digest(ok.master.as_slice()))
     };
     json!({
         "status": 200,

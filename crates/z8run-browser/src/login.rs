@@ -232,7 +232,7 @@ pub fn combine2(a: (u8, Vec<u8>), b: (u8, Vec<u8>)) -> Result<Vec<u8>, String> {
 }
 
 pub struct LoginOk {
-    pub master: Vec<u8>,
+    pub master: zeroize::Zeroizing<Vec<u8>>,
     pub space_addr: String,
     pub user_addr: String,
     pub username: String,
@@ -290,7 +290,7 @@ pub fn login_from_hashdatei(
     })?;
     let master = combine2(provider, hw).map_err(|e| LoginError::auth(e))?;
     Ok(LoginOk {
-        master,
+        master: zeroize::Zeroizing::new(master),
         space_addr,
         user_addr,
         username: entry["username"].as_str().unwrap_or(username).to_string(),
