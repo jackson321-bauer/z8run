@@ -57,32 +57,21 @@ def edge(src, dst, port="output"):
 
 
 def initial_flow():
+    # Dünner Flow: die WAHRHEIT ist die Setup-ENGINE (setup_kern), dieselbe
+    # wie bins/z8-setup. Kein Parallelcode im Canvas.
     nodes = [
         node("in", "unix-in", "POST /setup", {"method": "POST", "path": "/setup"}, trigger=True),
-        node("val", "setup-validate", "Validate (space, users, engines, quorum)", {
-            "engines": "demo,fts5,vec0"}),
-        node("key", "setup-keygen", "Setup-Keys erzeugen (2-of-N)", {
-            "s3Config": S3, "pemCount": 3, "outDir": "/data/z8run/setup-keys",
-            "registryKey": REG, "shardsKey": SHARDS}),
-        node("world", "setup-world", "Welt bauen (N Userspaces, keine Shared)", {
-            "s3Config": S3, "outDir": "/data/z8run/setup-keys",
-            "vec0Path": "/data/z8run/vec0.so", "hwKeys": 2, "registryKey": REG}),
-        node("put", "s3-put", "S3: Hashdateien + Workspaces + DBs", {
-            "s3Config": S3, "filesPath": "files"}),
+        node("engine", "setup-engine", "Setup-Engine (Keys + Welt + Quorum)", {
+            "s3Config": S3}),
         node("sum", "setup-summary", "Antwort (Allowlist)", {}, error=False),
         node("out", "http-out", "200 Setup OK", {"statusCode": 200}, out=True),
-        node("err-val", "http-out", "400 validate", {"statusCode": 400}, out=True),
-        node("err-key", "http-out", "400 keygen", {"statusCode": 400}, out=True),
-        node("err-world", "http-out", "400 world", {"statusCode": 400}, out=True),
-        node("err-put", "http-out", "400 s3", {"statusCode": 400}, out=True),
+        node("err-engine", "http-out", "400 setup", {"statusCode": 400}, out=True),
     ]
     edges = [
-        edge("in", "val"), edge("val", "key"), edge("key", "world"),
-        edge("world", "put"), edge("put", "sum"), edge("sum", "out"),
-        edge("val", "err-val", "error"), edge("key", "err-key", "error"),
-        edge("world", "err-world", "error"), edge("put", "err-put", "error"),
+        edge("in", "engine"), edge("engine", "sum"), edge("sum", "out"),
+        edge("engine", "err-engine", "error"),
     ]
-    return "Z8-Setup", "API 0: Initial-Setup (lokal/single, N Userspaces)", nodes, edges
+    return "Z8-Setup", "API 0: Initial-Setup via Setup-Engine (N Userspaces)", nodes, edges
 
 
 def operation_flow():
