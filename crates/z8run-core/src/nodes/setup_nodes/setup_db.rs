@@ -1,4 +1,4 @@
-//! DB-Erstellung für die Setup-API: SQLCipher + WAL + FTS5 + vec0.
+//! DB-Erstellung für die Setup-API: Z8FC1-File-Cipher + WAL + FTS5 + vec0.
 //!
 //! Bewiesen kombinierbar (vecprobe 29.10.); hier dieselbe Kombination in
 //! einem Node-Helfer. RAM-Offload über PRAGMAs (cache_size, mmap_size).

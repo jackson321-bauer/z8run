@@ -118,6 +118,22 @@ impl HashSource {
     }
 }
 
+static RAM_ARENA: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+fn init_ram_arena() {
+    let level = std::env::var("Z8_RAM_LEVEL")
+        .ok()
+        .and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(2);
+    if level >= 2 {
+        let mut v = vec![0u8; 64 * 1024];
+        if mlock_bytes(&v) {
+            v.fill(0);
+            let _ = RAM_ARENA.set(v);
+        }
+    }
+}
+
 #[cfg(unix)]
 fn mlock_bytes(b: &[u8]) -> bool {
     extern "C" {
@@ -469,6 +485,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    init_ram_arena();
     let args = Args::parse();
 
     let doc = if let Some(path) = &args.hash_file {

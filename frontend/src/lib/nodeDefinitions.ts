@@ -413,7 +413,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     category: "data",
     color: "#0E7490",
     icon: "Database",
-    description: "Open a SQLCipher database (vec+FTS5) in the DB-Node engine",
+    description: "Open a Z8FC1 database (vec+FTS5) in the DB-Node engine",
     inputs: [{ id: "input", name: "Input", type: "any" }],
     outputs: [
       { id: "output", name: "Status", type: "object" },

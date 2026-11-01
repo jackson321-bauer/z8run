@@ -59,7 +59,7 @@ pub async fn bau_user(
     let db = json!({
         "demo": {"key_hex": db_key, "sha256": demo.sha256, "bytes": demo.bytes, "vec0": demo.vec0},
         "meta": {"key_hex": db_key, "sha256": meta.sha256, "bytes": meta.bytes, "vec0": meta.vec0},
-        "cipher": "sqlcipher",
+        "cipher": "z8fc1",
         "wal": true,
         "fts5": true,
     });
