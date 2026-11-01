@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Mutex, Once, OnceLock};
+use std::sync::{Mutex, Once, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rsqlite_vfs::ffi as sq;
@@ -20,7 +20,8 @@ pub const VFS_NAME: &str = "z8cipher";
 const SQLITE_OK: i32 = 0;
 
 static INSTALL: Once = Once::new();
-static TX: OnceLock<mpsc::Sender<(PathBuf, Option<Vec<u8>>, Vec<u8>)>> = OnceLock::new();
+type Job = (PathBuf, Option<Vec<u8>>, Vec<u8>);
+static DIRTY: OnceLock<Mutex<HashMap<String, Job>>> = OnceLock::new();
 static VFS_PTR: OnceLock<usize> = OnceLock::new();
 static KEYS: Mutex<Option<HashMap<String, Vec<u8>>>> = Mutex::new(None);
 static ACTIVE: Mutex<Option<HashMap<String, Vec<u8>>>> = Mutex::new(None);
@@ -79,28 +80,21 @@ pub fn verify_key(path: &Path, key: &[u8]) -> Result<(), String> {
 }
 
 fn start_persister() {
-    let (tx, rx) = mpsc::channel::<(PathBuf, Option<Vec<u8>>, Vec<u8>)>();
-    let _ = TX.set(tx);
+    let _ = DIRTY.set(Mutex::new(HashMap::new()));
     std::thread::Builder::new()
         .name("z8cipher-flush".into())
-        .spawn(move || {
-            let mut batch: HashMap<String, (PathBuf, Option<Vec<u8>>, Vec<u8>)> = HashMap::new();
-            loop {
-                match rx.recv() {
-                    Ok(job) => {
-                        batch.insert(job.0.to_string_lossy().to_string(), job);
-                        while let Ok(job) = rx.try_recv() {
-                            batch.insert(job.0.to_string_lossy().to_string(), job);
-                        }
-                        for (_, (path, key, plain)) in batch.drain() {
-                            if let Some(key) = key {
-                                if let Err(e) = file_cipher::write_encrypted(&path, &key, &plain) {
-                                    tracing::warn!(error = %e, pfad = %path.display(), "Cipher-Flush fehlgeschlagen");
-                                }
-                            }
-                        }
+        .spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            let jobs: Vec<Job> = {
+                let Some(d) = DIRTY.get() else { return };
+                let mut map = d.lock().unwrap_or_else(|e| e.into_inner());
+                map.drain().map(|(_, job)| job).collect()
+            };
+            for (path, key, plain) in jobs {
+                if let Some(key) = key {
+                    if let Err(e) = file_cipher::write_encrypted(&path, &key, &plain) {
+                        tracing::warn!(error = %e, pfad = %path.display(), "Cipher-Flush fehlgeschlagen");
                     }
-                    Err(_) => return,
                 }
             }
         })
@@ -139,8 +133,10 @@ impl EncFile {
         }
         let Some(key) = &self.key else { return Ok(()) };
         let plain = self.plain_bytes()?;
-        if let Some(tx) = TX.get() {
-            let _ = tx.send((self.path.clone(), Some(key.clone()), plain));
+        if let Some(d) = DIRTY.get() {
+            d.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(self.path.to_string_lossy().to_string(), (self.path.clone(), Some(key.clone()), plain));
         }
         Ok(())
     }
