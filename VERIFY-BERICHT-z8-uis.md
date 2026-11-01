@@ -14,7 +14,7 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
 |---|---|---|
 | S0 Sicherung | GRÜN | `s0-sicherung.log` (Branch z8-uis, DB-Backup, 28 GB frei); `s0-baseline.log` = 530 passed / 0 failed; `s0-replicas.log` = 5 Keys je 3 Provider byte-gleich |
 | S1 Login-UI | GRÜN | `s1-proof.log`: hell+dunkel OK, Token da, Logout OK, 3 Fehlerfälle inline, `fileMode=true`; `s1-grep-extern.log` = 0 externe URLs; `shots/s1-*.png` |
-| S2 Setup-UI | GRÜN | `s2-proof.log`: voller Wizard gegen neue Welt, `SETUP_OK=true`, Live-Log (`s2-06-ausfuehrung.png`), Setup-JSON 600, Re-Init-Dialog (`s2-08-reinit-fehler.png`); `/setup-ui*` über 443 = 404; `s2-init-sse.log` enthält **keine** PEMs/Privatkeys (grep = 0); `s2-origin-403.log` = echtes HTTP 403 („fremde Origin abgewiesen“) mit gültigem Body |
+| S2 Setup-UI | GRÜN | `s2-proof.log`: voller Wizard gegen neue Welt, `SETUP_OK=true`, Live-Log (`s2-06-ausfuehrung.png`), Setup-JSON 600, Re-Init-Dialog (`s2-08-reinit-fehler.png`); `/setup-ui*` über 443 = 404 (`s2-443-block.log`: GET+POST = 404); `s2-init-sse.log` enthält **keine** PEMs/Privatkeys (grep = 0); `s2-origin-403.log` = echtes HTTP 403 („fremde Origin abgewiesen“) mit gültigem Body |
 | S3 Vision-Beweise | GRÜN | 5 Formate gegen **dev2/** (je 4 Schritte + Ergebnis + Inline-Fehler, `s3-<format>-*.png`) **und zusätzlich als VNC-/X-Klick-Läufe** `vncx-<format>-*` (`s3-vnc-x-formats.log`; 820x1180 exakt auf :101, `s3-vnc-820.log`, Bildmaß 820x1180); `s3-formats.log`; `s3-vision-urteil.log`; hell/dunkel + Default-Dunkel-CSS; Zoom 100/150/200; VNC-/X-Klick-Kette `vncx-setup-*` + `vncx-login-*` (`s3-vnc-x-setup.log`, `s3-vnc-x-login.log`); zusätzliche CDP-VNC-Kette `s3-vnc.log` |
 | S4 Tests/Doku | GRÜN | `s4-test-1..3.log` = je 534 passed / 0 failed; `s4-clippy.log` EXIT 0 / 0 Fehler; `s4-cleanup.log` = uis1…uis7 `PURGE rest=0`; `s4-cleanup-final.log` = je `objects=0`; Doku `docs/z8-nutzer-doku.md` (Wizards + Bilder), `docs/z8-plattform-kern.md` (UI=dumm) |
 
@@ -46,8 +46,9 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
   390 `7b0b9fff1c…`, 820 `995f288c00…`, 320 `08cd0cfdeb…`
   (`shots/s3-<format>-5-ergebnis.png`, `s3-<format>-fehler.png`).
 - 5 Formate zusätzlich im VNC-Fenster (xdotool): `s3-vnc-x-formats.log`
-  (1920/1366/390/320 auf :99) und `s3-vnc-820.log` (820x1180 exakt auf :101,
-  Bildmaß 820x1180). Tokens 1920 `e97f0ee887…`, 1366 `b85be483f4…`,
+  (1920/1366/390/320 auf :99; der dortige 820-Eintrag ist ein früherer
+  :99-Lauf mit 1080-Höhenlimit und durch `s3-vnc-820.log` ersetzt) und
+  `s3-vnc-820.log` (820x1180 exakt auf :101, Bildmaß 820x1180). Tokens 1920 `e97f0ee887…`, 1366 `b85be483f4…`,
   390 `9917cfb690…`, 820 `f4844ca918…`, 320 `0238adb148…`; Screenshots
   `vncx-<format>-1-space` … `-5-ergebnis`, `vncx-<format>-fehler`.
 - VNC-/X-Klick-Kette: `s3-vnc-x-setup.log`
@@ -69,7 +70,8 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
 - Kein zweiter Setup-Code: `bins/z8-setup`, Flow und Setup-UI nutzen
   `setup_kern` (bzw. dieselbe `cfg_aus`-Regel).
 - Throwaway-Welten uis1/uis2/uis3/uis3b/uis4/uis5/uis6/uis7 auf allen
-  3 Providern gelöscht (`s4-cleanup-final.log`: je `objects=0`). dev2/ wurde
+  3 Providern gelöscht (`s4-cleanup-final.log`: realer `--yes`-Lauf, je
+  `objects=0` + `PURGE rest=0`). dev2/ wurde
   bewusst neu aufgebaut (alte Welt mit unbekanntem Passwort gepurgt, neue
   3/3 + Login GRÜN: `s3-dev2-neu.log`, `s3-dev2-login-proof.log`,
   `s3-dev2-replicas.log`) und bleibt als Dev-Welt.
@@ -90,19 +92,22 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
    über die Browser-API gesetzt (der native Datei-Dialog ist kein
    Wizard-Schritt). Die headless-CDP-Läufe bleiben als zweite, unabhängige
    Beweisreihe erhalten.
-3. **„Dunkel ohne Systeminfo“.** Chrome meldet immer eine Präferenz (hier
+3. **Test-/Log-Zeitpunkt.** Die drei 534/0-Testläufe liefen nach dem
+   Host-Check-Fix im Code (identischer Tree wie HEAD `56decaf`); der Commit
+   erfolgte erst danach, die Logs decken also den finalen Code.
+4. **„Dunkel ohne Systeminfo“.** Chrome meldet immer eine Präferenz (hier
    light). Default-Dunkel ist strukturell bewiesen (`ui/design-system.css`:
    dunkle Basis, hell nur im `@media (prefers-color-scheme: light)`) plus
    Dark-Screenshot.
-4. **Browser-Zoom** über kleineren CSS-Viewport + devicePixelRatio
+5. **Browser-Zoom** über kleineren CSS-Viewport + devicePixelRatio
    (100/150/200 %); Karte bleibt ohne horizontalen Bruch (bei 200 %
    vertikal scrollbar).
-5. **Clippy:** Repo-Standard `cargo clippy --workspace --all-targets`
+6. **Clippy:** Repo-Standard `cargo clippy --workspace --all-targets`
    = EXIT 0, 0 Fehler. `-D warnings` zeigt 13 **vorbestehende** Lints in
    unberührten Dateien (`dbnode/*`, `kv3_nodes`, `setup_pqc`, `sqlite_exec`,
    `udsv3_stream`; 13 `^error`-Zeilen inkl. Compile-Abbrüche); die neue
    Warnung in `proxy-kern` wurde gefixt.
-6. **Login-UI als Datei:** Rendering + Schritt-Navigation sind lokal
+7. **Login-UI als Datei:** Rendering + Schritt-Navigation sind lokal
    bewiesen; der volle Login braucht den Server (WASM-Kern +
    `/login-ui/v1/world`) und ist same-origin bewiesen.
 
