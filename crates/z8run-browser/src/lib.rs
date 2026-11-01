@@ -1,6 +1,7 @@
 //! Z8 Browser-Kern: SQLite+vec als WASM, OPFS, Z8FC1-Huelle, S3/SigV4,
 //! postMessage-Fassade mit HTTP-Semantik, AutoLock und Offline-Regel.
 
+pub mod conflict;
 pub mod session;
 pub mod sigv4;
 
