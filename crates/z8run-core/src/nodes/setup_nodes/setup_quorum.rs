@@ -37,7 +37,14 @@ pub async fn put(targets: &[Target], key: &str, data: Vec<u8>, min: usize) -> Re
     for (label, h) in handles {
         match h.await {
             Ok(Ok(())) => ok.push(label),
-            _ => failed.push(label),
+            Ok(Err(e)) => {
+                eprintln!("[quorum] write FEHLER {label}: {e}");
+                failed.push(label)
+            }
+            Err(e) => {
+                eprintln!("[quorum] write PANIC {label}: {e}");
+                failed.push(label)
+            }
         }
     }
     if ok.len() < min {

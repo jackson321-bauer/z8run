@@ -1,8 +1,9 @@
-//! DB-Endpunktprüfung für setup_verify: SQLCipher öffnen + Tabellen lesen.
+//! DB-Endpunktprüfung für setup_verify: Z8FC1-Cipher-VFS öffnen + lesen.
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use sqlx::Connection;
-
+use std::path::Path;
+use z8run_core::dbnode::{cipher_vfs, vec};
 
 fn fail(msg: impl Into<String>) -> ! {
     eprintln!("VERIFY ROT: {}", msg.into());
@@ -12,17 +13,18 @@ fn fail(msg: impl Into<String>) -> ! {
 pub async fn db_pruefen(key_hex: &str, bytes: &[u8], name: &str) {
     let path = std::env::temp_dir().join(format!("z8verify-{name}-{}.db", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
-    let opts = SqliteConnectOptions::new().filename(&path).create_if_missing(false);
+    let raw = hex::decode(key_hex).unwrap_or_else(|e| fail(format!("db key {name}: {e}")));
+    cipher_vfs::install();
+    cipher_vfs::register_key(&path, &raw);
+    vec::register_auto_extension();
+    let opts = SqliteConnectOptions::new()
+        .filename(&path)
+        .vfs("z8cipher")
+        .create_if_missing(false);
     let mut conn = match SqliteConnection::connect_with(&opts).await {
         Ok(c) => c,
         Err(e) => fail(format!("DB open {name}: {e}")),
     };
-    if let Err(e) = sqlx::query(&format!("PRAGMA key = \"x'{key_hex}'\";"))
-        .execute(&mut conn)
-        .await
-    {
-        fail(format!("DB key {name}: {e}"));
-    }
     let tabs: Vec<(String,)> = match sqlx::query_as(
         "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name",
     )
@@ -33,8 +35,10 @@ pub async fn db_pruefen(key_hex: &str, bytes: &[u8], name: &str) {
         Err(e) => fail(format!("DB read {name}: {e} (falscher Key?)")),
     };
     let names: Vec<String> = tabs.into_iter().map(|t| t.0).collect();
+    if !names.iter().any(|n| n == "meta") {
+        fail(format!("DB {name}: meta-Tabelle fehlt"));
+    }
     println!("    DB {name}: entschlüsselt, Tabellen={names:?}");
     let _ = conn.close().await;
-    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(Path::new(&path));
 }
-

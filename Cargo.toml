@@ -9,6 +9,7 @@ members = [
     "crates/proxy",
     "bins/z8run-cli",
     "bins/z8-export",
+    "bins/z8-setup",
     "bins/z8-stahlgitter",
     "bins/kv-proxy",
     "bins/z8-tls-proof",

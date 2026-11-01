@@ -56,9 +56,13 @@ pub async fn bau_user(
     let user_db_dir = format!("{db_dir}/{addr}");
     let demo = setup_db::erzeugen(&user_db_dir, "demo", &db_key, vec0_path, space, &name).await?;
     let meta = setup_db::erzeugen(&user_db_dir, "meta", &db_key, vec0_path, space, &name).await?;
+    // Der Cipher-VFS schreibt beim Schliessen synchron neu (neue IV) -> der
+    // Hash muss aus GENAU den Bytes kommen, die auch nach S3 gehen.
+    let demo_bytes = std::fs::read(&demo.name).map_err(|e| format!("db read: {e}"))?;
+    let meta_bytes = std::fs::read(&meta.name).map_err(|e| format!("db read: {e}"))?;
     let db = json!({
-        "demo": {"key_hex": db_key, "sha256": demo.sha256, "bytes": demo.bytes, "vec0": demo.vec0},
-        "meta": {"key_hex": db_key, "sha256": meta.sha256, "bytes": meta.bytes, "vec0": meta.vec0},
+        "demo": {"key_hex": db_key, "sha256": sc::sha_hex(&demo_bytes), "bytes": demo_bytes.len(), "vec0": demo.vec0},
+        "meta": {"key_hex": db_key, "sha256": sc::sha_hex(&meta_bytes), "bytes": meta_bytes.len(), "vec0": meta.vec0},
         "cipher": "z8fc1",
         "wal": true,
         "fts5": true,
@@ -149,8 +153,7 @@ pub async fn bau_user(
         "utf8",
     ));
 
-    for (name_db, d) in [("demo", &demo), ("meta", &meta)] {
-        let data = std::fs::read(&d.name).map_err(|e| format!("db read: {e}"))?;
+    for (name_db, data) in [("demo", demo_bytes), ("meta", meta_bytes)] {
         files.push(datei_eintrag(
             format!("workspaces/{addr}/db/{name_db}.db"),
             data,

@@ -39,10 +39,10 @@ async fn main() {
     )
     .expect("spec json");
     let prefix = std::env::var("SETUP_PREFIX").expect("SETUP_PREFIX");
-    let mut cfg = S3Cfg::aus_datei(
-        &std::env::var("SETUP_S3_CONFIG").unwrap_or_else(|_| "/etc/z8run/kv3-s3.json".into()),
-    )
-    .expect("s3 config");
+    let path =
+        std::env::var("SETUP_S3_CONFIG").unwrap_or_else(|_| "/etc/z8run/kv3-s3.json".into());
+    let bucket = std::env::var("SETUP_BUCKET").ok();
+    let mut cfg = S3Cfg::aus_datei_mit(&path, bucket.as_deref(), None).expect("s3 config");
     cfg.prefix = prefix.clone();
     let space = resp["space"].as_str().expect("space");
     println!("== VERIFY Z8-Setup space={space} prefix={prefix} ==");

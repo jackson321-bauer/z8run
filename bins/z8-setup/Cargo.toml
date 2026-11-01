@@ -1,0 +1,16 @@
+[package]
+name = "z8-setup"
+description = "Z8-Setup-Engine: baut die komplette Welt (3 Provider, Quorum) ohne Flow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "z8-setup"
+path = "src/main.rs"
+
+[dependencies]
+z8run-core = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
