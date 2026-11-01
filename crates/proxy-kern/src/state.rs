@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 use serde_json::Value;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::ProxyError;
 
@@ -19,6 +19,7 @@ pub struct SessionState {
     pub dbs: Vec<String>,
     pub apps: Vec<String>,
     master: Zeroizing<Vec<u8>>,
+    mlocked: bool,
     pub created_ms: u64,
     pub last_seen_ms: u64,
 }
@@ -35,6 +36,7 @@ impl SessionState {
         master: Vec<u8>,
         now_ms: u64,
     ) -> Self {
+        let mlocked = lock_master(&master);
         Self {
             session_id,
             addr_space,
@@ -44,6 +46,7 @@ impl SessionState {
             dbs,
             apps: Vec::new(),
             master: Zeroizing::new(master),
+            mlocked,
             created_ms: now_ms,
             last_seen_ms: now_ms,
         }
@@ -70,6 +73,46 @@ impl SessionState {
     pub fn add_app(&mut self, name: &str) {
         if !self.apps.iter().any(|a| a == name) {
             self.apps.push(name.to_string());
+        }
+    }
+}
+
+#[cfg(unix)]
+fn lock_master(master: &[u8]) -> bool {
+    extern "C" {
+        fn mlock(addr: *const std::os::raw::c_void, len: usize) -> std::os::raw::c_int;
+    }
+    if master.is_empty() {
+        return false;
+    }
+    unsafe { mlock(master.as_ptr() as *const _, master.len()) == 0 }
+}
+
+#[cfg(unix)]
+fn unlock_master(master: &[u8]) {
+    extern "C" {
+        fn munlock(addr: *const std::os::raw::c_void, len: usize) -> std::os::raw::c_int;
+    }
+    if !master.is_empty() {
+        unsafe {
+            let _ = munlock(master.as_ptr() as *const _, master.len());
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn lock_master(_master: &[u8]) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn unlock_master(_master: &[u8]) {}
+
+impl Drop for SessionState {
+    fn drop(&mut self) {
+        self.master.zeroize();
+        if self.mlocked {
+            unlock_master(&self.master);
         }
     }
 }

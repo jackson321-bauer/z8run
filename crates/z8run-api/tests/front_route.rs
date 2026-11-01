@@ -1,31 +1,60 @@
-//! S5: Ein-Port-Front lokal — PQC-Handshake + Pfad-Routing
+//! S5: Ein-Port-Front lokal — PQC-Handshake + Pfad-Routing ueber UDS/udsv3.
 //! / -> Engine, /proxy/* -> kv-proxy, /login/v1/* -> kv-login, /login -> Engine.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::routing::get;
 use axum::Router;
+use hyper_util::rt::TokioIo;
 use rustls::pki_types::ServerName;
 
-async fn upstream(name: &'static str) -> std::net::SocketAddr {
-    let app = Router::new().fallback(move |uri: axum::http::Uri| async move {
-        format!("{name}:{}", uri.path())
+fn test_master() {
+    std::env::set_var(
+        "Z8_UDSV3_MASTER",
+        "0123456789abcdef0123456789abcdef",
+    );
+}
+
+async fn upstream(name: &'static str, kontext: &'static str, dir: &std::path::Path) -> PathBuf {
+    let path = dir.join(format!("{name}.sock"));
+    let uds = tokio::net::UnixListener::bind(&path).unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = match uds.accept().await {
+                Ok(v) => v,
+                Err(_) => break,
+            };
+            tokio::spawn(async move {
+                let io = z8run_core::udsv3_stream::server_io(stream, kontext).unwrap();
+                let io = TokioIo::new(io);
+                let service = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| async move {
+                        let body = format!("{name}:{}", req.uri().path());
+                        Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                            axum::body::Body::from(body),
+                        ))
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, service)
+                    .await;
+            });
+        }
     });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    addr
+    path
 }
 
 fn engine() -> Router {
     Router::new()
         .route("/", get(|| async { "engine:/".to_string() }))
-        .route("/login", get(|| async { "engine:/login" }))
+        .route("/login", get(|| async { "engine:/login".to_string() }))
         .fallback(|| async { "engine:fallback".to_string() })
 }
 
 #[tokio::test]
 async fn ein_port_handshake_und_pfad_routing() {
+    test_master();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let cert_path = dir.path().join("cert.pem");
@@ -33,8 +62,8 @@ async fn ein_port_handshake_und_pfad_routing() {
     std::fs::write(&cert_path, cert.cert.pem()).unwrap();
     std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
 
-    let proxy = upstream("proxy").await;
-    let login = upstream("login").await;
+    let proxy = upstream("proxy", "admin", dir.path()).await;
+    let login = upstream("login", "kv-login", dir.path()).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let cfg = z8run_api::front::FrontConfig {
@@ -42,8 +71,8 @@ async fn ein_port_handshake_und_pfad_routing() {
         port: addr.port(),
         cert: cert_path,
         key: key_path,
-        proxy_addr: proxy,
-        login_addr: login,
+        proxy_socket: proxy,
+        login_socket: login,
     };
     tokio::spawn(async move {
         let _ = z8run_api::front::serve_listener(engine(), cfg, listener).await;
@@ -83,23 +112,18 @@ async fn ein_port_handshake_und_pfad_routing() {
         (group, status, body)
     }
 
-    // Engine
     let (group, status, body) = get(&connector, addr, "/").await;
     assert_eq!(group, "X25519MLKEM768", "Handshake nicht PQC");
     assert!(status.contains("200"), "{status}");
     assert_eq!(body, "engine:/");
-    // SPA-Login bleibt Engine
     let (_, _, body) = get(&connector, addr, "/login").await;
     assert_eq!(body, "engine:/login", "/login darf nicht zu kv-login");
-    // /proxy/*
     let (_, status, body) = get(&connector, addr, "/proxy/v1/status").await;
     assert!(status.contains("200"), "{status}");
     assert_eq!(body, "proxy:/v1/status");
-    // /login/v1/*
     let (_, status, body) = get(&connector, addr, "/login/v1/health").await;
     assert!(status.contains("200"), "{status}");
     assert_eq!(body, "login:/v1/health");
-    // /kvlogin/* Kompatibilitaet
     let (_, _, body) = get(&connector, addr, "/kvlogin/v1/login").await;
     assert_eq!(body, "login:/v1/login");
     println!("EIN_PORT gruppe={group} routing ok");

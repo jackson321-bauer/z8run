@@ -136,6 +136,10 @@ async fn main() -> anyhow::Result<()> {
         .with_thread_ids(false)
         .init();
 
+    // FEST 12: mlock/zeroize-Stufe vor jedem Secret-Import.
+    z8run_core::ram::init();
+    tracing::info!(vmlck_kb = z8run_core::ram::vmlck_kb(), "VmLck nach RAM-Init");
+
     // A double-clicked console closes on exit; keep errors readable.
     let desktop_mode = cli.command.is_none();
     let result = run(cli).await;
@@ -214,6 +218,7 @@ async fn cmd_desktop(data_dir: String) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    std::env::set_var("Z8_DESKTOP_TCP", "1");
     let db_url = env("Z8_DB_URL");
     if db_url.is_none() {
         println!(
@@ -481,10 +486,14 @@ async fn cmd_serve(
         });
     }
 
-    // Optional Unix-domain-socket listener. It serves the exact same router as
-    // the TCP listener, so /api, /hook and /ws behave identically on both
-    // transports. Access is controlled by the socket file permissions (0600).
-    if let Ok(uds_path) = std::env::var("Z8_UDS_PATH") {
+    // PORT-KILL: die Engine lauscht NUR auf einem Unix-Domain-Socket. Der
+    // 443-PQC-Front (falls konfiguriert) routet darauf; Desktop-Modus darf
+    // zusaetzlich einen lokalen TCP-Listener nur fuer den Browser oeffnen.
+    let uds_path = std::env::var("Z8_UDS_PATH")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "/data/z8run/z8run.sock".to_string());
+    {
         if !uds_path.is_empty() {
             let path = std::path::PathBuf::from(&uds_path);
             if let Some(parent) = path.parent() {
@@ -554,23 +563,31 @@ async fn cmd_serve(
         }
     }
 
-    // Start server
-    let addr = format!("{}:{}", bind, port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(address = %addr, "Server ready");
+    let desktop_tcp = std::env::var("Z8_DESKTOP_TCP").as_deref() == Ok("1");
     if z8run_api::ui::is_embedded() {
-        let url = format!("http://{}:{}", display_host(&bind), port);
-        tracing::info!("Editor: {url}");
-        if open_browser {
-            desktop::open_browser(&url);
+        if desktop_tcp {
+            let url = format!("http://{}:{}", display_host(&bind), port);
+            tracing::info!("Editor: {url}");
+            if open_browser {
+                desktop::open_browser(&url);
+            }
+        } else {
+            tracing::info!("Editor: via 443-PQC-Front (UDS-Engine)");
         }
     } else {
         tracing::info!("API only: this build does not include the web editor (feature embed-ui)");
     }
 
-    // Serve with connection info so per-IP rate limiting can read the real TCP
-    // peer address (see z8run_api::rate_limit) instead of trusting spoofable
-    // forwarded headers.
+    if !desktop_tcp {
+        tracing::info!(uds = %uds_path, "Engine bereit (nur UDS; kein interner TCP-Port)");
+        std::future::pending::<()>().await;
+        return Ok(());
+    }
+
+    // Desktop-Ausnahme (lokaler Browser): TCP nur auf Loopback, nie intern.
+    let addr = format!("{}:{}", bind, port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!(address = %addr, "Desktop-Listener bereit (Loopback)");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

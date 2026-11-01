@@ -155,24 +155,6 @@ pub fn admin_router(svc: Arc<ProxyService>) -> Router {
         .with_state(svc)
 }
 
-pub async fn serve_tcp(svc: Arc<ProxyService>) -> anyhow::Result<()> {
-    let addr = format!("{}:{}", svc.cfg.http_bind, svc.cfg.http_port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(address = %addr, "Proxy HTTP bereit");
-    let guard = svc.guard.clone();
-    let app = router(svc);
-    tokio::select! {
-        r = axum::serve(listener, app) => r?,
-        _ = guard.wait_down() => {
-            tracing::error!(
-                grund = ?guard.reason(),
-                "WAL-Notfall: Verkehr gestoppt, Proxy geht DOWN (fail-closed)"
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Gleicher Router ueber einen Unix-Socket (Zugriff nur ueber Dateirechte).
 pub async fn serve_uds(svc: Arc<ProxyService>, path: std::path::PathBuf) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
@@ -186,11 +168,28 @@ pub async fn serve_uds(svc: Arc<ProxyService>, path: std::path::PathBuf) -> anyh
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
     tracing::info!(path = %path.display(), "Proxy-Admin-UDS bereit");
+    let guard = svc.guard.clone();
     loop {
-        let (stream, _) = uds.accept().await?;
+        let (stream, _) = tokio::select! {
+            r = uds.accept() => r?,
+            _ = guard.wait_down() => {
+                tracing::error!(
+                    grund = ?guard.reason(),
+                    "WAL-Notfall: Verkehr gestoppt, Proxy geht DOWN (fail-closed)"
+                );
+                return Ok(());
+            }
+        };
         let app = admin_router(svc.clone());
         tokio::spawn(async move {
-            let io = hyper_util::rt::TokioIo::new(stream);
+            let io = match z8run_core::udsv3_stream::server_io(stream, "admin") {
+                Ok(io) => io,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Admin-UDS: udsv3-Schluessel fehlt");
+                    return;
+                }
+            };
+            let io = hyper_util::rt::TokioIo::new(io);
             let service = hyper::service::service_fn(
                 move |req: hyper::Request<hyper::body::Incoming>| {
                     let app = app.clone();

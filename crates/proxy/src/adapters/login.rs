@@ -30,15 +30,25 @@ pub async fn serve_login(svc: Arc<ProxyService>, path: std::path::PathBuf) -> an
         let (stream, _) = uds.accept().await?;
         let svc = svc.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle(svc, stream).await {
+            let io = match z8run_core::udsv3_stream::server_io(stream, "login") {
+                Ok(io) => io,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Login-Handoff: udsv3-Schluessel fehlt");
+                    return;
+                }
+            };
+            if let Err(e) = handle(svc, io).await {
                 tracing::warn!(code = e.code(), "Login-Handoff abgelehnt");
             }
         });
     }
 }
 
-async fn handle(svc: Arc<ProxyService>, stream: tokio::net::UnixStream) -> Result<(), ProxyError> {
-    let (mut rd, mut wr) = stream.into_split();
+async fn handle(
+    svc: Arc<ProxyService>,
+    stream: z8run_core::udsv3_stream::BoxIo,
+) -> Result<(), ProxyError> {
+    let (mut rd, mut wr) = tokio::io::split(stream);
     let (http, body) = tokio::time::timeout(Duration::from_secs(10), read_request(&mut rd))
         .await
         .map_err(|_| ProxyError::BadRequest("Login-Timeout".into()))??;
@@ -58,8 +68,8 @@ async fn handle(svc: Arc<ProxyService>, stream: tokio::net::UnixStream) -> Resul
     }
 }
 
-async fn read_request(
-    rd: &mut tokio::net::unix::OwnedReadHalf,
+async fn read_request<R: tokio::io::AsyncRead + Unpin>(
+    rd: &mut R,
 ) -> Result<(bool, Vec<u8>), ProxyError> {
     use tokio::io::AsyncReadExt;
     let mut buf = Vec::new();
@@ -119,8 +129,8 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-async fn write_reply(
-    wr: &mut tokio::net::unix::OwnedWriteHalf,
+async fn write_reply<W: tokio::io::AsyncWrite + Unpin>(
+    wr: &mut W,
     http: bool,
     status: u16,
     body: &str,

@@ -1,16 +1,18 @@
-//! S2-Front: WebSocket-Upgrade durch den PQC-TLS-Ein-Port (443) tunneln.
+//! S2-Front: WebSocket-Upgrade durch den PQC-TLS-Ein-Port (443) ueber UDS/udsv3.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::routing::get;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
+use hyper_util::rt::TokioIo;
 use rustls::pki_types::ServerName;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 
-async fn echo_upstream() -> std::net::SocketAddr {
+async fn echo_upstream(kontext: &'static str, dir: &std::path::Path, name: &str) -> PathBuf {
     let app = Router::new().route(
         "/v1/stream",
         get(|ws: WebSocketUpgrade| async move {
@@ -23,14 +25,44 @@ async fn echo_upstream() -> std::net::SocketAddr {
             })
         }),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    addr
+    let path = dir.join(format!("{name}.sock"));
+    let uds = tokio::net::UnixListener::bind(&path).unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = match uds.accept().await {
+                Ok(v) => v,
+                Err(_) => break,
+            };
+            let app = app.clone();
+            tokio::spawn(async move {
+                let io = z8run_core::udsv3_stream::server_io(stream, kontext).unwrap();
+                let io = TokioIo::new(io);
+                let service = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let app = app.clone();
+                        async move {
+                            let (parts, body) = req.into_parts();
+                            let req = hyper::Request::from_parts(parts, axum::body::Body::new(body));
+                            match tower::ServiceExt::oneshot(app, req).await {
+                                Ok(resp) => Ok::<_, std::convert::Infallible>(resp),
+                                Err(e) => match e {},
+                            }
+                        }
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, service)
+                    .with_upgrades()
+                    .await;
+            });
+        }
+    });
+    path
 }
 
 #[tokio::test]
 async fn ws_upgrade_durch_pqc_front() {
+    std::env::set_var("Z8_UDSV3_MASTER", "0123456789abcdef0123456789abcdef");
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let cert_path = dir.path().join("cert.pem");
@@ -38,8 +70,8 @@ async fn ws_upgrade_durch_pqc_front() {
     std::fs::write(&cert_path, cert.cert.pem()).unwrap();
     std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
 
-    let proxy = echo_upstream().await;
-    let login = echo_upstream().await;
+    let proxy = echo_upstream("admin", dir.path(), "proxy").await;
+    let login = echo_upstream("kv-login", dir.path(), "login").await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let cfg = z8run_api::front::FrontConfig {
@@ -47,8 +79,8 @@ async fn ws_upgrade_durch_pqc_front() {
         port: addr.port(),
         cert: cert_path,
         key: key_path,
-        proxy_addr: proxy,
-        login_addr: login,
+        proxy_socket: proxy,
+        login_socket: login,
     };
     tokio::spawn(async move {
         let _ = z8run_api::front::serve_listener(Router::new(), cfg, listener).await;

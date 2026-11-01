@@ -42,8 +42,7 @@ pub(crate) async fn uds_call(
     body: Option<Value>,
     token: Option<&str>,
 ) -> Result<(u16, Value), String> {
-    let stream = tokio::net::UnixStream::connect(socket)
-        .await
+    let stream = crate::udsv3_stream::connect(std::path::Path::new(socket), "admin")
         .map_err(|e| format!("connect {socket}: {e}"))?;
     let (mut sender, conn) = http1::handshake(TokioIo::new(stream))
         .await

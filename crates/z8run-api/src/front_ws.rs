@@ -1,7 +1,7 @@
 //! WebSocket-Upgrade durch den PQC-TLS-Ein-Port: 101 beantworten und
 //! danach Bytes bidirektional tunneln (WS ueber 443). Aus front.rs ausgelagert.
 
-use std::net::SocketAddr;
+use std::path::Path;
 
 use axum::body::Body;
 use axum::response::Response;
@@ -27,10 +27,14 @@ pub(crate) fn is_websocket_upgrade(req: &hyper::Request<Body>) -> bool {
 
 /// WebSocket-Upgrade durch den PQC-TLS-Front: 101 wird beantwortet und
 /// danach werden Bytes bidirektional getunnelt (WS ueber 443).
-pub(crate) async fn reverse_upgrade(mut req: hyper::Request<Body>, addr: SocketAddr) -> Response {
-    let stream = match tokio::net::TcpStream::connect(addr).await {
+pub(crate) async fn reverse_upgrade(
+    mut req: hyper::Request<Body>,
+    path: &Path,
+    kontext: &'static str,
+) -> Response {
+    let stream = match z8run_core::udsv3_stream::connect(path, kontext) {
         Ok(s) => s,
-        Err(e) => return fehler(502, &format!("upstream {addr}: {e}")),
+        Err(e) => return fehler(502, &format!("upstream {}: {e}", path.display())),
     };
     let io = TokioIo::new(stream);
     let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {

@@ -27,15 +27,22 @@ pub async fn serve(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
     loop {
         let (stream, _) = uds.accept().await?;
         tokio::spawn(async move {
-            if let Err(e) = handle(stream).await {
+            let io = match crate::udsv3_stream::server_io(stream, "dbnode-msg") {
+                Ok(io) => io,
+                Err(e) => {
+                    tracing::warn!(error = %e, "dbnode-msg: udsv3-Schluessel fehlt");
+                    return;
+                }
+            };
+            if let Err(e) = handle(io).await {
                 tracing::warn!(error = %e, "dbnode-msg Verbindung beendet");
             }
         });
     }
 }
 
-async fn handle(stream: tokio::net::UnixStream) -> std::io::Result<()> {
-    let (rd, mut wr) = stream.into_split();
+async fn handle(io: crate::udsv3_stream::BoxIo) -> std::io::Result<()> {
+    let (rd, mut wr) = tokio::io::split(io);
     let mut reader = BufReader::new(rd.take(MAX_COMMAND));
     let mut line = Vec::new();
     let n = tokio::time::timeout(

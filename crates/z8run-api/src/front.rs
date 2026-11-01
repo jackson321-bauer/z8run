@@ -17,8 +17,8 @@ pub struct FrontConfig {
     pub port: u16,
     pub cert: PathBuf,
     pub key: PathBuf,
-    pub proxy_addr: SocketAddr,
-    pub login_addr: SocketAddr,
+    pub proxy_socket: PathBuf,
+    pub login_socket: PathBuf,
 }
 
 impl FrontConfig {
@@ -30,17 +30,17 @@ impl FrontConfig {
         }
         let cert = std::env::var("Z8_TLS_CERT").ok()?;
         let key = std::env::var("Z8_TLS_KEY").ok()?;
-        let proxy = std::env::var("Z8_PROXY_ADDR")
-            .unwrap_or_else(|_| "127.0.0.1:7800".into());
-        let login = std::env::var("Z8_LOGIN_ADDR")
-            .unwrap_or_else(|_| "127.0.0.1:7710".into());
+        let proxy = std::env::var("Z8_PROXY_SOCK")
+            .unwrap_or_else(|_| "/data/z8run/kv-proxy-admin.sock".into());
+        let login = std::env::var("Z8_LOGIN_SOCK")
+            .unwrap_or_else(|_| "/data/z8run/kv-login.sock".into());
         Some(Self {
             bind: std::env::var("Z8_HTTPS_BIND").unwrap_or_else(|_| "0.0.0.0".into()),
             port: port.parse().ok()?,
             cert: cert.into(),
             key: key.into(),
-            proxy_addr: proxy.parse().ok()?,
-            login_addr: login.parse().ok()?,
+            proxy_socket: proxy.into(),
+            login_socket: login.into(),
         })
     }
 }
@@ -50,8 +50,8 @@ pub async fn serve(app: Router, cfg: FrontConfig) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(
         address = %addr,
-        proxy = %cfg.proxy_addr,
-        login = %cfg.login_addr,
+        proxy = %cfg.proxy_socket.display(),
+        login = %cfg.login_socket.display(),
         "Ein-Port-Front bereit (443)"
     );
     serve_listener(app, cfg, listener).await
@@ -99,10 +99,12 @@ async fn handle(
     let pqc = group.as_deref().is_some_and(|g| g.contains("MLKEM"));
     tracing::info!(peer = %peer, gruppe = ?group, pqc, "TLS-Handshake verhandelt");
     let io = TokioIo::new(tls);
-    let proxy = cfg.proxy_addr;
-    let login = cfg.login_addr;
+    let proxy = cfg.proxy_socket.clone();
+    let login = cfg.login_socket.clone();
     let service = hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
         let app = app.clone();
+        let proxy = proxy.clone();
+        let login = login.clone();
         async move {
             let (parts, body) = req.into_parts();
             let req = hyper::Request::from_parts(parts, Body::new(body));
@@ -119,30 +121,30 @@ async fn handle(
 async fn route(
     mut req: hyper::Request<Body>,
     app: Router,
-    proxy: SocketAddr,
-    login: SocketAddr,
+    proxy: PathBuf,
+    login: PathBuf,
     peer: SocketAddr,
 ) -> Response {
     let path = req.uri().path().to_string();
     // /proxy/* -> kv-proxy; /login/v1/* und /kvlogin/* -> kv-login.
     // Exakt /login bleibt die z8run-SPA (sonst waere die UI tot).
     let target = if path == "/proxy" || path.starts_with("/proxy/") {
-        Some((proxy, "/proxy"))
+        Some((proxy, "/proxy", "admin"))
     } else if path.starts_with("/login/v1/") {
-        Some((login, "/login"))
+        Some((login, "/login", "kv-login"))
     } else if path == "/kvlogin" || path.starts_with("/kvlogin/") {
-        Some((login, "/kvlogin"))
+        Some((login, "/kvlogin", "kv-login"))
     } else {
         None
     };
-    if let Some((addr, prefix)) = target {
+    if let Some((sock, prefix, kontext)) = target {
         let rest = &path[prefix.len()..];
         let rest = if rest.is_empty() { "/" } else { rest };
         let pq = match req.uri().query() {
             Some(q) => format!("{rest}?{q}"),
             None => rest.to_string(),
         };
-        let uri = format!("http://{addr}{pq}");
+        let uri = format!("http://localhost{pq}");
         match uri.parse() {
             Ok(u) => *req.uri_mut() = u,
             Err(e) => return fehler(400, &format!("Ziel-URI: {e}")),
@@ -152,10 +154,10 @@ async fn route(
             for k in ["keep-alive", "proxy-authorization", "proxy-authenticate", "te"] {
                 h.remove(k);
             }
-            if let Ok(v) = addr.to_string().parse() {
+            if let Ok(v) = "localhost".parse() {
                 h.insert("host", v);
             }
-            return crate::front_ws::reverse_upgrade(req, addr).await;
+            return crate::front_ws::reverse_upgrade(req, &sock, kontext).await;
         }
         let h = req.headers_mut();
         for k in [
@@ -164,10 +166,10 @@ async fn route(
         ] {
             h.remove(k);
         }
-        if let Ok(v) = addr.to_string().parse() {
+        if let Ok(v) = "localhost".parse() {
             h.insert("host", v);
         }
-        return reverse(req, addr).await;
+        return reverse(req, sock, kontext).await;
     }
     req.extensions_mut().insert(axum::extract::ConnectInfo(peer));
     match tower::ServiceExt::oneshot(app, req).await {
@@ -176,10 +178,10 @@ async fn route(
     }
 }
 
-async fn reverse(req: hyper::Request<Body>, addr: SocketAddr) -> Response {
-    let stream = match tokio::net::TcpStream::connect(addr).await {
+async fn reverse(req: hyper::Request<Body>, path: PathBuf, kontext: &'static str) -> Response {
+    let stream = match z8run_core::udsv3_stream::connect(&path, kontext) {
         Ok(s) => s,
-        Err(e) => return fehler(502, &format!("upstream {addr}: {e}")),
+        Err(e) => return fehler(502, &format!("upstream {}: {e}", path.display())),
     };
     let io = TokioIo::new(stream);
     let (mut sender, conn) = match hyper::client::conn::http1::handshake(io).await {

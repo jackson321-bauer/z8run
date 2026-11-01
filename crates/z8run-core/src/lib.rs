@@ -9,6 +9,12 @@ pub mod canvas;
 pub mod dbnode;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod egress;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ram;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod udsv3;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod udsv3_stream;
 pub mod engine;
 pub mod error;
 pub mod flow;

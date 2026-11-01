@@ -34,10 +34,9 @@ impl UdsDbClient {
         let path = self.path.clone();
         let timeout = self.timeout;
         let run = async move {
-            let stream = tokio::net::UnixStream::connect(&path)
-                .await
+            let stream = z8run_core::udsv3_stream::connect(&path, "dbnode-msg")
                 .map_err(|e| ProxyError::Db(format!("UDS {}: {e}", path.display())))?;
-            let (read_half, mut write_half) = stream.into_split();
+            let (read_half, mut write_half) = tokio::io::split(stream);
             write_half
                 .write_all(&body)
                 .await

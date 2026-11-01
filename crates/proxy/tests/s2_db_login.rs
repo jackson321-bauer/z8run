@@ -14,17 +14,18 @@ fn master_b64() -> String {
 }
 
 async fn login_raw(path: &std::path::Path, body: &str) -> Value {
-    let mut s = tokio::net::UnixStream::connect(path).await.unwrap();
+    let mut s = z8run_core::udsv3_stream::connect(path, "login").unwrap();
     s.write_all(body.as_bytes()).await.unwrap();
     s.write_all(b"\n").await.unwrap();
-    let (rd, _wr) = s.into_split();
+    let (rd, _wr) = tokio::io::split(s);
     let mut line = String::new();
     BufReader::new(rd).read_line(&mut line).await.unwrap();
     serde_json::from_str(&line).unwrap()
 }
 
 async fn login_http(path: &std::path::Path, body: &str) -> (String, Value) {
-    let mut s = tokio::net::UnixStream::connect(path).await.unwrap();
+    std::env::set_var("Z8_UDSV3_MASTER", "0123456789abcdef0123456789abcdef");
+    let mut s = z8run_core::udsv3_stream::connect(path, "login").unwrap();
     let req = format!(
         "POST /login HTTP/1.1\r\nhost: localhost\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
         body.len(),
@@ -47,6 +48,7 @@ async fn login_http(path: &std::path::Path, body: &str) -> (String, Value) {
 
 #[tokio::test]
 async fn login_query_gleichheit_scope_und_master_nur_ram() {
+    std::env::set_var("Z8_UDSV3_MASTER", "0123456789abcdef0123456789abcdef");
     let dir = tempfile::tempdir().unwrap();
     let sock = dir.path().join("dbnode.sock");
     let sock2 = sock.clone();

@@ -819,7 +819,10 @@ impl NodeExecutor for Kv3SocketNode {
         let body = uebergabe.to_string();
         let senden = tokio::time::timeout(Duration::from_secs(5), async {
             use tokio::io::AsyncWriteExt;
-            let mut s = tokio::net::UnixStream::connect(&self.socket_path).await?;
+            let mut s = crate::udsv3_stream::connect(
+                std::path::Path::new(&self.socket_path),
+                "login",
+            )?;
             s.write_all(body.as_bytes()).await?;
             s.write_all(b"\n").await?;
             s.shutdown().await?;

@@ -6,8 +6,6 @@ use std::path::PathBuf;
 pub struct ProxyConfig {
     pub login_socket: PathBuf,
     pub admin_socket: PathBuf,
-    pub http_bind: String,
-    pub http_port: u16,
     pub token_ttl_ms: u64,
     pub token_grace_ms: u64,
     pub bundle: String,
@@ -33,8 +31,6 @@ impl Default for ProxyConfig {
         Self {
             login_socket: PathBuf::from(env("KV_PROXY_LOGIN_SOCK", "/data/z8run/kv3-proxy.sock")),
             admin_socket: PathBuf::from(env("KV_PROXY_ADMIN_SOCK", "/data/z8run/kv-proxy-admin.sock")),
-            http_bind: env("KV_PROXY_BIND", "127.0.0.1"),
-            http_port: env("KV_PROXY_PORT", "7800").parse().unwrap_or(7800),
             token_ttl_ms: env("KV_PROXY_TOKEN_TTL_MS", "900000").parse().unwrap_or(900_000),
             token_grace_ms: env("KV_PROXY_TOKEN_GRACE_MS", "30000").parse().unwrap_or(30_000),
             bundle: env("KV_PROXY_BUNDLE", "/data/z8run/proxy-bundle"),

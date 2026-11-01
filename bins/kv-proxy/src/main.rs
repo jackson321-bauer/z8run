@@ -35,6 +35,8 @@ fn main() -> anyhow::Result<()> {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
+    z8run_core::ram::init();
+    tracing::info!(vmlck_kb = z8run_core::ram::vmlck_kb(), "VmLck nach RAM-Init");
     let cli = Cli::parse();
     match cli.cmd.unwrap_or(Cmd::Serve) {
         Cmd::Serve => serve(),
@@ -107,7 +109,10 @@ fn serve() -> anyhow::Result<()> {
                 }
             });
         }
-        http::serve_tcp(svc).await
+        // PORT-KILL: kein interner TCP-Listener mehr. Der 443-Front spricht
+        // den Admin-UDS (udsv3) an.
+        std::future::pending::<()>().await;
+        Ok(())
     })
 }
 
@@ -127,7 +132,7 @@ async fn uds_get(
     uri: &str,
 ) -> anyhow::Result<String> {
     use http_body_util::BodyExt;
-    let stream = tokio::net::UnixStream::connect(path).await?;
+    let stream = z8run_core::udsv3_stream::connect(path, "admin")?;
     let io = hyper_util::rt::TokioIo::new(stream);
     let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
     tokio::spawn(async move {
