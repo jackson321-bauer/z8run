@@ -43,43 +43,51 @@ pub async fn rotations(svc: Arc<ProxyService>, sessions: u64, per: u64) -> u64 {
     counter.load(Ordering::Relaxed)
 }
 
-pub async fn ws_streams(url: String, token: String, round: u64) -> usize {
-    let mut tasks = Vec::new();
+/// Szenario (f): 100 eingehende Streams GLEICHZEITIG offen halten und
+/// WAEHRENDDESSEN die p99-Relay-Latenz am /v1/stream-Endpunkt messen.
+pub async fn ws_streams(url: String, token: String, round: u64) -> (usize, u64) {
+    let mut conns = Vec::new();
     for c in 0..100u64 {
-        let url = url.clone();
-        let token = token.clone();
-        tasks.push(tokio::spawn(async move {
-            let mut req = url.into_client_request().ok()?;
-            req.headers_mut().insert(
-                "authorization",
-                HeaderValue::from_str(&format!("Bearer {token}")).ok()?,
-            );
-            req.headers_mut().insert("x-z8-stream-type", HeaderValue::from_static("live"));
-            req.headers_mut().insert(
-                "x-z8-channel",
-                HeaderValue::from_str(&format!("folter/ws-{c}")).ok()?,
-            );
-            let (mut ws, _) = tokio_tungstenite::connect_async(req).await.ok()?;
-            for i in 0..5u8 {
-                let framed = Frame::with_flags(TYP_MEDIA, 0, 1, 0, vec![i; 64])
-                    .ok()?
-                    .encode()
-                    .ok()?;
-                ws.send(Message::Binary(framed.into())).await.ok()?;
-            }
-            let _ = ws.close(None).await;
-            Some(())
-        }));
-    }
-    let mut ok = 0;
-    for t in tasks {
-        if t.await.ok().flatten().is_some() {
-            ok += 1;
+        let mut req = match url.clone().into_client_request() {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        req.headers_mut().insert(
+            "authorization",
+            match HeaderValue::from_str(&format!("Bearer {token}")) {
+                Ok(v) => v,
+                Err(_) => continue,
+            },
+        );
+        req.headers_mut().insert("x-z8-stream-type", HeaderValue::from_static("live"));
+        req.headers_mut().insert(
+            "x-z8-channel",
+            match HeaderValue::from_str(&format!("folter/ws-{c}")) {
+                Ok(v) => v,
+                Err(_) => continue,
+            },
+        );
+        let Ok((mut ws, _)) = tokio_tungstenite::connect_async(req).await else {
+            continue;
+        };
+        for i in 0..5u8 {
+            let Ok(frame) = Frame::with_flags(TYP_MEDIA, 0, 1, 0, vec![i; 64]) else {
+                break;
+            };
+            let Ok(framed) = frame.encode() else { break };
+            let _ = ws.send(Message::Binary(framed.into())).await;
         }
+        conns.push(ws);
     }
-    ok
+    let open = conns.len();
+    // Alle 100 sind JETZT offen; p99 unter dieser Parallelitaet messen.
+    let p99 = relay_p99_ws(url, token, 200).await;
+    for mut ws in conns {
+        let _ = ws.close(None).await;
+    }
+    let _ = round;
+    (open, p99)
 }
-
 
 
 /// p99-Relay-Latenz AM ECHTEN `/v1/stream`-Endpunkt (nicht nur Registry):

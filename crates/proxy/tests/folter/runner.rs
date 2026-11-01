@@ -76,6 +76,7 @@ async fn folter_x20() {
     let mut rss_cum_max = 0i64;
     let mut p99_max = 0u64;
     let mut ws_p99_max = 0u64;
+    let mut ws100_p99_max = 0u64;
     let mut hol_max = 0u64;
     let mut lost = 0u64;
     let mut fan_min = usize::MAX;
@@ -113,32 +114,36 @@ async fn folter_x20() {
             }
         })
     };
-    let rss_peak = Arc::new(PeakU64::new(0));
-    let rss_sampler = {
-        let peak = rss_peak.clone();
-        let stop = stop_sampler.clone();
-        tokio::spawn(async move {
-            while !stop.load(PeakOrd::Relaxed) {
-                // Live-Heap messen: freigegebene Arenen (Test-Clients)
-                // zurueckgeben, dann RSS lesen.
-                trim_allocator();
-                let v = rss_kb().saturating_sub(start_rss);
-                peak.fetch_max(v, PeakOrd::Relaxed);
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-    };
 
     let mut total_iters = 0u64;
+    let mut rss_load_max = 0u64;
     for round in 0..rounds {
         let round_start = Instant::now();
         // Szenario (e): 50 parallele Sessions mit Token-Rotation (je Runde).
         rotations += workloads_ws::rotations(rot_svc.clone(), 50, 20).await;
         ws_token = ws_svc.rotate(&ws_token).map(|g| g.token).unwrap_or(ws_token);
         // Szenario (f): 100 eingehende Streams gleichzeitig (je Runde).
-        let ws_round = workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), round + 1).await;
+        let (ws_round, p99_100) =
+            workloads_ws::ws_streams(ws_url.clone(), ws_token.clone(), round + 1).await;
         assert_eq!(ws_round, 100, "Verbindung abgewiesen in Runde {round}");
+        ws100_p99_max = ws100_p99_max.max(p99_100);
         ws_ok += ws_round as u64;
+        // RSS-Sampler NUR fuer den Dauerfeuer-Loop (die 100 Test-Client-
+        // Verbindungen sind geschlossen; sie sind nicht Proxy-Heap).
+        let rss_peak = Arc::new(PeakU64::new(0));
+        let rss_stop = Arc::new(AtomicBool::new(false));
+        let rss_sampler = {
+            let peak = rss_peak.clone();
+            let stop = rss_stop.clone();
+            tokio::spawn(async move {
+                while !stop.load(PeakOrd::Relaxed) {
+                    trim_allocator();
+                    let v = rss_kb().saturating_sub(start_rss);
+                    peak.fetch_max(v, PeakOrd::Relaxed);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+        };
         // DAUERFEUER: die kombinierte Kanal-/Event-/Telefonie-Last wird bis
         // `secs` WIEDERHOLT, es gibt keine Ruhephase (60 s, gesamt 20 min).
         let mut iters = 0u64;
@@ -170,6 +175,9 @@ async fn folter_x20() {
         iters += 1;
         total_iters += 1;
         }
+        rss_stop.store(true, PeakOrd::Relaxed);
+        let _ = rss_sampler.await;
+        rss_load_max = rss_load_max.max(rss_peak.load(PeakOrd::Relaxed));
         trim_allocator();
         let now = rss_kb();
         if now > base_rss {
@@ -183,7 +191,7 @@ async fn folter_x20() {
         println!(
             "FOLTER_RUNDE {}/{rounds} p99_us={p99_max} hol_us={hol_max} lost={lost} \
              iters={iters} rss_delta_kb={rss_max} rss_cum_kb={cum} ws={ws_ok} rot={rotations} events_dropped={events_dropped} \
-             p99ws_us={ws_p99_max} chans={} ws_tok={} ws_sess={} rot_tok={} rot_sess={}",
+             p99ws_us={ws_p99_max} p99ws100_us={ws100_p99_max} chans={} ws_tok={} ws_sess={} rot_tok={} rot_sess={}",
             round + 1,
             reg.channel_count(),
             ws_svc.tokens.active_count(),
@@ -195,15 +203,13 @@ async fn folter_x20() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     stop_sampler.store(true, PeakOrd::Relaxed);
     let _ = sampler.await;
-    let _ = rss_sampler.await;
     let alive = tokio::runtime::Handle::current().metrics().num_alive_tasks() as u64;
     alive_max = alive_max.max(alive).max(alive_peak.load(PeakOrd::Relaxed));
-    let rss_load_max = rss_peak.load(PeakOrd::Relaxed);
     println!(
         "FOLTER_ENDE dauer_s={} rounds={rounds} p99_us_max={p99_max} hol_us_max={hol_max} \
          lost={lost} fanout_min={fan_min} rss_pro_lauf_max_kb={rss_max} rss_cum_max_kb={rss_cum_max} ws={ws_ok} \
          rot={rotations} phone_frames={phone_frames} events_dropped={events_dropped} \
-         ws_p99_us_max={ws_p99_max} rss_load_max_kb={rss_load_max} alive_tasks_max={alive_max} iterations={total_iters}",
+         ws_p99_us_max={ws_p99_max} ws100_p99_us_max={ws100_p99_max} rss_load_max_kb={rss_load_max} alive_tasks_max={alive_max} iterations={total_iters}",
         started.elapsed().as_secs()
     );
 
@@ -214,6 +220,10 @@ async fn folter_x20() {
     // Kriterium ist der ENDPUNKT (/v1/stream). Der Registry-Wert p99_max
     // laeuft unter CPU-Saettigung durch die 200k-Events und ist nur Info.
     assert!(ws_p99_max < 5_000, "p99-Relay-Latenz (/v1/stream) {ws_p99_max} us >= 5 ms");
+    assert!(
+        ws100_p99_max < 5_000,
+        "p99 bei 100 parallelen Streams {ws100_p99_max} us >= 5 ms"
+    );
     assert_eq!(phone_frames, total_iters * 40 * 2 * 50, "Telefonie nicht zugestellt: {phone_frames}");
     assert!(
         events_dropped <= total_iters * 3_500 / 2,

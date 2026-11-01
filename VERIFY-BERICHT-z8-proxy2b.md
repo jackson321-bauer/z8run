@@ -1,6 +1,6 @@
 # VERIFY-BERICHT Z8-PROXY2B — NEONGRÜN (nach 2 Audit-Runden)
 
-Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `e620e70` (gepusht auf `fork`).
+Stand: 01.11.2026, Branch `z8-proxy2b`, HEAD `90469f0` (Code) / Bericht danach (gepusht auf `fork`).
 Repo: `/data/z8run-test/src`. Bauplan: `bauplan-z8-proxy2b.md` (v1).
 Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 
@@ -18,22 +18,24 @@ Rohlogs: `/data/z8run-test/verify-logs/z8-proxy2b/`.
 
 ## S4-Zahlen (alle Grenzen eingehalten)
 
-`FOLTER_ENDE dauer_s=1208 rounds=20 p99_us_max=5323 hol_us_max=5372
-lost=0 fanout_min=1000 rss_pro_lauf_max_kb=1856 rss_cum_max_kb=8500
+`FOLTER_ENDE dauer_s=1210 rounds=20 p99_us_max=4623 hol_us_max=3384
+lost=0 fanout_min=1000 rss_pro_lauf_max_kb=1776 rss_cum_max_kb=7672
 ws=2000 rot=20000 phone_frames=4480000 events_dropped=0
-ws_p99_us_max=3121 rss_load_max_kb=9076 alive_tasks_max=271 iterations=1120`
+ws_p99_us_max=2146 ws100_p99_us_max=261 rss_load_max_kb=14108
+alive_tasks_max=213 iterations=1120`
 
 - ECHTES 60-s-Dauerfeuer je Runde: die kombinierte Last wird bis zur
   Rundendauer WIEDERHOLT (56 Iterationen/Runde, gesamt 1120 Iterationen /
   20 min, keine Ruhephase). 100 eingehende WS-Streams + 50 Rotationen je Runde.
-- p99 Relay-Latenz **am `/v1/stream`-Endpunkt**: 3.121 ms < 5 ms.
+- p99 Relay-Latenz **am `/v1/stream`-Endpunkt**: 2.146 ms < 5 ms.
+- p99 **bei 100 parallelen offenen Streams**: 0.261 ms < 5 ms.
 - Kein Head-of-Line: schneller Abonnent bekam alle Frames; Registry-HOL
   unter CPU-Sättigung 5.4 ms (Info, nicht Kriterium).
 - 0 verlorene Aufnahme-Chunks; 0 Verbindungsablehnungen (2000/2000).
 - Telefonie: 4.480.000 Frames zugestellt (40 Gespräche × 2 Richtungen,
   20-ms-Takt, während der gesamten Dauer).
 - Kleindaten: ~196.000 Events/Runde (56 × 3.500), 0 verworfen.
-- RSS über Startwert während Last 9.1 MB < 15 MB; Task-Sampler max 271 < 5000.
+- RSS über Startwert während Last 14.1 MB < 15 MB; Task-Sampler max 213 < 5000.
 
 ## S5-Export-Beweise
 
@@ -78,11 +80,14 @@ ws_p99_us_max=3121 rss_load_max_kb=9076 alive_tasks_max=271 iterations=1120`
   Identität wird auch nach Grace IMMER abgewiesen; Freigabe nur durch
   Inhaber oder Admin-UDS (`/v1/admin/stream/release`, auf TCP = 404);
   Multi-Claim-Routing über `stream_id` getestet (`s2_stream` 6 Tests).
+- Audit 5: p99 unter 100 parallelen Streams + 100-s-Pause + Doku-Wortlaut —
+  behoben: p99 wird WÄHREND 100 offener Streams gemessen (0.261 ms), 3×-Läufe
+  mit 100 s Pause, Doku trennt Loop- und 100-Stream-Phase.
 
 ## Bewusste Abgrenzungen (dokumentiert, keine stille Ausnahme)
 
 - Registry-interner p99/HOL steigt unter CPU-Sättigung (200k Events); das
-  Kriterium ist die Endpunkt-Latenz (3.121 ms). Beide Werte stehen im Log.
+  Kriterium ist die Endpunkt-Latenz (2.146 ms) und p99@100 Streams (0.261 ms). Beide Werte stehen im Log.
 - Demo-Flow ist ein Layout-/Integrationsbaustein; die Funktion wird durch
   `s2_stream`/`s3_migration`/`s5_export` (echte Endpunkte) bewiesen.
 - Testdateien dürfen >200 Zeilen sein (Prüf-Harness, kein Produktcode);

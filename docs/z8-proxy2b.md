@@ -52,9 +52,9 @@ Adressierung `{app_id}/{kanal}` (dauerhaft) oder
 Abonnenten/Kanal 32, Kanaele/Session 64, Frame max 1 MiB.
 
 - **Ein Schreiber je Kanal.** Der Claim gehoert einer IDENTITAET, nicht dem
-  Socket. Reconnect derselben Identitaet erbt den Claim (Grace-Fenster
-  Default 5 s); eine fremde Identitaet erhaelt IMMER `CLAIM_DENIED` — auch
-  nach dem Grace-Fenster. Freigabe nur explizit per `release` (Inhaber)
+  Socket. Reconnect derselben Identitaet erbt den Claim (Grace ist nur
+  Reconnect-Buchhaltung); eine fremde Identitaet erhaelt IMMER
+  `CLAIM_DENIED` — auch nach dem Grace-Fenster. Freigabe nur explizit per `release` (Inhaber)
   oder `POST /v1/admin/stream/release` (hoehere Instanz, nur 0600-Admin-UDS);
   niemals automatischer Diebstahl.
 - **Fan-out mit eigenem Ringpuffer je Abonnent.** Publish sperrt nur kurz,
@@ -104,20 +104,22 @@ Antwort: `{"manifest": {...}, "container_b64": "..."}`.
 (Dauer per `Z8_FOLTER_SECS`, Standard 60 s; Gesamt 20 min). Gemessen am
 Endpunkt (Release, 60-s-Runden):
 
-Alle Szenarien laufen je Runde GLEICHZEITIG und werden bis zur Rundendauer
-WIEDERHOLT (60 s Dauerfeuer, keine Ruhephase; 56 Last-Iterationen/Runde,
-gesamt 1120 Iterationen / 20 min). Die Kanal-/Telefonie-/Event-Last ist
-durchgehend; die 100 eingehenden WS-Streams und 50 Rotationen laufen je Runde.
+Die Kanal-/Telefonie-/Event-/Relay-Last laeuft je Runde GLEICHZEITIG und
+wird bis zur Rundendauer WIEDERHOLT (60 s Dauerfeuer, keine Ruhephase;
+56 Last-Iterationen/Runde, gesamt 1120 Iterationen / 20 min). Je Runde
+laufen zusaetzlich 100 eingehende WS-Streams und 50 Rotationen; die
+p99-Messung erfolgt WAEHREND die 100 Streams offen sind.
 
 | Grenze | Ergebnis |
 |---|---|
-| p99 Relay-Latenz am `/v1/stream`-Endpunkt < 5 ms | **3.121 ms** |
+| p99 Relay-Latenz am `/v1/stream`-Endpunkt < 5 ms | **2.146 ms** |
+| p99 bei 100 parallelen Streams < 5 ms | **0.261 ms** |
 | Head-of-Line | **kein HOL**: schneller Abonnent bekam alle Frames (per-Sub-Ring) |
 | Verlorene Aufnahme-Chunks | **0** |
 | Telefonie-Zustellung (40 Gespraeche × 2 Richtungen, 20-ms-Takt) | **4.480.000** Frames |
 | Kleindaten-Events pro Runde | ~196.000 (56 × 3.500), 0 verworfen |
 | Connection-Ablehnung | **0** (2000/2000 WS) |
-| Proxy-RSS ueber Startwert < 15 MB | **9.1 MB** waehrend Last (8.5 MB am Rundenende) |
+| Proxy-RSS ueber Startwert < 15 MB | **14.1 MB** waehrend Last (7.7 MB am Rundenende) |
 | Token-Rotationen | **20.000** |
 | Task-Stau | keine (Sampler waehrend Last, max 271 Tasks) |
 
