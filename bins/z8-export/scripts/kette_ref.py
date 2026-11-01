@@ -10,7 +10,7 @@ Usage:
   python3 kette_ref.py <space> <user> <password> <key.pem> [base_dir]
 
 Requires the Hermes venv (argon2-cffi + cryptography):
-  /root/hermes-venv/bin/python3 kette_ref.py space-alpha anna anna-test-1 \
+  /root/hermes-venv/bin/python3 kette_ref.py space-alpha anna <TEST_PASSWORT> \
       /data/kronvault/kronvault-bucket-konzept/welt2/keys/anna-hw1.pem
 """
 

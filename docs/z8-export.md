@@ -160,7 +160,7 @@ Fixture-Feld.
 
 ```bash
 /root/hermes-venv/bin/python3 bins/z8-export/scripts/kette_ref.py \
-  space-alpha anna anna-test-1 \
+  space-alpha anna <TEST_PASSWORT> \
   /data/kronvault/kronvault-bucket-konzept/welt2/keys/anna-hw1.pem
 ```
 
