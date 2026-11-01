@@ -13,6 +13,7 @@ EnvironmentFile=/etc/z8run/proxy.env
 ExecStart=/usr/local/bin/kv-proxy serve
 Restart=always
 RestartSec=2
+LimitMEMLOCK=infinity
 LimitNOFILE=65536
 MemoryMax=512M
 NoNewPrivileges=true

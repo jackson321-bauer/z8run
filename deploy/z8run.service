@@ -1,0 +1,26 @@
+[Unit]
+Description=z8run visual flow engine
+Documentation=https://github.com/z8run/z8run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=z8run
+Group=z8run
+WorkingDirectory=/data/z8run
+EnvironmentFile=/etc/z8run/z8run.env
+ExecStart=/usr/local/bin/z8run --data-dir /data/z8run/data serve --db-url sqlite:///data/z8run/data/z8run.db?mode=rwc
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/data/z8run
+
+[Install]
+WantedBy=multi-user.target
