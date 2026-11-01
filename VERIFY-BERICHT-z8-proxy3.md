@@ -18,7 +18,7 @@ ausdrücklich benannt (G6) — keine stille Ausnahme.
 | S0 Baseline 516×3 | GRÜN | `s0-baseline-1/2/3.log` = je **516 passed / 0 failed**; `s0-baseline-rc.log` = rc 0/0/0 |
 | S1 Port-Kill | GRÜN | `s1-ss-vorher.log` (7700/7710/7800/443) vs. `s1-ss-nachher.log`/`s1-port-kill-grep.log` (nur 443); grep Bind = 0 Treffer |
 | S1 udsv3 | GRÜN | `s1-udsv3-e2e.log` (Chiffre, Replay inkl. neuer Verbindung, Downgrade strikt/debug); `s1-udsv3-live.log` (voller Login-Frame, Login→Proxy→DB live, Token redigiert) |
-| S2 RAM | GRÜN | `s2-ram-vmlck.log`: z8run 80 kB, kv-proxy 84 kB, kv-login 68 kB (Arena+Session-mlock); `ram::tests` (mlock+zeroize), `KeyEnvelope`/Session-mlock+zeroize, udsv3-Master zeroize |
+| S2 RAM | GRÜN | `s2-ram-vmlck.log`: z8run 84 kB, kv-proxy 76 kB, kv-login 68 kB (Arena+Session-mlock); `ram::tests` (mlock+zeroize), `KeyEnvelope`/Session-mlock+zeroize, udsv3-Master zeroize |
 | S3 SQLCipher raus | GRÜN | Cargo: `rusqlite/libsqlite3-sys` nur `bundled`; `grep sqlcipher` in Cargo.lock = 0; Z8FC1-Dateien live (`s3-live-cipher-files.log`: `5a38464331`) |
 | S3 vec-WASM | GRÜN | `s3-wasm-vec-node.log`: `WASM_VEC_VERSION=v0.1.9`; Chrome-Selftest `s3-wasm-selftest.log` |
 | S3 OPFS | GRÜN (Persistenz) / GELB (VFS) | OPFS write/read/list/delete/persist/quota im Chrome-Test; **kein OpfsBackend am StorageBackend-Trait, kein OPFS-VFS** (Abgrenzung 1) |
