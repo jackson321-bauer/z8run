@@ -1,0 +1,34 @@
+[package]
+name = "z8run-browser"
+description = "Browser-Kern (Worker): SQLite+vec in WASM, OPFS, S3, Fassade"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+zeroize = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+sqlite-wasm-rs = "0.5.5"
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
+rand = { workspace = true }
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[build-dependencies]
+cc = "1"

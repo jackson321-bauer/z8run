@@ -1,0 +1,6 @@
+{
+  "browserName": "chrome",
+  "goog:chromeOptions": {
+    "args": ["--no-sandbox", "--headless=new", "--disable-gpu", "--disable-dev-shm-usage"]
+  }
+}

@@ -249,8 +249,20 @@ impl VfsStore<EncFile, Mutex<HashMap<String, EncFile>>> for EncStore {
 
     fn contains_file(vfs: *mut sq::sqlite3_vfs, file: &str) -> VfsResult<bool> {
         let app = unsafe { Self::app_data(vfs) };
-        let map = app.lock().unwrap_or_else(|e| e.into_inner());
-        Ok(map.contains_key(file))
+        let exists = {
+            let map = app.lock().unwrap_or_else(|e| e.into_inner());
+            map.contains_key(file)
+        };
+        if exists {
+            return Ok(true);
+        }
+        if std::path::Path::new(file).exists() {
+            // Erstkontakt nach Prozessstart: verschluesselte Datei laden,
+            // damit xOpen danach nur noch die Map benutzt.
+            Self::add_file(vfs, file, 0)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn delete_file(vfs: *mut sq::sqlite3_vfs, file: &str) -> VfsResult<()> {
