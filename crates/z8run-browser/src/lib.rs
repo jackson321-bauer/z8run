@@ -13,7 +13,12 @@ mod cipher;
 #[cfg(target_arch = "wasm32")]
 mod kernel;
 #[cfg(target_arch = "wasm32")]
+mod hashdatei3;
+#[cfg(target_arch = "wasm32")]
 mod login;
+#[cfg(target_arch = "wasm32")]
+#[path = "../../../../../kronvault/tresor-proxy/src/umschlag.rs"]
+pub mod umschlag;
 #[cfg(target_arch = "wasm32")]
 mod opfs;
 #[cfg(target_arch = "wasm32")]
@@ -355,6 +360,35 @@ async fn passbox_login(body: &Value) -> String {
     if space.is_empty() || username.is_empty() || password.is_empty() || hw_pem.is_empty() || salt.is_empty() {
         return json!({"status": 400, "body": {"error": "Login-Felder unvollstaendig"}}).to_string();
     }
+    let v3 = body["schema"].as_str() == Some("Argon2IDHashDatei/3")
+        || body["version"].as_u64() == Some(3);
+    let ok = if v3 {
+        let addr = match hashdatei3::user_addr(space, username) {
+            Ok(a) => a,
+            Err(e) => return json!({"status": 400, "body": {"error": e}}).to_string(),
+        };
+        if body["s3"].is_null() {
+            SESSION.with(|s| { s.borrow_mut().s3_probe(false); });
+            return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
+        }
+        let b2b = match login::s3_get_bytes(&body["s3"], &format!("b2b/{addr}.txt")).await {
+            Ok(b) => b,
+            Err(e) => { SESSION.with(|s| { s.borrow_mut().s3_probe(false); }); return login_err(e); }
+        };
+        let hw = match login::s3_get_bytes(&body["s3"], &format!("workspaces/{addr}/hw-shards.txt")).await {
+            Ok(b) => b,
+            Err(e) => { SESSION.with(|s| { s.borrow_mut().s3_probe(false); }); return login_err(e); }
+        };
+        match hashdatei3::login_v3(
+            &String::from_utf8_lossy(&b2b),
+            &String::from_utf8_lossy(&hw),
+            space, username, password, hw_pem,
+            body["kem_dk_b64"].as_str().unwrap_or(""),
+        ) {
+            Ok(v) => v,
+            Err(e) => return json!({"status": 401, "body": {"error": e, "code": "UNAUTHORIZED"}}).to_string(),
+        }
+    } else {
     let hash = if !body["s3"].is_null() {
         let key = body["hash_key"].as_str().unwrap_or("Argon2IDHashDatei.txt");
         match login::s3_get_json(&body["s3"], key).await {
@@ -385,9 +419,10 @@ async fn passbox_login(body: &Value) -> String {
             return json!({"status": 503, "body": {"error": "S3 fehlt (fail-closed)", "shutdown": true}}).to_string();
         }
     };
-    let ok = match login::login_from_hashdatei(&hash, space, username, password, hw_pem, salt) {
+    match login::login_from_hashdatei(&hash, space, username, password, hw_pem, salt) {
         Ok(v) => v,
         Err(e) => return login_err(e),
+    }
     };
     SESSION.with(|s| {
         s.borrow_mut().login(ok.master.to_vec());

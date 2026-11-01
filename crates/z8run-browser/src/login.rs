@@ -312,7 +312,7 @@ fn amz_date_now() -> String {
 }
 
 /// Echter S3-GET (SigV4 + fetch) — Hashdatei kommt NIE aus dem lokalen Cache.
-pub async fn s3_get_json(s3: &Value, rel_key: &str) -> Result<Value, LoginError> {
+pub async fn s3_get_bytes(s3: &Value, rel_key: &str) -> Result<Vec<u8>, LoginError> {
     let host = s3["host"].as_str().unwrap_or("");
     let region = s3["region"].as_str().unwrap_or("us-east-1");
     let access = s3["access_key"].as_str().unwrap_or("");
@@ -361,6 +361,12 @@ pub async fn s3_get_json(s3: &Value, rel_key: &str) -> Result<Value, LoginError>
         .and_then(|v| v.dyn_into::<js_sys::Uint8Array>().ok())
         .map(|a| a.to_vec())
         .unwrap_or_default();
+    Ok(bytes)
+}
+
+/// Wie `s3_get_bytes`, aber JSON (Schema /2).
+pub async fn s3_get_json(s3: &Value, rel_key: &str) -> Result<Value, LoginError> {
+    let bytes = s3_get_bytes(s3, rel_key).await?;
     serde_json::from_slice(&bytes)
         .map_err(|e| LoginError::auth(format!("Hashdatei kein JSON: {e}")))
 }
