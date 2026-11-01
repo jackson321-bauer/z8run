@@ -48,8 +48,15 @@ pub async fn put(targets: &[Target], key: &str, data: Vec<u8>, min: usize) -> Re
         }
     }
     if ok.len() < min {
+        // Rollback: bereits geschriebene Replikate entfernen, damit auch ein
+        // Mid-Write-Ausfall KEINEN Teilzustand hinterlaesst (fail-closed).
+        for (label, ep, bucket) in targets {
+            if ok.iter().any(|l| l == label) {
+                let _ = ep.delete_object(bucket, key).await;
+            }
+        }
         return Err(format!(
-            "Quorum verfehlt: {}/{} OK ({failed:?})",
+            "Quorum verfehlt: {}/{} OK ({failed:?}) — Rollback der Teilwrites",
             ok.len(),
             targets.len()
         ));
