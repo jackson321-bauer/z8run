@@ -27,20 +27,20 @@ NICHT im Flow.
   `tokio::sync::Mutex`-Warteschlange mit `write_timeout` (fail-fast
   `TIMEOUT`). Der Proxy stellt nur Anfragen.
 
-## SQLCipher + vec + FTS5
+## Z8FC1-File-Cipher + vec + FTS5
 
-- `rusqlite 0.32.1` mit `bundled-sqlcipher-vendored-openssl` + `backup`.
+- `rusqlite 0.32.1` mit `bundled` + `backup` (KEIN SQLCipher/OpenSSL).
   Grund für 0.32 statt 0.31: der Workspace nutzt bereits
-  `libsqlite3-sys 0.30.1` (sqlx + SQLCipher). 0.31 verlangt 0.28 →
-  zwei Pakete mit `links="sqlite3"` = harter Buildfehler. 0.32.1 nutzt
-  denselben Versionsstrang (EIN SQLite im Produkt).
+  `libsqlite3-sys 0.30.1`; 0.31 verlangt 0.28 → zwei Pakete mit
+  `links="sqlite3"` = harter Buildfehler. 0.32.1 nutzt denselben
+  Versionsstrang (EIN SQLite im Produkt).
 - **sqlite-vec v0.1.9 EINGEBRANNT**: `vendor/sqlite-vec.c` + `.h`,
   SHA256 `ba081a47fa02eadc3cf6b16c314b695b84081269349aac722b4efa338fe8fd85`,
   per `build.rs` mit `-DSQLITE_CORE` in den Bundled-Build kompiliert.
   Registrierung über `sqlite3_auto_extension` — **nicht** über
   `load_extension`; das Cargo-Feature ist nicht aktiviert. Beweis:
   `vec_version()` + `CREATE VIRTUAL TABLE … USING vec0(...)` unter
-  SQLCipher ohne je aktivierten Loader (`s1-unit.log`).
+  plain SQLite ohne je aktivierten Loader (`s1-unit.log`).
 - FTS5 ist über die Bundled-Defines (`SQLITE_ENABLE_FTS5`) verfügbar;
   `sqlite_compileoption_used('ENABLE_FTS5') = 1` ist getestet.
 
@@ -59,7 +59,7 @@ NICHT im Flow.
 3. **SQLite `journal_mode=WAL`** ist reine Engine-Technik für paralleles
    Lesen während des Schreibens (Innenleben, nicht der WAL-Strom).
 
-Snapshots (64 WALs oder 1 h) sind eine SQLCipher-verschlüsselte Kopie der
+Snapshots (64 WALs oder 1 h) sind eine Z8FC1-verschlüsselte Kopie der
 DB-Datei (`snap/<db>/<nr>.db` + **versiegeltes/signiertes** Meta
 `<nr>.meta` mit Kettenstand). Restart: gültiger
 lokaler Stand → nur der fehlende WAL-Schwanz wird gezogen; ohne lokalen
@@ -157,7 +157,7 @@ ist ein Alias für `clusterId`. Fehler gehen auf den `error`-Port
   und BF-2 (fehlgeschlagenes SQL → kein Cloud-WAL, Reopen ok).
 - `s4-ram.log` — RSS leer **4.77 MB**, 1 DB 9.03 MB, 5 DBs 9.50 MB,
   je weitere DB 0.12 MB (Ziel: Grundlast <10 MB, je DB <5 MB — erfüllt).
-  Der Boden kommt aus bundled SQLCipher+OpenSSL und ist gemessen, keine
+  Der Boden kommt aus bundled plain SQLite und ist gemessen, keine
   Ausrede.
 
 ## MCP

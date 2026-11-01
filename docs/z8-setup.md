@@ -66,7 +66,7 @@ Ende
 
 - `b2b/<addr_user>.txt` — Passwort-Box (Provider-Shard, Engines, DB-Metadaten)
 - `workspaces/<addr_user>/hw-shards.txt` — ECIES-Boxen je HW-Pubkey
-- `workspaces/<addr_user>/db/{demo,meta}.db` — SQLCipher-DBs
+- `workspaces/<addr_user>/db/{demo,meta}.db` — Z8FC1-Dateien (plain SQLite + File-Cipher)
 - `setup/registry.txt`, `setup/setup-shards.txt`, `setup/escrow/<addr>.txt`
 
 Salts (fest pro Space): `sha256("kv3-salt:"+space)`, daraus
@@ -74,7 +74,7 @@ Salts (fest pro Space): `sha256("kv3-salt:"+space)`, daraus
 
 ## Datenbanken
 
-`setup-db` erzeugt je User `demo.db` und `meta.db` mit **SQLCipher + WAL +
+`setup-db` erzeugt je User `demo.db` und `meta.db` mit **Z8FC1-File-Cipher + WAL +
 FTS5 + vec0** (`vec0Path`, Default `/data/z8run/vec0.so`), inklusive
 RAM-Offload-PRAGMAs (`cache_size=-65536`, `mmap_size`). Der DB-Key wird aus
 dem User-Master abgeleitet, im User-Block versiegelt und **nicht** in der

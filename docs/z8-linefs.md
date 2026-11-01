@@ -3,7 +3,7 @@
 Aufsatz auf **Z8DBNODE/Z8DBBLOB**: Jede geöffnete DB hat zusätzlich zur
 Blob-Welt eine **Zeilen-Welt** (Editor/LineFS-Kern), einen **Ordner-Baum**
 und eine **Content-Dedup-Index-Tabelle**. Wahrheit ist immer die DB
-(SQLCipher), nie ein Dateiformat und nie ein gespeicherter Pfad.
+(Z8FC1-File-Cipher), nie ein Dateiformat und nie ein gespeicherter Pfad.
 
 ## Herkunft / Lizenz
 Der Kern (zeilen.rs, scheide.rs, Commit-Planung, Hashkette) ist ein
