@@ -101,6 +101,51 @@ async fn kern_im_worker_opfs_und_fassade() {
     assert!(plain.windows(b"native-nach-wasm".len()).any(|w| w == b"native-nach-wasm"));
     println!("NATIVE_TO_WASM_OK bytes={}", plain.len());
 
+    // S3: wasmi-Apps im Worker (echo.wasm unveraendert, SHA-Signatur).
+    let names = z8run_browser::app_names();
+    assert!(names.iter().any(|n| n == "echo"), "echo fehlt: {names:?}");
+    let input = serde_json::json!({"op": "echo", "input": {"text": "hallo-wasmi"}});
+    let payload = serde_json::to_string(&input).unwrap();
+    let expected = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(payload.as_bytes()))
+    };
+    let call = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/apps/call",
+        "body": {"app": "echo", "input": input}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&call).await;
+    assert!(r.contains("\"status\":200"), "App-Call: {r}");
+    let rv: serde_json::Value = serde_json::from_str(&r).unwrap();
+    let reply = &rv["body"]["reply"];
+    assert_eq!(reply["signature"].as_str().unwrap_or(""), expected, "SHA-Signatur falsch: {r}");
+    assert_eq!(reply["app"], "echo");
+    assert_eq!(reply["echo"], input, "Echo != Input");
+    println!("WASMI_ECHO {r}");
+
+    // Prompt-Store-Regel: App-Antwort NIE mit Prompt-Inhalt.
+    z8run_browser::prompt_insert("sys", "PROMPT-GEHEIM-XYZ");
+    let r = z8run_browser::facade(&call).await;
+    assert!(!r.contains("PROMPT-GEHEIM-XYZ"), "Prompt im App-Ergebnis: {r}");
+
+    // App mit fs/net-Import: Trap bei Instanziierung (Sandbox wie nativ).
+    let trap = r#"(module
+        (import "env" "fs_read" (func $fs (param i32) (result i32)))
+        (memory (export "memory") 1)
+        (func (export "z8_alloc") (param i32) (result i32) i32.const 1024)
+        (func (export "z8_process") (param i32 i32) (result i32)
+            i32.const 0 call $fs drop i32.const -1))"#;
+    let wasm = wat::parse_str(trap).unwrap();
+    let err = z8run_browser::wasmi_call_bytes(&wasm, "{}").unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("Import") || msg.contains("instantiate"),
+        "Import-App nicht getrappt: {msg}"
+    );
+    println!("WASMI_TRAP {msg}");
+
     // AutoLock via Fassade (Default 300, dann 1 s im Test).
     z8run_browser::facade(r#"{"method":"POST","path":"/v1/session/check","body":{"now_ms":1000}}"#).await;
     let r = z8run_browser::facade(

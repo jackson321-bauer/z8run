@@ -20,6 +20,7 @@ use z8run_core::dbnode_contract_types::{
     DbStatus, QueryOutcome, SchemaInfo, TableSchema, WriteOutcome,
 };
 
+use crate::apps::WasmiApp;
 use crate::cipher;
 use crate::opfs_backend;
 use crate::sqlite;
@@ -81,10 +82,17 @@ pub struct Kernel {
     pub tokens: Arc<TokenManager>,
     pub prompts: PromptStore,
     pub dbs: RefCell<HashMap<String, BrowserDb>>,
+    pub apps: RefCell<HashMap<String, WasmiApp>>,
 }
 
 impl Kernel {
     pub fn new() -> Self {
+        let mut apps = HashMap::new();
+        // Dieselbe Echo-App wie nativ (unveraenderte .wasm, gleicher Vertrag).
+        let echo = WasmiApp::load("echo", "0.1.0", include_bytes!("../../../apps/echo/echo.wasm"));
+        if let Ok(app) = echo {
+            apps.insert("echo".to_string(), app);
+        }
         Self {
             sessions: SessionStore::new(),
             tokens: Arc::new(TokenManager::new(
@@ -94,6 +102,7 @@ impl Kernel {
             )),
             prompts: PromptStore::new(),
             dbs: RefCell::new(HashMap::new()),
+            apps: RefCell::new(apps),
         }
     }
 
@@ -108,7 +117,29 @@ impl Kernel {
             "tokens": self.tokens.active_count(),
             "prompts": self.prompts.names().len(),
             "dbs": dbs,
+            "apps": self.app_infos(),
         })
+    }
+
+    pub fn app_names(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.apps.borrow().keys().cloned().collect();
+        v.sort();
+        v
+    }
+
+    pub fn app_infos(&self) -> Vec<proxy_kern::AppInfo> {
+        let mut v: Vec<proxy_kern::AppInfo> =
+            self.apps.borrow().values().map(WasmiApp::info).collect();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v
+    }
+
+    pub fn call_app(&self, name: &str, input: &Value) -> Result<Value, ProxyError> {
+        let apps = self.apps.borrow();
+        let app = apps
+            .get(name)
+            .ok_or_else(|| ProxyError::NotFound(format!("app {name}")))?;
+        Ok(app.call(input)?.payload)
     }
 
     pub fn login(

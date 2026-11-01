@@ -31,6 +31,13 @@ aes-gcm = { workspace = true }
 hkdf = { workspace = true }
 rand = { workspace = true }
 getrandom = { version = "0.2", features = ["js"] }
+# wasmi = App-Laufzeit IM Worker (Wasmtime bleibt nativ). Btree-Collections,
+# weil wasm32-unknown-unknown keine Random-Quelle fuer Hash-Maps garantiert.
+wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "memory64", "prefer-btree-collections", "portable-dispatch"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+wat = "1.262"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

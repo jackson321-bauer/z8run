@@ -7,6 +7,8 @@ pub mod session;
 pub mod sigv4;
 
 #[cfg(target_arch = "wasm32")]
+mod apps;
+#[cfg(target_arch = "wasm32")]
 mod cipher;
 #[cfg(target_arch = "wasm32")]
 mod kernel;
@@ -169,6 +171,28 @@ pub fn db_key(master: &[u8], db_id: &str) -> Vec<u8> {
     kernel::derive_db_key(master, db_id).unwrap_or_default().to_vec()
 }
 
+/// Test-Naht: App-WASM gegen den Browser-wasmi-Host fahren (Trap-Beweis).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn wasmi_call_bytes(wasm: &[u8], input_json: &str) -> Result<String, JsValue> {
+    let input: Value = serde_json::from_str(input_json).map_err(err)?;
+    apps::call_bytes(wasm, &input)
+        .map(|v| v.to_string())
+        .map_err(|e| err(e.to_string()))
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn prompt_insert(name: &str, content: &str) {
+    kernel::with_kernel(|k| k.prompts.insert(name, content.as_bytes().to_vec()));
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn app_names() -> Vec<String> {
+    kernel::with_kernel(|k| k.app_names())
+}
+
 /// Kernel-Status (fuer /v1/status und Browser-Tests).
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
@@ -230,6 +254,22 @@ pub async fn facade(request_json: &str) -> String {
             let token = body["token"].as_str().unwrap_or("");
             match kernel::with_kernel(|k| k.tokens.validate(token)) {
                 Ok(sid) => json!({"status": 200, "body": {"session_id": sid}}).to_string(),
+                Err(e) => proxy_err(e),
+            }
+        }
+        ("GET", "/v1/apps") => {
+            let names = kernel::with_kernel(|k| k.app_names());
+            json!({"status": 200, "body": {"apps": names, "runtime": "wasmi"}}).to_string()
+        }
+        ("POST", "/v1/apps/call") => {
+            let name = body["app"].as_str().unwrap_or("");
+            let input = if body["input"].is_null() {
+                Value::Null
+            } else {
+                body["input"].clone()
+            };
+            match kernel::with_kernel(|k| k.call_app(name, &input)) {
+                Ok(v) => json!({"status": 200, "body": {"reply": v}}).to_string(),
                 Err(e) => proxy_err(e),
             }
         }
