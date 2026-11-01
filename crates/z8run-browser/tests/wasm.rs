@@ -76,30 +76,6 @@ async fn kern_im_worker_opfs_und_fassade() {
     );
     println!("OPFS_OHNE_HASHDATEI {files:?}");
 
-    // S4: Login ohne S3 = fail-closed (Shutdown).
-    let no_s3 = serde_json::json!({
-        "method": "POST",
-        "path": "/v1/login/passbox",
-        "body": {
-            "space": "space-test", "username": "kreuz", "password": "pw-test",
-            "hw_pem": world["hw_pem"], "salt": "salt-test"
-        }
-    })
-    .to_string();
-    let r = z8run_browser::facade(&no_s3).await;
-    assert!(r.contains("\"status\":503"), "kein fail-closed: {r}");
-    assert!(r.contains("\"shutdown\":true"), "kein Shutdown: {r}");
-    println!("NO_S3_FAILCLOSED {r}");
-    let blocked = serde_json::json!({
-        "method": "POST",
-        "path": "/v1/db/exec",
-        "body": {"db_id": "kdb", "session_id": "s2", "sql": "INSERT INTO k VALUES ('darf-nicht')"}
-    })
-    .to_string();
-    let r = z8run_browser::facade(&blocked).await;
-    assert!(r.contains("\"status\":503"), "Shutdown blockiert Schreiben nicht: {r}");
-    assert!(r.contains("fail-closed"), "kein fail-closed-Grund: {r}");
-    println!("SHUTDOWN_BLOCK {r}");
     let exec = serde_json::json!({
         "method": "POST",
         "path": "/v1/db/exec",
@@ -231,4 +207,29 @@ async fn kern_im_worker_opfs_und_fassade() {
     )
     .await;
     assert!(r.contains("\"alive\":false"), "{r}");
+
+    // S4: Login ohne S3 = fail-closed (Shutdown).
+    let no_s3 = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/login/passbox",
+        "body": {
+            "space": "space-test", "username": "kreuz", "password": "pw-test",
+            "hw_pem": world["hw_pem"], "salt": "salt-test"
+        }
+    })
+    .to_string();
+    let r = z8run_browser::facade(&no_s3).await;
+    assert!(r.contains("\"status\":503"), "kein fail-closed: {r}");
+    assert!(r.contains("\"shutdown\":true"), "kein Shutdown: {r}");
+    println!("NO_S3_FAILCLOSED {r}");
+    let blocked = serde_json::json!({
+        "method": "POST",
+        "path": "/v1/db/exec",
+        "body": {"db_id": "kdb", "session_id": "s2", "sql": "INSERT INTO k VALUES ('darf-nicht')"}
+    })
+    .to_string();
+    let r = z8run_browser::facade(&blocked).await;
+    assert!(r.contains("\"status\":503"), "Shutdown blockiert Schreiben nicht: {r}");
+    assert!(r.contains("fail-closed"), "kein fail-closed-Grund: {r}");
+    println!("SHUTDOWN_BLOCK {r}");
 }
