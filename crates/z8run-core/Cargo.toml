@@ -10,6 +10,12 @@ readme = "README.md"
 keywords = ["flow-engine", "dag", "automation", "workflow", "nodes"]
 categories = ["development-tools", "asynchronous"]
 
+[features]
+# Default = volles natives Zielbild. `--no-default-features` baut EINEN
+# target-neutralen Kern (dbnode-Vertraege, Nodes-Logik) fuer wasm32.
+default = ["native"]
+native = []
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -69,6 +75,9 @@ cc = "1"
 # tokio's net/process features do not build for WASI; the engine only needs
 # scheduling, sync primitives and timeouts in a logic-only flow.
 tokio = { version = "1.50", features = ["rt", "sync", "time", "macros"] }
+# rand/uuid brauchen auf wasm32-unknown-unknown die JS-Entropiequelle.
+getrandom = { version = "0.2", features = ["js"] }
+uuid = { version = "1.23", features = ["v4", "v5", "v7", "serde", "js"] }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

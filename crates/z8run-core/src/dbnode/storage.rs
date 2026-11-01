@@ -2,24 +2,15 @@
 //! liegen in storage_s3.rs, docken aber am selben Trait an (OPFS ebenso).
 
 use crate::dbnode::types::{DbError, DbResult};
+use crate::dbnode_contract_storage::valid_key;
 use async_trait::async_trait;
 use std::path::PathBuf;
 
-#[async_trait]
-pub trait StorageBackend: Send + Sync {
-    async fn read(&self, key: &str) -> DbResult<Option<Vec<u8>>>;
-    async fn write(&self, key: &str, data: &[u8]) -> DbResult<()>;
-    async fn list(&self, prefix: &str) -> DbResult<Vec<String>>;
-    async fn delete(&self, key: &str) -> DbResult<()>;
-    fn kind(&self) -> &'static str;
-}
+pub use crate::dbnode_contract_storage::StorageBackend;
 
 fn safe_key(key: &str) -> DbResult<PathBuf> {
-    let p = PathBuf::from(key);
-    if p.is_absolute() || key.split('/').any(|s| s == ".." || s.is_empty()) {
-        return Err(DbError::new("STORAGE", format!("ungültiger Key: {key}")));
-    }
-    Ok(p)
+    valid_key(key)?;
+    Ok(PathBuf::from(key))
 }
 
 /// Lokales Dateisystem (Linux/macOS/Windows).

@@ -62,9 +62,13 @@ pub mod human_handoff;
 pub mod image_gen;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kv3_nodes;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod kv_export_node;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod kv_otel_node;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod kv_proxy_node;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod kv_stream_node;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kv_auth;
