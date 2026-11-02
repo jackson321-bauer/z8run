@@ -86,3 +86,73 @@ unabhängigen Zero-Kontext-Vision-Subagenten ersetzt, der die Bilder per
 Read wirklich sieht und jedes Label zitierte. Rohversuche + Begründung:
 `docs/06-beweise.md` §6.6, `docs/img/claude-run-*`.
 Status: **GRUEN** (mit dokumentierter Werkzeug-Abweichung).
+
+## S4 — 2×30B-Abnahme: TEILWEISE BLOCKIERT (Provider-Konto)
+
+Auftrag: zwei 30B-Modelle (`nvidia/nemotron-3.5-lightning`,
+`qwen/qwen3-30b-a3b-instruct-2507`) über OpenRouter; Wiedergabe + Bau-Test.
+Logs: `verify-logs/z8-proxy-reinigung/s4/`.
+
+### Blocker (bewiesen, nicht selbst behebbar)
+
+Beide vorhandenen OpenRouter-Schlüssel sind serverseitig ungültig:
+
+```
+/root/.secrets/openrouter.ini      -> GET /api/v1/auth/key = 401 {"message":"User not found."}
+opencode-Backup (gleicher Key)     -> GET /api/v1/auth/key = 401 {"message":"User not found."}
+```
+
+Beweis: `s4/s4-openrouter-blocker.log`. Die `/models`-Liste funktioniert
+(öffentlich), deshalb war S0 grün; erst der authentifizierte Chat-Call
+zeigt den Kontofehler. Ohne gültigen Key sind die zwei NAMEN-Modelle nicht
+erreichbar. Ersatz-30B nur nach Jason-Freigabe (Bauplan S4) — die liegt
+nicht vor. Lokales Ausführen ist ausgeschlossen: 7,8 GiB RAM, 2 Kerne,
+keine GPU, ~11 GB Plattenplatz; ein 30B-Modell braucht allein >18 GB.
+
+### Ersatzlauf (zwei unabhängige Modelle, klar als NICHT-Plan-Abnahme markiert)
+
+- Modell A: `zai/glm-5.3`
+- Modell B: `deepseek/deepseek-v4-pro`
+- Beide bekamen NUR `doc_full.txt` (PROXY.md + 01…08) + Fragenkatalog,
+  keinen System-Prompt mit Fakten, Temperatur 0.
+
+| Test | Modell A | Modell B | Beweis |
+|---|---|---|---|
+| Wiedergabe (30-Fakten-Checkliste, Kreuz-Judge) | **0 Fehler** | **0 Fehler** | `repro_A/B.json`, `judge_A/B-r5.log`, `facts.md` |
+| Bau-Test: Code geliefert | Cargo.toml + src/lib.rs | Cargo.toml + src/lib.rs | `build_A/B.json` |
+| Kompilat wasm32-unknown-unknown | rc 0, 566 B | rc 0, 566 B | `compile-A/B.log` |
+| Imports | keine | keine | `strings`-Check |
+| Wasmtime-Sandbox (neues Repo) | `ok=true`, `echo==input` | `ok=true`, `echo==input` | `sandbox-A/B.log` |
+
+Der Bau-Test nutzt `bins/kv-proxy/examples/app_probe.rs` (neues Repo) und
+die ECHTE Wasmtime-Sandbox; die Modell-Apps wurden unverändert geladen.
+Beide Apps antworten mit `{"ok":true,"app":"miniapp","echo":<input>}`.
+
+### Urteil S4
+
+- Ersatzlauf: **GRÜN** (die Doku ist aus sich heraus reproduzier- und
+  baubar; zwei unabhängige Modelle, 0 Wiedergabefehler, beide Apps laufen).
+- Plan-Abnahme mit den ZWEI NAMEN-Modellen: **NICHT ERFÜLLT** — blockiert
+  durch das ungültige OpenRouter-Konto. Das ist ein Provider-Blocker, kein
+  Doku-/Code-Fehler.
+
+**Was Jason liefern muss:** einen gültigen OpenRouter-Key in
+`/root/.secrets/openrouter.ini` ODER die ausdrückliche Freigabe der zwei
+Ersatzmodelle. Danach genügt ein Rerun von
+`python3 s4_llm.py repro` + `build` + `judge A/B` + `app_probe`
+(Logs überschreiben) — die Doku selbst muss dafür nicht geändert werden.
+
+## Gesamturteil
+
+| Stufe | Status |
+|---|---|
+| S0 Sicherung/Register | GRÜN |
+| S1 Quellen-Rohliste | GRÜN |
+| S2 Reines Repo (Dual-Compile, 50/0, E2E) | GRÜN |
+| S3 Lehrbuch-Doku + 4 Grafiken (Vision GRÜN) | GRÜN |
+| S4 2×30B-Abnahme (Namen-Modelle) | **BLOCKIERT (Provider-Konto)** |
+| S4 Ersatzlauf (2 unabhängige Modelle) | GRÜN |
+
+**Damit ist der Bauplan NICHT vollständig GRÜN.** Alles außer der
+namen-genauen S4-Abnahme ist gebaut und bewiesen; der letzte Schritt
+braucht einen gültigen OpenRouter-Key oder Jasons Freigabe der Ersatzmodelle.
