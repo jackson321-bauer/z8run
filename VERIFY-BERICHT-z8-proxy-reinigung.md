@@ -55,3 +55,34 @@ Hinweis Baseline: S0 friert 534/0 für den **gesamten** Alt-Workspace ein.
 Das neue Repo enthält nur die Proxy-Pakete; deren Anteil ist 50/0 und
 in beiden Repos byte-gleich (kein Test verloren, keine Neuerfindung).
 Status: **GRUEN**.
+
+## S3 — Lehrbuch-Doku + Grafiken
+
+Ort: `/data/z8run-proxy/docs/` (Commit `2343ae7`).
+`PROXY.md` = Kapitel 1 (BEGRIFFS-EINHEIT: Hauptname **KronVault-Proxy**;
+Synonyme Wirt/SmartFrontend/KronVault-Plattform genau einmal; Managed
+Platform als eigenes, klar getrenntes Kapitel). Danach 7 Kapitel:
+Regeln (G1–G10 WÖRTLICH, Injektion/Claim/CAS/Ports), Architektur
+(Feature-Split nativ/Browser, Managed Platform), APIs (jeder Endpoint mit
+Request/Response), Datenflüsse (Login, Setup, WAL/Quorum, Z8FC1, Logging,
+Streams, Export), Sandbox + App-Bau (ABI, Minimal-App, Bundle, Injektion,
+Egress-Whitelist), Beweise, Glossar. Jede Datei < 205 Zeilen.
+
+| Punkt | Ergebnis | Beweis |
+|---|---|---|
+| Pflicht-Inhalte komplett | alle Zeilen aus Bauplan S3 vorhanden (Begriffe, WASM+nativ, Setup nur lokal, Login beides, FEST 17/18a/22, OTel, Injektion, Sandbox, udsv3, PQC, Ports, CAS/ETag, Login-Kette, Setup-Engine, WASM-Runtime) | `docs/PROXY.md`…`docs/07-glossar.md` |
+| Beweis-Register | alle S0-Zahlen mit Log-Pfad zitiert | `docs/06-beweise.md` §6.1 |
+| Grafik (a) Architektur | gerendert + Screenshot + Vision GRÜN | `docs/img/shot-architektur.png`, `vision-architektur.md` |
+| Grafik (b) Login-Kette | gerendert + Screenshot + Vision GRÜN | `docs/img/shot-login-kette.png`, `vision-login-kette.md` |
+| Grafik (c) App-Lebenszyklus | gerendert + Screenshot + Vision GRÜN | `docs/img/shot-app-lebenszyklus.png`, `vision-app-lebenszyklus.md` |
+| Grafik (d) WASM nativ/Worker/Browser | gerendert + Screenshot + Vision GRÜN | `docs/img/shot-wasm-ziele.png`, `vision-wasm-ziele.md` |
+| Nachbesserung | Überlappungen an „JSON-Zeile"/„signiertes Ticket" behoben; Naht-Label konsolidiert | `vision-architektur.md` |
+
+**Bewiesene Werkzeug-Abweichung (G6):** Der installierte Claude-CLI läuft
+über ein Gateway ohne echte Bildwahrnehmung und halluziniert Labels
+(Test: gefragt nach der ersten Box antwortete er „z8run Proxy").
+Claude-Run ist daher **nicht verwertbar**; die Prüfung wurde durch einen
+unabhängigen Zero-Kontext-Vision-Subagenten ersetzt, der die Bilder per
+Read wirklich sieht und jedes Label zitierte. Rohversuche + Begründung:
+`docs/06-beweise.md` §6.6, `docs/img/claude-run-*`.
+Status: **GRUEN** (mit dokumentierter Werkzeug-Abweichung).
