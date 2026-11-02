@@ -13,10 +13,10 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
 | Stufe | Ergebnis | Beweis |
 |---|---|---|
 | S0 Sicherung | GRÜN | `s0-sicherung.log` (Branch z8-uis, DB-Backup, 28 GB frei); `s0-baseline.log` = 530 passed / 0 failed; `s0-replicas.log` = 5 Keys je 3 Provider byte-gleich |
-| S1 Login-UI | GRÜN | `s1-proof.log`: hell+dunkel OK, Token da, Logout OK, 3 Fehlerfälle inline, `fileMode=true`; `s1-grep-extern.log` = 0 externe URLs; `shots/s1-*.png` |
+| S1 Login-UI | GRÜN | `s1-proof.log`: hell+dunkel OK, Token da, Logout OK, 3 Fehlerfälle inline; `s1-file-proof.log`: alle 4 Schritte als lokale Datei (`steps=1,2,3,4`); `s1-grep-extern.log` = 0 externe URLs; `shots/s1-*.png` |
 | S2 Setup-UI | GRÜN | `s2-proof.log`: voller Wizard gegen neue Welt, `SETUP_OK=true`, Live-Log (`s2-06-ausfuehrung.png`), Setup-JSON 600, Re-Init-Dialog (`s2-08-reinit-fehler.png`); `/setup-ui*` über 443 = 404 (`s2-443-block.log`: GET+POST = 404); `s2-init-sse.log` enthält **keine** PEMs/Privatkeys (grep = 0); `s2-origin-403.log` = echtes HTTP 403 („fremde Origin abgewiesen“) mit gültigem Body |
 | S3 Vision-Beweise | GRÜN | 5 Formate gegen **dev2/** (je 4 Schritte + Ergebnis + Inline-Fehler, `s3-<format>-*.png`) **und zusätzlich als VNC-/X-Klick-Läufe** `vncx-<format>-*` (`s3-vnc-x-formats.log`; 820x1180 exakt auf :101, `s3-vnc-820.log`, Bildmaß 820x1180); `s3-formats.log`; `s3-vision-urteil.log`; hell/dunkel + Default-Dunkel-CSS; Zoom 100/150/200; VNC-/X-Klick-Kette `vncx-setup-*` + `vncx-login-*` (`s3-vnc-x-setup.log`, `s3-vnc-x-login.log`); zusätzliche CDP-VNC-Kette `s3-vnc.log` |
-| S4 Tests/Doku | GRÜN | `s4-test-1..3.log` = je 534 passed / 0 failed; `s4-clippy.log` EXIT 0 / 0 Fehler; `s4-cleanup.log` = uis1…uis7 `PURGE rest=0`; `s4-cleanup-final.log` = je `objects=0`; Doku `docs/z8-nutzer-doku.md` (Wizards + Bilder), `docs/z8-plattform-kern.md` (UI=dumm) |
+| S4 Tests/Doku | GRÜN | `s4-test-1..3.log` = je 534 passed / 0 failed; `s4-clippy.log` EXIT 0 / 0 Fehler; `s4-cleanup-final.log` = realer `--yes`-Lauf je uis1…uis7 `objects=0`/`rest=0`; `s4-cleanup.log` = frühere Deletes (uis1–5 + alte dev2); `s4-cleanup-delete-proof.log` = roher DELETE-Beweis (uis8); Doku `docs/z8-nutzer-doku.md` (Wizards + Bilder), `docs/z8-plattform-kern.md` (UI=dumm) |
 
 ## Abnahmekriterien (Bauplan)
 
@@ -103,13 +103,20 @@ und eine dev2-Vorgeschichte sind unten (G6) offen benannt.
    (100/150/200 %); Karte bleibt ohne horizontalen Bruch (bei 200 %
    vertikal scrollbar).
 6. **Clippy:** Repo-Standard `cargo clippy --workspace --all-targets`
-   = EXIT 0, 0 Fehler. `-D warnings` zeigt 13 **vorbestehende** Lints in
-   unberührten Dateien (`dbnode/*`, `kv3_nodes`, `setup_pqc`, `sqlite_exec`,
-   `udsv3_stream`; 13 `^error`-Zeilen inkl. Compile-Abbrüche); die neue
-   Warnung in `proxy-kern` wurde gefixt.
-7. **Login-UI als Datei:** Rendering + Schritt-Navigation sind lokal
-   bewiesen; der volle Login braucht den Server (WASM-Kern +
-   `/login-ui/v1/world`) und ist same-origin bewiesen.
+   = EXIT 0, 0 Fehler. `-D warnings` (`--keep-going --all-targets
+   --all-features`, `s4-clippy-strict.log`) zeigt **13 vorbestehende
+   Lint-Vorkommen** in unberührten Dateien (11 in `crates/z8run-core`:
+   `dbnode/cipher_vfs.rs`, `dbnode/container.rs`, `kv3_nodes.rs`,
+   `sqlite_exec.rs`, `setup_pqc.rs`, `udsv3_stream.rs`; 1 in
+   `crates/proxy-kern/src/otel.rs`; 1 in `bins/z8-tls-proof`), insgesamt
+   18 `^error`-Zeilen inkl. 5 Compile-Abbrüche. Die neue Warnung in
+   `proxy-kern/src/token.rs` wurde gefixt.
+7. **Login-UI als Datei:** Alle 4 Schritte rendern und navigieren lokal
+   (`s1-file-proof.log`, `shots/s1-datei-1..4-*.png`); der volle Login
+   braucht den Server (WASM-Kern + `/login-ui/v1/world`) und ist
+   same-origin bewiesen. Der Passkey-Zweig (`navigator.credentials.get`)
+   ist implementiert, aber nicht e2e bewiesen (kein registrierter
+   Passkey in dev2); die 4. Stufe ist über Hardware-PEM bewiesen.
 
 ## Reproduktion (Kurz)
 
