@@ -156,3 +156,32 @@ Ersatzmodelle. Danach genügt ein Rerun von
 **Damit ist der Bauplan NICHT vollständig GRÜN.** Alles außer der
 namen-genauen S4-Abnahme ist gebaut und bewiesen; der letzte Schritt
 braucht einen gültigen OpenRouter-Key oder Jasons Freigabe der Ersatzmodelle.
+
+## Audit-Fixes (Zero-Kontext, Runde 1) und Endstand
+
+Der unabhängige Zero-Kontext-Audit (`/data/ghosthand/ZERO-KONTEXT-AUDIT-z8-proxy-reinigung.md`)
+fand 1 ROT und 5 GELB. Alle sind behoben:
+
+| Fund | Fix | Beweis |
+|---|---|---|
+| ROT: 19 Rohlisten-Regeln fehlten in den Lehrkapiteln; G7–G10 nicht wörtlich | neues `docs/09-vollstaendige-regeln.md` (A4/A8/A9/A10/P6/D1–D5/D8/D12/U7/U8/U11/T3/S10/L9/W11 + G7–G10 WÖRTLICH) + Pointer in 01 | `docs/09-…`, `docs/01-regeln.md` |
+| GELB: `futures-util` unbegründet; Pin nur Kommentar | `ABHAENGIGKEITEN.md` ergänzt; Pin präzisiert (96bc951; Arbeitsbaum 2e63eed ohne core/runtime-Diff) | `docs/ABHAENGIGKEITEN.md`, `git diff --stat 96bc951 HEAD -- crates/z8run-core crates/z8run-runtime` = leer |
+| GELB: Token im alten stdout-Log | Token auf `<REDACTED>` | `s2-e2e-newrepo-stdout.log` |
+| GELB: „Setup-API=404" pauschal | präzisiert: `/setup-ui*`=404; `/setup/v1/status`=SPA-Fallback 200 HTML | `docs/06-beweise.md` §6.1 |
+| GELB: `judge_B-r5` fehlte | `judge_B-r5` + `judge_A/B-r6/r7` erzeugt | `s4/` |
+| GELB: Claude-Rohbericht widersprüchlich | als NICHT VERWERTBAR markiert | `docs/img/claude-run-architektur.md`, §6.6 |
+
+**S4-Endstand (gegen die finale Doku inkl. Kap. 09):**
+
+- Wiedergabe: Modell A (`glm-5.3`) **0 Fehler**, Modell B
+  (`deepseek-v4-pro`) **0 Fehler** (`judge_A-r7.log`, `judge_B-r7.log`).
+- Bau-Test neu gegen die finale Doku: A 566 B, B 629 B, beide
+  wasm32-kompiliert, beide in der Wasmtime-Sandbox `ok=true`,
+  `echo==input` (`sandbox-A/B.log`, `compile-A/B.log`).
+- Die NAMEN-Modelle bleiben blockiert (OpenRouter 401). Der Ersatzlauf ist
+  ausdrücklich KEINE Plan-Abnahme; dafür ist ein gültiger Key oder Jasons
+  Freigabe nötig.
+
+**Gesamtstatus: GELB/BLOCKER** — S0–S3 GRÜN, S4-Ersatzlauf GRÜN,
+S4-Namensabnahme durch Provider-Konto blockiert. Kein Code-/Doku-Fehler
+offen.
