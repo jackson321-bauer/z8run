@@ -201,6 +201,11 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
         .await;
     engine
         .register_node_type(
+            Arc::new(kv3_nodes::Kv3SecretsRoNodeFactory) as Arc<dyn NodeExecutorFactory>
+        )
+        .await;
+    engine
+        .register_node_type(
             Arc::new(kv3_nodes::Kv3HwshardNodeFactory) as Arc<dyn NodeExecutorFactory>
         )
         .await;

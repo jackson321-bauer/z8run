@@ -163,6 +163,8 @@ fn scrub(out: &mut Value) {
         "req.body.master",
         "req.body.master_b64",
         "req.body.proxy_session",
+        "secrets",
+        "req.body.secrets",
     ] {
         crate::nodes::dbnode_common::strip_path(out, p);
     }
@@ -265,6 +267,23 @@ node_factory!(KvProxyNodeFactory, KvProxyNode, "kv-proxy", {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrub_entfernt_secrets_handle() {
+        let mut v = json!({
+            "secrets": {"cluster_id": "cl", "db_key_hex": "ab", "read_only": true},
+            "req": {"body": {
+                "secrets": {"db_key_hex": "cd", "providers": [{"secret_key": "SK"}]},
+                "keep": 2
+            }}
+        });
+        scrub(&mut v);
+        let s = v.to_string();
+        assert!(!s.contains("db_key_hex"), "{s}");
+        assert!(!s.contains("SK"), "{s}");
+        assert!(!s.contains("secrets"), "{s}");
+        assert!(s.contains("\"keep\":2"), "{s}");
+    }
 
     #[test]
     fn scrub_entfernt_master_auch_in_req_body() {

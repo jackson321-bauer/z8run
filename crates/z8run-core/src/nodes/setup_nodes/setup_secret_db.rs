@@ -101,6 +101,29 @@ pub fn oeffne_readonly(path: &Path, db_key_hex: &str) -> Result<Connection, Stri
     open_readonly(path, &key).map_err(|e| format!("secret.db readonly: {e}"))
 }
 
+/// Liest den aktiven Secret-Snapshot (ns, name, wert) READ-ONLY.
+/// Wird vom Proxy benutzt (Conn-Naht + Label "z8-secret-db", keine Kopie).
+pub fn lies_aktive(path: &Path, db_key_hex: &str) -> Result<Vec<(String, String, String)>, String> {
+    let conn = oeffne_readonly(path, db_key_hex)?;
+    let mut stmt = conn
+        .prepare("SELECT ns,name,wert FROM secrets WHERE aktiv=1 ORDER BY ns,name")
+        .map_err(|e| format!("secret.db snapshot: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("secret.db snapshot: {e}"))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| format!("secret.db snapshot: {e}"))?);
+    }
+    Ok(out)
+}
+
 /// Öffnet die secret.db SCHREIBEND für die Setup-API.
 pub fn oeffne_rw(path: &Path, db_key_hex: &str) -> Result<Connection, String> {
     let key = huelle(db_key_hex)?;

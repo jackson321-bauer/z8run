@@ -409,6 +409,130 @@ node_factory!(Kv3OpenNodeFactory, Kv3OpenNode, "kv3-open", {
     base_path: "addr_space".to_string(),
 });
 
+// ---------------------------------------------------------------------------
+// Node 2b: kv3-secrets-ro (optionalen secrets-ro-Block der Hashdatei oeffnen)
+// ---------------------------------------------------------------------------
+// Liefert das ro-Profil (SecretsProfil::als_json) unter dem Feld "secrets".
+// Altwelt-Hashdateien ohne Eintrag -> Feld wird GAR NICHT gesetzt (Ok(None)).
+// Passwort/Master/Handle werden nie geloggt; nur "gesetzt/nicht gesetzt".
+
+pub struct Kv3SecretsRoNode {
+    name: String,
+    s3_config: String,
+    bucket: String,
+    prefix: String,
+    passwort_path: String,
+    target_addr_path: String,
+}
+
+impl Kv3SecretsRoNode {
+    fn err(&self, msg: &FlowMessage, e: impl Into<String>) -> Vec<FlowMessage> {
+        let e = e.into();
+        warn!(node = %self.name, error = %e, "kv3-secrets-ro failed");
+        error_output(msg, &e)
+    }
+}
+
+#[async_trait::async_trait]
+impl NodeExecutor for Kv3SecretsRoNode {
+    async fn process(&self, msg: FlowMessage) -> Z8Result<Vec<FlowMessage>> {
+        let passwort = msg
+            .payload
+            .pointer(&format!("/{}", self.passwort_path.replace(".", "/")))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if passwort.is_empty() {
+            return Ok(self.err(&msg, "kv3-secrets-ro: passwort fehlt"));
+        }
+        let addr = msg
+            .payload
+            .pointer(&format!("/{}", self.target_addr_path.replace(".", "/")))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if addr.is_empty() {
+            return Ok(self.err(&msg, "kv3-secrets-ro: ziel-adresse fehlt"));
+        }
+        let raw_cfg = std::fs::read_to_string(&self.s3_config).map_err(|e| {
+            Z8Error::Internal(format!("kv3-secrets-ro s3 config {}: {e}", self.s3_config))
+        })?;
+        let cfg: Value = serde_json::from_str(&raw_cfg)
+            .map_err(|e| Z8Error::Internal(format!("kv3-secrets-ro s3 parse: {e}")))?;
+        let ep = match s3_endpoint_aus(&cfg) {
+            Ok(e) => e,
+            Err(e) => return Ok(self.err(&msg, e)),
+        };
+        let bucket = if self.bucket.is_empty() {
+            cfg["bucket"].as_str().unwrap_or_default().to_string()
+        } else {
+            self.bucket.clone()
+        };
+        let prefix = if self.prefix.is_empty() {
+            cfg["prefix"].as_str().unwrap_or_default().to_string()
+        } else {
+            self.prefix.clone()
+        };
+        let key = format!("{prefix}{addr}.txt");
+        let data = match ep.get_object(&bucket, &key).await {
+            Ok(d) => d,
+            Err(e) => return Ok(self.err(&msg, format!("S3 GET {bucket}/{key}: {e}"))),
+        };
+        let text = String::from_utf8_lossy(&data).to_string();
+        let profil = match super::setup_nodes::setup_secrets::eintrag_oeffnen_ro(
+            &text,
+            &addr,
+            &passwort,
+            super::setup_nodes::setup_secrets::SECRETS_RO_SALT,
+        ) {
+            Ok(v) => v,
+            Err(e) => return Ok(self.err(&msg, format!("secrets-ro oeffnen: {e}"))),
+        };
+        let mut out = msg.payload.clone();
+        if let Some(o) = out.as_object_mut() {
+            match profil {
+                Some(p) => {
+                    o.insert("secrets".into(), p.als_json());
+                }
+                None => {
+                    o.remove("secrets");
+                }
+            }
+        }
+        Ok(vec![msg.derive(msg.source_node, "output", out)])
+    }
+
+    async fn configure(&mut self, config: Value) -> Z8Result<()> {
+        configure_fields!(config, self,
+            "name" => name: str,
+            "s3Config" => s3_config: str,
+            "bucket" => bucket: str,
+            "prefix" => prefix: str,
+            "passwortPath" => passwort_path: str,
+            "targetAddrPath" => target_addr_path: str,
+        );
+        Ok(())
+    }
+
+    async fn validate(&self) -> Z8Result<()> {
+        require_non_empty(&self.s3_config, "kv3-secrets-ro braucht s3Config")?;
+        Ok(())
+    }
+
+    fn node_type(&self) -> &str {
+        "kv3-secrets-ro"
+    }
+}
+
+node_factory!(Kv3SecretsRoNodeFactory, Kv3SecretsRoNode, "kv3-secrets-ro", {
+    name: String::new(),
+    s3_config: "/etc/z8run/kv3-s3.json".to_string(),
+    bucket: String::new(),
+    prefix: String::new(),
+    passwort_path: "req.body.password".to_string(),
+    target_addr_path: "addr_user".to_string(),
+});
+
 // --- Passbox-Krypto (identisch zu kette::passbox, ohne kette-Dep) ---
 
 fn argon_key(passwort: &str, salt: &str) -> [u8; 32] {
@@ -700,22 +824,27 @@ impl NodeExecutor for Kv3MasterNode {
         if let Some(o) = out.as_object_mut() {
             o.insert("master_sha256".into(), json!(fp.clone()));
             // Proxy-Session nur UDS-intern (unix-out bodyPath=proxy_session).
-            o.insert(
-                "proxy_session".into(),
-                json!({
-                    "event": "kv3-session",
-                    "trace_id": msg.trace_id.to_string(),
-                    "addr_space": o.get("addr_space").cloned().unwrap_or(Value::Null),
-                    "addr_user": o.get("addr_user").cloned().unwrap_or(Value::Null),
-                    "master_sha256": fp,
-                    // ECHTER Master NUR im UDS-Body (Proxy braucht ihn für
-                    // die DB-Key-Ableitung); http-out strippt proxy_session,
-                    // Event-Previews redachten master_key_b64.
-                    "master_key_b64": B64.encode(&master),
-                    "workspace_bucket": o.get("workspace_bucket").cloned().unwrap_or(Value::Null),
-                    "engines": o.get("engines").cloned().unwrap_or(Value::Null),
-                }),
-            );
+            let mut ps = json!({
+                "event": "kv3-session",
+                "trace_id": msg.trace_id.to_string(),
+                "addr_space": o.get("addr_space").cloned().unwrap_or(Value::Null),
+                "addr_user": o.get("addr_user").cloned().unwrap_or(Value::Null),
+                "master_sha256": fp,
+                // ECHTER Master NUR im UDS-Body (Proxy braucht ihn für
+                // die DB-Key-Ableitung); http-out strippt proxy_session,
+                // Event-Previews redachten master_key_b64.
+                "master_key_b64": B64.encode(&master),
+                "workspace_bucket": o.get("workspace_bucket").cloned().unwrap_or(Value::Null),
+                "engines": o.get("engines").cloned().unwrap_or(Value::Null),
+            });
+            // Optionales ro-Profil aus kv3-secrets-ro (nur wenn Eintrag
+            // existiert; Altwelt laesst das Feld ganz weg).
+            if let Some(s) = o.get("secrets") {
+                if !s.is_null() {
+                    ps["secrets"] = s.clone();
+                }
+            }
+            o.insert("proxy_session".into(), ps);
             o.insert(
                 "session_view".into(),
                 json!({"qr_code_uri": qr_code_uri, "passkey_session_id": session_id}),
@@ -873,6 +1002,7 @@ impl NodeExecutor for Kv3SocketNode {
             o.remove("pqc_dk_path");
             // Nur UDS-intern: der echte Master darf nie im HTTP-Out landen.
             o.remove("proxy_session");
+            o.remove("secrets");
         }
         // Erfolgreiche Übergabe = output; Fehler = error-Port (Proxy-Start kann
         // später auch ohne Socket getestet werden).
