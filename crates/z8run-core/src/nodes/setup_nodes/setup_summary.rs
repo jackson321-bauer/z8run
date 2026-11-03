@@ -80,7 +80,7 @@ impl NodeExecutor for SetupResultNode {
             "ok": req.get("ok").and_then(|v| v.as_bool()).unwrap_or(true),
             "api": "z8-setup",
         });
-        for feld in ["rotation", "plugin", "pubkey_added", "webauthn_credential", "webauthn_assertion", "setup_auth"] {
+        for feld in ["rotation", "plugin", "pubkey_added", "webauthn_credential", "webauthn_assertion", "setup_auth", "secret", "secrets_anlegen", "objects"] {
             if let Some(v) = req.get(feld) {
                 response[feld] = v.clone();
             }

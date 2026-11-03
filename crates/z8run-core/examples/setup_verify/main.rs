@@ -132,7 +132,7 @@ async fn main() {
             fail(format!("{name}: workspace_bucket fehlt"));
         }
 
-        for db in ["demo", "meta"] {
+        for db in ["demo", "config"] {
             let key_hex = block["db"][db]["key_hex"].as_str().unwrap();
             let soll_db = block["db"][db]["sha256"].as_str().unwrap();
             let bytes = hole(&cfg, &format!("workspaces/{addr}/db/{db}.db")).await;

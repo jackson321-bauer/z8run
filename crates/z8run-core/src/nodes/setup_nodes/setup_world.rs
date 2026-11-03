@@ -80,7 +80,7 @@ impl NodeExecutor for SetupWorldNode {
         let mut reg_users = Vec::new();
         let db_oeffentlich = |db: &Value| {
             let mut d = db.clone();
-            for name in ["demo", "meta"] {
+            for name in ["demo", "config"] {
                 if let Some(o) = d.get_mut(name).and_then(|v| v.as_object_mut()) {
                     o.remove("key_hex");
                 }

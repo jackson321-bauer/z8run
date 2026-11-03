@@ -6,7 +6,7 @@ use super::*;
 
 fn oeffentlich(db: &Value) -> Value {
     let mut d = db.clone();
-    for name in ["demo", "meta"] {
+    for name in ["demo", "config"] {
         if let Some(o) = d.get_mut(name).and_then(|v| v.as_object_mut()) {
             o.remove("key_hex");
         }

@@ -39,6 +39,22 @@ pub async fn db_pruefen(key_hex: &str, bytes: &[u8], name: &str) {
         fail(format!("DB {name}: meta-Tabelle fehlt"));
     }
     println!("    DB {name}: entschlüsselt, Tabellen={names:?}");
+    let schema: Vec<(String, String)> = sqlx::query_as(
+        "SELECT name, COALESCE(sql,'') FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .unwrap_or_else(|e| fail(format!("DB {name}: Schema-Dump: {e}")));
+    println!("    DB {name}: SCHEMA-DUMP {:?}", schema);
+    let dump = schema
+        .iter()
+        .map(|(n, s)| format!("{n}: {s}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase();
+    if dump.contains("secret") {
+        fail(format!("DB {name}: Secret-Feld im Schema gefunden"));
+    }
     let _ = conn.close().await;
     let _ = std::fs::remove_file(Path::new(&path));
 }

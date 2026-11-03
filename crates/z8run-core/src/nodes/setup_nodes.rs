@@ -22,6 +22,12 @@ pub mod setup_pubkey;
 pub mod setup_registry;
 pub mod setup_rotate;
 pub mod setup_rotate_reseal;
+pub mod setup_secret_anlegen;
+pub mod setup_secret_cluster;
+pub mod setup_secret_db;
+pub mod setup_secret_manage;
+pub mod setup_secret_write;
+pub mod setup_secrets;
 pub mod setup_s3_list;
 pub mod setup_store_nodes;
 pub mod setup_summary;
@@ -54,6 +60,9 @@ pub async fn registrieren(engine: &FlowEngine) {
     use setup_pubkey::*;
     use setup_rotate::*;
     use setup_s3_list::*;
+    use setup_secret_anlegen::*;
+    use setup_secret_manage::*;
+    use setup_secret_write::*;
     use setup_store_nodes::*;
     use setup_summary::*;
     use setup_validate::*;
@@ -78,6 +87,11 @@ pub async fn registrieren(engine: &FlowEngine) {
         Arc::new(RotateS3NodeFactory),
         Arc::new(PluginAddNodeFactory),
         Arc::new(PubkeyAddNodeFactory),
+        Arc::new(SecretAnlegenNodeFactory),
+        Arc::new(SecretSetzenNodeFactory),
+        Arc::new(SecretRotierenNodeFactory),
+        Arc::new(SecretRevozierenNodeFactory),
+        Arc::new(SecretListeNodeFactory),
     ];
     for factory in factories {
         engine.register_node_type(factory).await;

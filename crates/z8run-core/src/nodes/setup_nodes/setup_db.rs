@@ -75,7 +75,7 @@ pub async fn erzeugen(
     }
     let (mut conn, _) = oeffne(&path, key_hex, vec0_path).await?;
 
-    let schema: &[&str] = if stem.contains("meta") {
+    let schema: &[&str] = if stem.contains("config") {
         &[
             "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('format', 'z8setup/1');",
@@ -99,8 +99,8 @@ pub async fn erzeugen(
 
     let mut vec0 = false;
     if !vec0_path.is_empty() {
-        let vec_sql = if stem.contains("meta") {
-            "CREATE VIRTUAL TABLE IF NOT EXISTS meta_vec USING vec0(embedding float[4]);"
+        let vec_sql = if stem.contains("config") {
+            "CREATE VIRTUAL TABLE IF NOT EXISTS config_vec USING vec0(embedding float[4]);"
         } else {
             "CREATE VIRTUAL TABLE IF NOT EXISTS demo_vec USING vec0(embedding float[4]);"
         };
