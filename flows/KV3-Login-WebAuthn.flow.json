@@ -1,0 +1,785 @@
+{
+  "id": "01a18933-f5b2-74be-a57c-9f74cb0e9426",
+  "name": "KV3-Login-WebAuthn",
+  "description": "Login v2: Passwort + WebAuthn-Assertion + Client-geöffneter HW-Shard",
+  "version": "0.1.0",
+  "nodes": [],
+  "edges": [],
+  "metadata": {
+    "positions": {
+      "canvas_edges": [
+        {
+          "id": "e-in-output-addr-space",
+          "source": "in",
+          "sourceHandle": "output",
+          "target": "addr-space",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-in-output-addr-user",
+          "source": "in",
+          "sourceHandle": "output",
+          "target": "addr-user",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-addr-space-output-j",
+          "source": "addr-space",
+          "sourceHandle": "output",
+          "target": "j",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-addr-user-output-j",
+          "source": "addr-user",
+          "sourceHandle": "output",
+          "target": "j",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-j-output-open",
+          "source": "j",
+          "sourceHandle": "output",
+          "target": "sec-ro",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-open-output-verify",
+          "source": "open",
+          "sourceHandle": "output",
+          "target": "verify",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-verify-output-master",
+          "source": "verify",
+          "sourceHandle": "output",
+          "target": "master",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-master-output-sess",
+          "source": "master",
+          "sourceHandle": "output",
+          "target": "sess",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-sess-output-ok",
+          "source": "sess",
+          "sourceHandle": "output",
+          "target": "ok",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-j-error-err-j",
+          "source": "j",
+          "sourceHandle": "error",
+          "target": "err-j",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-open-error-err-open",
+          "source": "open",
+          "sourceHandle": "error",
+          "target": "err-open",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-verify-error-err-verify",
+          "source": "verify",
+          "sourceHandle": "error",
+          "target": "err-verify",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-master-error-err-master",
+          "source": "master",
+          "sourceHandle": "error",
+          "target": "err-master",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-sess-error-err-sess",
+          "source": "sess",
+          "sourceHandle": "error",
+          "target": "err-sess",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-addr-space-error-err-addrspace",
+          "source": "addr-space",
+          "sourceHandle": "error",
+          "target": "err-addrspace",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-addr-user-error-err-addraddr",
+          "source": "addr-user",
+          "sourceHandle": "error",
+          "target": "err-addraddr",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-in-ch-output-ch",
+          "source": "in-ch",
+          "sourceHandle": "output",
+          "target": "ch",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-ch-output-out-ch",
+          "source": "ch",
+          "sourceHandle": "output",
+          "target": "out-ch",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-ch-error-err-ch",
+          "source": "ch",
+          "sourceHandle": "error",
+          "target": "err-ch",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-sec-open",
+          "source": "sec-ro",
+          "sourceHandle": "output",
+          "target": "open",
+          "targetHandle": "input"
+        },
+        {
+          "id": "e-sec-err",
+          "source": "sec-ro",
+          "sourceHandle": "error",
+          "target": "err-open",
+          "targetHandle": "input"
+        }
+      ],
+      "canvas_nodes": [
+        {
+          "data": {
+            "config": {
+              "method": "POST",
+              "path": "/login"
+            },
+            "inputs": [],
+            "label": "POST /login",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              }
+            ],
+            "type": "unix-in"
+          },
+          "id": "in",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "ebene": "space",
+              "namePath": "req.body.space",
+              "sharedPath": "",
+              "spacePath": "req.body.space"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Space-Adresse",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "kv3-adresse"
+          },
+          "id": "addr-space",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "ebene": "user",
+              "namePath": "req.body.user",
+              "sharedPath": "",
+              "spacePath": "req.body.space"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "User-Adresse",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "kv3-adresse"
+          },
+          "id": "addr-user",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "inputs": 2,
+              "timeoutMs": 15000
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Adressen zusammenführen",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "join"
+          },
+          "id": "j",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "basePath": "addr_space",
+              "bucket": "",
+              "passwortPath": "req.body.password",
+              "prefix": "dev/b2b/",
+              "s3Config": "/etc/z8run/kv3-s3.json",
+              "saltField": "salt_user",
+              "targetAddrPath": "addr_user"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Passwort-Box -> Provider-Shard",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "kv3-open"
+          },
+          "id": "open",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "addrPath": "addr_user",
+              "challengeDir": "/data/z8run/login-challenges",
+              "origin": "http://localhost:7700",
+              "rpId": "localhost",
+              "s3Config": "/etc/z8run/kv3-s3.json"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Assertion + Client-Shard",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "webauthn-verify"
+          },
+          "id": "verify",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {},
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Shamir 2-of-2 -> Master",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "kv3-master"
+          },
+          "id": "master",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "payloadFields": "proxy_session",
+              "socketPath": "/data/z8run/kv3-proxy.sock"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Session an Proxy-UDS (udsv3)",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "kv3-socket"
+          },
+          "id": "sess",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 200
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "200 Login OK",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "ok",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 Join",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-j",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 Open",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-open",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 Verify",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-verify",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 Master",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-master",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 Session",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-sess",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 Space",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-addrspace",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 401
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "401 User",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-addraddr",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "method": "POST",
+              "path": "/challenge"
+            },
+            "inputs": [],
+            "label": "POST /challenge",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              }
+            ],
+            "type": "unix-in"
+          },
+          "id": "in-ch",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "challengeDir": "/data/z8run/login-challenges",
+              "origin": "http://localhost:7700",
+              "rpId": "localhost"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "Challenge ausstellen",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Output",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "webauthn-challenge"
+          },
+          "id": "ch",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 200
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "200 Challenge",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "out-ch",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "statusCode": 400
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "400 Challenge",
+            "outputs": [],
+            "type": "http-out"
+          },
+          "id": "err-ch",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "z8node"
+        },
+        {
+          "data": {
+            "config": {
+              "s3Config": "/etc/z8run/kv3-s3.json",
+              "bucket": "",
+              "prefix": "dev/b2b/",
+              "passwortPath": "req.body.password",
+              "targetAddrPath": "addr_user"
+            },
+            "inputs": [
+              {
+                "id": "input",
+                "name": "Input",
+                "type": "any"
+              }
+            ],
+            "label": "secrets-ro-Block (optional) -> ro-Profil",
+            "outputs": [
+              {
+                "id": "output",
+                "name": "Profil",
+                "type": "object"
+              },
+              {
+                "id": "error",
+                "name": "Error",
+                "type": "any"
+              }
+            ],
+            "type": "kv3-secrets-ro"
+          },
+          "id": "sec-ro",
+          "position": {
+            "x": -280,
+            "y": 0
+          },
+          "type": "z8node"
+        }
+      ],
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "zoom": 0.8
+      }
+    },
+    "zoom": 0.0,
+    "notes": []
+  },
+  "config": {
+    "env_vars": {},
+    "credentials": [],
+    "timeout_ms": 0,
+    "buffer_size": 0
+  },
+  "status": "idle",
+  "created_at": "2026-10-29T19:47:26.258880605Z",
+  "updated_at": "2026-11-01T15:39:32.855083358Z"
+}

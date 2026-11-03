@@ -412,7 +412,10 @@ node_factory!(Kv3OpenNodeFactory, Kv3OpenNode, "kv3-open", {
 // ---------------------------------------------------------------------------
 // Node 2b: kv3-secrets-ro (optionalen secrets-ro-Block der Hashdatei oeffnen)
 // ---------------------------------------------------------------------------
-// Liefert das ro-Profil (SecretsProfil::als_json) unter dem Feld "secrets".
+// Bewusst VOR kv3-open: jenes entfernt das Login-Passwort aus dem Payload,
+// danach waere der (mit dem Passwort versiegelte) secrets-ro-Block nicht
+// mehr zu oeffnen. Liefert das ro-Profil (SecretsProfil::als_json) unter
+// dem Feld "secrets".
 // Altwelt-Hashdateien ohne Eintrag -> Feld wird GAR NICHT gesetzt (Ok(None)).
 // Passwort/Master/Handle werden nie geloggt; nur "gesetzt/nicht gesetzt".
 
