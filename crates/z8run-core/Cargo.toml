@@ -13,8 +13,11 @@ categories = ["development-tools", "asynchronous"]
 [features]
 # Default = volles natives Zielbild. `--no-default-features` baut EINEN
 # target-neutralen Kern (dbnode-Vertraege, Nodes-Logik) fuer wasm32.
-default = ["native"]
+# `mqtt` kapselt rumqttc (zieht altes rustls-webpki/ring); der Proxy baut
+# ohne default-features, damit kein ring im Proxy-Graphen landet.
+default = ["native", "mqtt"]
 native = []
+mqtt = ["dep:rumqttc"]
 
 [dependencies]
 serde = { workspace = true }
@@ -48,7 +51,7 @@ bytes = { workspace = true }
 ipnet = { workspace = true }
 url = { workspace = true }
 sqlx = { workspace = true }
-rumqttc = { workspace = true }
+rumqttc = { workspace = true, optional = true }
 argon2 = "0.5"
 aes-gcm = "0.10"
 hkdf = "0.12"

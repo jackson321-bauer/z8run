@@ -80,7 +80,7 @@ pub mod setup_nodes;
 pub mod webauthn_login_nodes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod llm;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "mqtt"))]
 pub mod mqtt;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod s3_db_fetch;
@@ -228,6 +228,7 @@ pub async fn register_builtin_nodes(engine: &FlowEngine) {
     engine
         .register_node_type(Arc::new(llm::LlmNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;
+    #[cfg(all(not(target_arch = "wasm32"), feature = "mqtt"))]
     engine
         .register_node_type(Arc::new(mqtt::MqttNodeFactory) as Arc<dyn NodeExecutorFactory>)
         .await;

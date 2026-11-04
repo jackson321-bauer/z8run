@@ -302,6 +302,7 @@ impl EgressClient {
         let policy = Arc::new(policy);
         let redirect_policy = Arc::clone(&policy);
         let mut builder = reqwest::Client::builder()
+            .use_preconfigured_tls(kv_store::tls::client_config())
             .connect_timeout(Duration::from_secs(10))
             .dns_resolver(Arc::new(PolicyResolver {
                 policy: Arc::clone(&policy),

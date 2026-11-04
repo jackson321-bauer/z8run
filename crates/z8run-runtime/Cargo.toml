@@ -11,7 +11,7 @@ keywords = ["wasm", "wasmtime", "plugin", "sandbox", "runtime"]
 categories = ["wasm", "development-tools"]
 
 [dependencies]
-z8run-core = { workspace = true }
+z8run-core = { path = "../z8run-core", default-features = false, features = ["native"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
