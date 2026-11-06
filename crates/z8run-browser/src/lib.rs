@@ -702,6 +702,15 @@ fn kv_kontext(sid: &str) -> Result<(Value, Vec<u8>), String> {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn ohne_objects(results: &mut [Value]) {
+    for r in results {
+        if let Some(o) = r.as_object_mut() {
+            o.remove("objects");
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 async fn kv_call(body: &Value) -> String {
     let sid = match session_of(body) {
         Ok(s) => s,
@@ -729,6 +738,7 @@ async fn kv_call(body: &Value) -> String {
         r["via"] = json!("kv-wasm-in-isolat");
         results.push(r);
     }
+    ohne_objects(&mut results);
     json!({"status": 200, "body": {"reply": reply, "egress_results": results,
         "kv_in_isolat": true}}).to_string()
 }
@@ -755,6 +765,8 @@ async fn apps_call_kv(body: &Value) -> String {
             k.heft_push(e.clone());
         }
     });
+    let mut results = results;
+    ohne_objects(&mut results);
     json!({"status": 200, "body": {"reply": reply, "egress_results": results,
         "heft_events_anzahl": heft.len(), "kv_in_isolat": true}}).to_string()
 }
@@ -823,11 +835,12 @@ async fn sync_zyklus(body: &Value) -> String {
     let gesamt = kernel::with_kernel(|k| k.heft_events().len());
     let mut results = res1;
     results.extend(res2);
+    ohne_objects(&mut results);
     json!({"status": 200, "body": {
         "quelle_objekte": src.len(), "ziel_objekte": dst.len(),
         "aufgaben": r2["aufgaben_gesamt"], "emittiert": r2["aufgaben_emittiert"],
         "egress_results": results, "heft_events_anzahl": alle.len(), "heft_gesamt": gesamt,
-        "kv_in_isolat": true, "bucket": bucket}}).to_string()
+        "kv_in_isolat": true}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]
