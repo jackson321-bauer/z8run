@@ -332,12 +332,15 @@ pub async fn facade(request_json: &str) -> String {
             }
         }
         ("POST", "/v1/session/logout") => {
-            let sid = body["session_id"].as_str().unwrap_or("");
+            let sid = match session_of(body) {
+                Ok(s) => s,
+                Err(e) => return proxy_err(e),
+            };
             // HART: Tokens tot, Session+Master zeroize, Apps/Instanzen weg.
             kernel::with_kernel(|k| {
-                k.tokens.revoke_session(sid);
-                k.sessions.remove(sid);
-                k.drop_apps(sid);
+                k.tokens.revoke_session(&sid);
+                k.sessions.remove(&sid);
+                k.drop_apps(&sid);
             });
             SESSION.with(|s| s.borrow_mut().wipe());
             json!({"status": 200, "body": {"ok": true, "tokens": 0, "master_zeroized": true, "apps": 0}})
@@ -753,7 +756,7 @@ async fn apps_call_kv(body: &Value) -> String {
         }
     });
     json!({"status": 200, "body": {"reply": reply, "egress_results": results,
-        "heft_events": heft, "kv_in_isolat": true}}).to_string()
+        "heft_events_anzahl": heft.len(), "kv_in_isolat": true}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -823,7 +826,7 @@ async fn sync_zyklus(body: &Value) -> String {
     json!({"status": 200, "body": {
         "quelle_objekte": src.len(), "ziel_objekte": dst.len(),
         "aufgaben": r2["aufgaben_gesamt"], "emittiert": r2["aufgaben_emittiert"],
-        "egress_results": results, "heft_events": alle, "heft_gesamt": gesamt,
+        "egress_results": results, "heft_events_anzahl": alle.len(), "heft_gesamt": gesamt,
         "kv_in_isolat": true, "bucket": bucket}}).to_string()
 }
 

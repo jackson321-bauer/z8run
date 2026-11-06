@@ -41,7 +41,7 @@ pub async fn egress_ausfuehren(
     egress: &Value,
     providers: &Value,
     kv: &[u8],
-    session: &str,
+    _session: &str,
 ) -> (Vec<Value>, Vec<Value>) {
     let mut results = Vec::new();
     let mut heft = Vec::new();
@@ -76,7 +76,7 @@ pub async fn egress_ausfuehren(
             let url = params["url"].as_str().unwrap_or("");
             let art = klass(url);
             heft.push(json!({
-                "art": art, "correlation_id": corr, "session": session,
+                "art": art, "correlation_id": corr,
                 "koerper": params["body"].clone(),
                 "ts_ms": js_sys::Date::now() as u64,
             }));
