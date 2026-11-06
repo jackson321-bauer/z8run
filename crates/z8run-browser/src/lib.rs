@@ -282,7 +282,7 @@ pub async fn facade(request_json: &str) -> String {
                 Err(e) => return proxy_err(e),
             };
             let names = kernel::with_kernel(|k| k.app_names(&sid));
-            json!({"status": 200, "body": {"apps": names, "runtime": "wasmi", "session_id": sid}}).to_string()
+            json!({"status": 200, "body": {"apps": names, "runtime": "wasmi"}}).to_string()
         }
         ("POST", "/v1/apps/call") => {
             let sid = match session_of(body) {
@@ -296,7 +296,7 @@ pub async fn facade(request_json: &str) -> String {
                 body["input"].clone()
             };
             match kernel::with_kernel(|k| k.call_app(&sid, name, &input)) {
-                Ok(v) => json!({"status": 200, "body": {"reply": v, "session_id": sid}}).to_string(),
+                Ok(v) => json!({"status": 200, "body": {"reply": v}}).to_string(),
                 Err(e) => proxy_err(e),
             }
         }
@@ -364,10 +364,12 @@ pub async fn facade(request_json: &str) -> String {
 /// explizite session_id (Test/Worker-Route), sonst "test".
 #[cfg(target_arch = "wasm32")]
 fn session_of(body: &Value) -> Result<String, proxy_kern::ProxyError> {
-    if let Some(tok) = body["token"].as_str().filter(|t| !t.is_empty()) {
-        return kernel::with_kernel(|k| k.tokens.validate(tok));
-    }
-    Ok(body["session_id"].as_str().unwrap_or("test").to_string())
+    // NUR gueltige Tokens; keine client-gelieferte session_id, kein "test".
+    let tok = body["token"]
+        .as_str()
+        .filter(|t| !t.is_empty())
+        .ok_or(proxy_kern::ProxyError::Unauthorized)?;
+    kernel::with_kernel(|k| k.tokens.validate(tok))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -462,10 +464,11 @@ async fn passbox_login(body: &Value) -> String {
         .map(str::to_string)
         .or_else(|| buckets.first().cloned())
         .unwrap_or_else(|| "demo".to_string());
-    let session_id = body["session_id"]
-        .as_str()
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("s-{}", js_sys::Date::now() as u64));
+    let session_id = {
+        let mut b = [0u8; 16];
+        let _ = getrandom::getrandom(&mut b);
+        format!("s-{}", hex::encode(b))
+    };
     let engines_raw = ok.passbox_payload["engines"].clone();
     let decls = match apps_load::parse_engines(&engines_raw) {
         Ok(d) => d,
@@ -724,7 +727,7 @@ async fn kv_call(body: &Value) -> String {
         results.push(r);
     }
     json!({"status": 200, "body": {"reply": reply, "egress_results": results,
-        "kv_in_isolat": true, "session_id": sid}}).to_string()
+        "kv_in_isolat": true}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -750,7 +753,7 @@ async fn apps_call_kv(body: &Value) -> String {
         }
     });
     json!({"status": 200, "body": {"reply": reply, "egress_results": results,
-        "heft_events": heft, "kv_in_isolat": true, "session_id": sid}}).to_string()
+        "heft_events": heft, "kv_in_isolat": true}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -821,7 +824,7 @@ async fn sync_zyklus(body: &Value) -> String {
         "quelle_objekte": src.len(), "ziel_objekte": dst.len(),
         "aufgaben": r2["aufgaben_gesamt"], "emittiert": r2["aufgaben_emittiert"],
         "egress_results": results, "heft_events": alle, "heft_gesamt": gesamt,
-        "kv_in_isolat": true, "session_id": sid, "bucket": bucket}}).to_string()
+        "kv_in_isolat": true, "bucket": bucket}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]
