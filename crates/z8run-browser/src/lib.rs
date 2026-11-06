@@ -14,6 +14,10 @@ mod cipher;
 #[cfg(target_arch = "wasm32")]
 mod kernel;
 #[cfg(target_arch = "wasm32")]
+mod kv_exec;
+#[cfg(target_arch = "wasm32")]
+mod s3_http;
+#[cfg(target_arch = "wasm32")]
 mod hashdatei3;
 #[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 mod hashdatei3_test;
@@ -210,6 +214,13 @@ pub fn kernel_status() -> String {
     kernel::with_kernel(|k| k.status().to_string())
 }
 
+/// kv-store-wasm als Hilfsmodul IM SELBEN Isolat registrieren (Bytes).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn init_kv(bytes: &[u8]) {
+    kernel::with_kernel(|k| k.set_kv_wasm(bytes.to_vec()));
+}
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn facade(request_json: &str) -> String {
@@ -288,6 +299,13 @@ pub async fn facade(request_json: &str) -> String {
                 Ok(v) => json!({"status": 200, "body": {"reply": v, "session_id": sid}}).to_string(),
                 Err(e) => proxy_err(e),
             }
+        }
+        ("POST", "/v1/kv/call") => kv_call(body).await,
+        ("POST", "/v1/apps/call_kv") => apps_call_kv(body).await,
+        ("POST", "/v1/sync/zyklus") => sync_zyklus(body).await,
+        ("GET", "/v1/heft/events") => {
+            let ev = kernel::with_kernel(|k| k.heft_events());
+            json!({"status": 200, "body": {"anzahl": ev.len(), "events": ev}}).to_string()
         }
         ("POST", "/v1/db/open") => db_open(body).await,
         ("POST", "/v1/db/close") => {
@@ -469,6 +487,15 @@ async fn passbox_login(body: &Value) -> String {
             js_sys::Date::now() as u64,
         )
     });
+    // S3-Provider der Session fuer Egress/In-Isolat-kv (nur RAM).
+    let providers_raw = if let Some(a) = body["secrets"]["providers"].as_array() {
+        Value::Array(a.clone())
+    } else if body["s3"].is_object() {
+        Value::Array(vec![body["s3"].clone()])
+    } else {
+        Value::Array(Vec::new())
+    };
+    kernel::with_kernel(|k| k.set_providers(&grant.session_id, providers_raw));
     // APP-LOAD je Auswahl: S3-GET (manifest + app.wasm) -> validieren ->
     // NUR in der Session registrieren. Kein Bundle im Deploy.
     let mut geladen: Vec<String> = Vec::new();
@@ -656,6 +683,145 @@ async fn db_query(body: &Value) -> String {
         Ok(v) => json!({"status": 200, "body": {"rows": v["rows"], "columns": v["columns"]}}).to_string(),
         Err(e) => proxy_err(e),
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn kv_kontext(sid: &str) -> Result<(Value, Vec<u8>), String> {
+    let providers = kernel::with_kernel(|k| k.providers_von(sid))
+        .ok_or_else(|| "keine S3-Provider in der Session".to_string())?;
+    let kv = kernel::with_kernel(|k| k.kv_bytes())
+        .filter(|b| !b.is_empty())
+        .ok_or_else(|| "kv-wasm nicht im Isolat registriert (init_kv)".to_string())?;
+    Ok((providers, kv))
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn kv_call(body: &Value) -> String {
+    let sid = match session_of(body) {
+        Ok(s) => s,
+        Err(e) => return proxy_err(e),
+    };
+    let (providers, kv) = match kv_kontext(&sid) {
+        Ok(v) => v,
+        Err(e) => return json!({"status": 503, "body": {"error": e}}).to_string(),
+    };
+    let auftrag = if body["auftrag"].is_null() { body.clone() } else { body["auftrag"].clone() };
+    let reply = match kv_exec::kv_aufruf(&kv, &auftrag) {
+        Ok(v) => v,
+        Err(e) => return json!({"status": 500, "body": {"error": e}}).to_string(),
+    };
+    let liste: Vec<Value> = match &reply["egress"] {
+        Value::Array(a) => a.clone(),
+        Value::Object(_) => vec![reply["egress"].clone()],
+        _ => Vec::new(),
+    };
+    let mut results = Vec::new();
+    for t in liste {
+        let b = t["befehl_vorlage"]["befehl"].as_str().unwrap_or("");
+        let p = &t["befehl_vorlage"]["params"];
+        let mut r = s3_http::ausfuehren(b, p, &providers).await;
+        r["via"] = json!("kv-wasm-in-isolat");
+        results.push(r);
+    }
+    json!({"status": 200, "body": {"reply": reply, "egress_results": results,
+        "kv_in_isolat": true, "session_id": sid}}).to_string()
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn apps_call_kv(body: &Value) -> String {
+    let sid = match session_of(body) {
+        Ok(s) => s,
+        Err(e) => return proxy_err(e),
+    };
+    let (providers, kv) = match kv_kontext(&sid) {
+        Ok(v) => v,
+        Err(e) => return json!({"status": 503, "body": {"error": e}}).to_string(),
+    };
+    let name = body["app"].as_str().unwrap_or("sync");
+    let input = if body["input"].is_null() { Value::Null } else { body["input"].clone() };
+    let reply = match kernel::with_kernel(|k| k.call_app(&sid, name, &input)) {
+        Ok(v) => v,
+        Err(e) => return proxy_err(e),
+    };
+    let (results, heft) = kv_exec::egress_ausfuehren(&reply["egress"], &providers, &kv, &sid).await;
+    kernel::with_kernel(|k| {
+        for e in &heft {
+            k.heft_push(e.clone());
+        }
+    });
+    json!({"status": 200, "body": {"reply": reply, "egress_results": results,
+        "heft_events": heft, "kv_in_isolat": true, "session_id": sid}}).to_string()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn objekte_von(results: &[Value], marke: &str) -> Vec<Value> {
+    results
+        .iter()
+        .find(|r| r["correlation_id"].as_str().unwrap_or("").ends_with(marke))
+        .and_then(|r| r["objects"].as_array().cloned())
+        .unwrap_or_default()
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn sync_zyklus(body: &Value) -> String {
+    let sid = match session_of(body) {
+        Ok(s) => s,
+        Err(e) => return proxy_err(e),
+    };
+    let (providers, kv) = match kv_kontext(&sid) {
+        Ok(v) => v,
+        Err(e) => return json!({"status": 503, "body": {"error": e}}).to_string(),
+    };
+    let provider = body["provider"].as_u64().unwrap_or(1);
+    let bucket = body["bucket"]
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| providers[0]["bucket"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let quelle = body["quelle_prefix"].as_str().unwrap_or("apps/");
+    let ziel = body["ziel_prefix"].as_str().unwrap_or("gold-target/");
+    let ziel_name = body["ziel_name"].as_str().unwrap_or("gold-target");
+    let budget = body["budget"].as_u64().unwrap_or(10);
+    let corr = format!("sync-{}", js_sys::Date::now() as u64);
+
+    let in1 = json!({
+        "befehl": "listen", "correlation_id": corr,
+        "quellen": [{"provider": provider, "bucket": bucket, "prefix": quelle}],
+        "ziele": [{"provider": provider, "bucket": bucket, "prefix": ziel, "name": ziel_name}]
+    });
+    let r1 = match kernel::with_kernel(|k| k.call_app(&sid, "sync", &in1)) {
+        Ok(v) => v,
+        Err(e) => return proxy_err(e),
+    };
+    let (res1, heft1) = kv_exec::egress_ausfuehren(&r1["egress"], &providers, &kv, &sid).await;
+    let src = objekte_von(&res1, "|src|0");
+    let dst = objekte_von(&res1, "|dst|0");
+
+    let in2 = json!({
+        "befehl": "aufschreiben", "correlation_id": corr, "quelle": "quelle",
+        "quelle_objekte": src, "ziele": [{"name": ziel_name, "objekte": dst}],
+        "budget": budget
+    });
+    let r2 = match kernel::with_kernel(|k| k.call_app(&sid, "sync", &in2)) {
+        Ok(v) => v,
+        Err(e) => return proxy_err(e),
+    };
+    let (res2, heft2) = kv_exec::egress_ausfuehren(&r2["egress"], &providers, &kv, &sid).await;
+    let mut alle = heft1;
+    alle.extend(heft2);
+    kernel::with_kernel(|k| {
+        for e in &alle {
+            k.heft_push(e.clone());
+        }
+    });
+    let gesamt = kernel::with_kernel(|k| k.heft_events().len());
+    let mut results = res1;
+    results.extend(res2);
+    json!({"status": 200, "body": {
+        "quelle_objekte": src.len(), "ziel_objekte": dst.len(),
+        "aufgaben": r2["aufgaben_gesamt"], "emittiert": r2["aufgaben_emittiert"],
+        "egress_results": results, "heft_events": alle, "heft_gesamt": gesamt,
+        "kv_in_isolat": true, "session_id": sid, "bucket": bucket}}).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]

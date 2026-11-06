@@ -85,6 +85,12 @@ pub struct Kernel {
     /// Apps je SESSION: `session_id -> (app_name -> Instanz)`. Apps
     /// verschiedener Logins sehen sich NIE; Logout entfernt den Eintrag.
     pub apps: RefCell<HashMap<String, HashMap<String, WasmiApp>>>,
+    /// S3-Provider je SESSION (nur RAM; Platzhalter-Aufloesung fuer Egress).
+    pub providers: RefCell<HashMap<String, Value>>,
+    /// kv-store-wasm als Hilfsmodul IM Isolat (Bytes aus dem Deploy).
+    pub kv_wasm: RefCell<Option<Vec<u8>>>,
+    /// In-Isolat-Heft: Events, die sonst an einen Daemon gingen.
+    pub heft: RefCell<Vec<Value>>,
 }
 
 impl Kernel {
@@ -115,7 +121,36 @@ impl Kernel {
             prompts: PromptStore::new(),
             dbs: RefCell::new(HashMap::new()),
             apps: RefCell::new(apps),
+            providers: RefCell::new(HashMap::new()),
+            kv_wasm: RefCell::new(None),
+            heft: RefCell::new(Vec::new()),
         }
+    }
+
+    pub fn set_providers(&self, session_id: &str, providers: Value) {
+        self.providers
+            .borrow_mut()
+            .insert(session_id.to_string(), providers);
+    }
+
+    pub fn providers_von(&self, session_id: &str) -> Option<Value> {
+        self.providers.borrow().get(session_id).cloned()
+    }
+
+    pub fn set_kv_wasm(&self, bytes: Vec<u8>) {
+        *self.kv_wasm.borrow_mut() = Some(bytes);
+    }
+
+    pub fn kv_bytes(&self) -> Option<Vec<u8>> {
+        self.kv_wasm.borrow().clone()
+    }
+
+    pub fn heft_push(&self, ev: Value) {
+        self.heft.borrow_mut().push(ev);
+    }
+
+    pub fn heft_events(&self) -> Vec<Value> {
+        self.heft.borrow().clone()
     }
 
     pub fn status(&self) -> Value {
@@ -182,6 +217,7 @@ impl Kernel {
     /// Logout/Expiry: Instanz+WASM-Speicher der Session fallen lassen.
     pub fn drop_apps(&self, session_id: &str) {
         self.apps.borrow_mut().remove(session_id);
+        self.providers.borrow_mut().remove(session_id);
     }
 
     pub fn call_app(
