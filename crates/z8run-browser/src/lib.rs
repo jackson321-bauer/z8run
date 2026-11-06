@@ -2,6 +2,7 @@
 //! SQLite+vec als WASM, OPFS (Z8FC1 + StorageBackend), S3/SigV4,
 //! postMessage-Fassade mit HTTP-Semantik, AutoLock und Offline-Regel.
 
+pub mod apps_load;
 pub mod conflict;
 pub mod session;
 pub mod sigv4;
@@ -199,7 +200,7 @@ pub fn prompt_insert(name: &str, content: &str) {
 #[cfg(all(target_arch = "wasm32", feature = "test-login"))]
 #[wasm_bindgen]
 pub fn app_names() -> Vec<String> {
-    kernel::with_kernel(|k| k.app_names())
+    kernel::with_kernel(|k| k.app_names_all())
 }
 
 /// Kernel-Status (fuer /v1/status und Browser-Tests).
@@ -265,18 +266,26 @@ pub async fn facade(request_json: &str) -> String {
             }
         }
         ("GET", "/v1/apps") => {
-            let names = kernel::with_kernel(|k| k.app_names());
-            json!({"status": 200, "body": {"apps": names, "runtime": "wasmi"}}).to_string()
+            let sid = match session_of(body) {
+                Ok(s) => s,
+                Err(e) => return proxy_err(e),
+            };
+            let names = kernel::with_kernel(|k| k.app_names(&sid));
+            json!({"status": 200, "body": {"apps": names, "runtime": "wasmi", "session_id": sid}}).to_string()
         }
         ("POST", "/v1/apps/call") => {
+            let sid = match session_of(body) {
+                Ok(s) => s,
+                Err(e) => return proxy_err(e),
+            };
             let name = body["app"].as_str().unwrap_or("");
             let input = if body["input"].is_null() {
                 Value::Null
             } else {
                 body["input"].clone()
             };
-            match kernel::with_kernel(|k| k.call_app(name, &input)) {
-                Ok(v) => json!({"status": 200, "body": {"reply": v}}).to_string(),
+            match kernel::with_kernel(|k| k.call_app(&sid, name, &input)) {
+                Ok(v) => json!({"status": 200, "body": {"reply": v, "session_id": sid}}).to_string(),
                 Err(e) => proxy_err(e),
             }
         }
@@ -306,13 +315,14 @@ pub async fn facade(request_json: &str) -> String {
         }
         ("POST", "/v1/session/logout") => {
             let sid = body["session_id"].as_str().unwrap_or("");
-            // HART: Tokens tot, Session+Master zeroize, Worker fail-closed.
+            // HART: Tokens tot, Session+Master zeroize, Apps/Instanzen weg.
             kernel::with_kernel(|k| {
                 k.tokens.revoke_session(sid);
                 k.sessions.remove(sid);
+                k.drop_apps(sid);
             });
             SESSION.with(|s| s.borrow_mut().wipe());
-            json!({"status": 200, "body": {"ok": true, "tokens": 0, "master_zeroized": true}})
+            json!({"status": 200, "body": {"ok": true, "tokens": 0, "master_zeroized": true, "apps": 0}})
                 .to_string()
         }
         ("POST", "/v1/conflict") => {
@@ -330,6 +340,16 @@ pub async fn facade(request_json: &str) -> String {
         }
         _ => json!({"status": 404, "body": {"error": "unbekannter Pfad"}}).to_string(),
     }
+}
+
+/// Session-Aufloesung fuer App-Routen: Token hat Vorrang, sonst
+/// explizite session_id (Test/Worker-Route), sonst "test".
+#[cfg(target_arch = "wasm32")]
+fn session_of(body: &Value) -> Result<String, proxy_kern::ProxyError> {
+    if let Some(tok) = body["token"].as_str().filter(|t| !t.is_empty()) {
+        return kernel::with_kernel(|k| k.tokens.validate(tok));
+    }
+    Ok(body["session_id"].as_str().unwrap_or("test").to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -354,9 +374,12 @@ fn login_err(e: login::LoginError) -> String {
 
 #[cfg(target_arch = "wasm32")]
 async fn passbox_login(body: &Value) -> String {
-    if let Err(e) = opfs_backend::init().await {
-        return json!({"status": 500, "body": {"error": e}}).to_string();
-    }
+    // Worker ohne OPFS (z.B. Vercel-Node): Login + App-Call laufen weiter,
+    // nur DB-Persistenz entfaellt (fail-soft, kein stiller Datenverlust).
+    let storage_ok = match opfs_backend::init().await {
+        Ok(()) => true,
+        Err(_e) => false,
+    };
     let space = body["space"].as_str().unwrap_or("");
     let username = body["username"].as_str().unwrap_or("");
     let password = body["password"].as_str().unwrap_or("");
@@ -425,6 +448,15 @@ async fn passbox_login(body: &Value) -> String {
         .as_str()
         .map(str::to_string)
         .unwrap_or_else(|| format!("s-{}", js_sys::Date::now() as u64));
+    let engines_raw = ok.passbox_payload["engines"].clone();
+    let decls = match apps_load::parse_engines(&engines_raw) {
+        Ok(d) => d,
+        Err(e) => return proxy_err(e),
+    };
+    let auswahl = match apps_load::selection(&decls, body.get("apps")) {
+        Ok(a) => a,
+        Err(e) => return proxy_err(e),
+    };
     let grant = kernel::with_kernel(|k| {
         k.login(
             ok.master.to_vec(),
@@ -433,12 +465,72 @@ async fn passbox_login(body: &Value) -> String {
             ok.username.clone(),
             body["workspace_bucket"].as_str().unwrap_or("").to_string(),
             if buckets.is_empty() { vec![db_id.clone()] } else { buckets.clone() },
+            engines_raw.clone(),
             js_sys::Date::now() as u64,
         )
     });
-    let opened = match kernel::open_db(&db_id, ok.master.as_slice(), &kernel::browser_cluster("browser")).await {
-        Ok(st) => serde_json::to_value(st).unwrap_or(Value::Null),
-        Err(e) => return proxy_err(e),
+    // APP-LOAD je Auswahl: S3-GET (manifest + app.wasm) -> validieren ->
+    // NUR in der Session registrieren. Kein Bundle im Deploy.
+    let mut geladen: Vec<String> = Vec::new();
+    for decl in &auswahl {
+        let s3 = match engine_s3cfg(body, decl) {
+            Ok(v) => v,
+            Err(e) => {
+                kernel::with_kernel(|k| {
+                    k.tokens.revoke_session(&grant.session_id);
+                    k.sessions.remove(&grant.session_id);
+                    k.drop_apps(&grant.session_id);
+                });
+                return json!({"status": 400, "body": {"error": e, "code": "BAD_REQUEST"}}).to_string();
+            }
+        };
+        let man_raw = match login::s3_get_bytes(&s3, "manifest.json").await {
+            Ok(v) => v,
+            Err(e) => {
+                kernel::with_kernel(|k| k.drop_apps(&grant.session_id));
+                return login_err(e);
+            }
+        };
+        let manifest: Value = match serde_json::from_slice(&man_raw) {
+            Ok(v) => v,
+            Err(e) => {
+                kernel::with_kernel(|k| k.drop_apps(&grant.session_id));
+                return json!({"status": 400, "body": {"error": format!("manifest.json: {e}")}}).to_string();
+            }
+        };
+        let app_datei = manifest["app"].as_str().unwrap_or("app.wasm").to_string();
+        let wasm = match login::s3_get_bytes(&s3, &app_datei).await {
+            Ok(v) => v,
+            Err(e) => {
+                kernel::with_kernel(|k| k.drop_apps(&grant.session_id));
+                return login_err(e);
+            }
+        };
+        let (name, version) = match apps_load::validate_bundle(&decl.name, &manifest, &wasm) {
+            Ok(v) => v,
+            Err(e) => {
+                kernel::with_kernel(|k| k.drop_apps(&grant.session_id));
+                return proxy_err(e);
+            }
+        };
+        match crate::apps::WasmiApp::load(&name, &version, &wasm) {
+            Ok(app) => {
+                kernel::with_kernel(|k| k.register_app(&grant.session_id, app));
+                geladen.push(name);
+            }
+            Err(e) => {
+                kernel::with_kernel(|k| k.drop_apps(&grant.session_id));
+                return proxy_err(e);
+            }
+        }
+    }
+    let opened = if storage_ok {
+        match kernel::open_db(&db_id, ok.master.as_slice(), &kernel::browser_cluster("browser")).await {
+            Ok(st) => serde_json::to_value(st).unwrap_or(Value::Null),
+            Err(e) => return proxy_err(e),
+        }
+    } else {
+        Value::Null
     };
     let fp = {
         use sha2::Digest;
@@ -454,10 +546,43 @@ async fn passbox_login(body: &Value) -> String {
             "space_addr": ok.space_addr,
             "user_addr": ok.user_addr,
             "master_sha256": fp,
+            "apps_loaded": geladen,
             "db": opened,
         }
     })
     .to_string()
+}
+
+/// S3-Konfiguration fuer ein Engine-Bundle: Provider-Creds aus dem
+/// ro-Profil (`secrets.providers[0]`), Bucket/Prefix aus der Deklaration.
+#[cfg(target_arch = "wasm32")]
+fn engine_s3cfg(body: &Value, decl: &apps_load::EngineDecl) -> Result<Value, String> {
+    if let Some(p) = body["secrets"]["providers"].as_array().and_then(|a| a.first()) {
+        let endpoint = p["endpoint"].as_str().unwrap_or("");
+        let host = endpoint
+            .strip_prefix("https://")
+            .or_else(|| endpoint.strip_prefix("http://"))
+            .unwrap_or(endpoint)
+            .trim_end_matches('/');
+        if host.is_empty() {
+            return Err("secrets.providers[0].endpoint fehlt".into());
+        }
+        return Ok(json!({
+            "host": host,
+            "region": p["region"].as_str().unwrap_or("us-east-1"),
+            "access_key": p["access_key"].as_str().unwrap_or(""),
+            "secret_key": p["secret_key"].as_str().unwrap_or(""),
+            "bucket": decl.bucket,
+            "prefix": decl.prefix,
+        }));
+    }
+    let mut s3 = body["s3"].clone();
+    if !s3.is_object() {
+        return Err("S3-Zugang fehlt (secrets.providers oder s3)".into());
+    }
+    s3["bucket"] = Value::String(decl.bucket.clone());
+    s3["prefix"] = Value::String(decl.prefix.clone());
+    Ok(s3)
 }
 
 /// Nur Test-Build: Inline-Welt im /3-Format (b2b + hw-shards + v3-Hybrid).

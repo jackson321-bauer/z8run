@@ -82,16 +82,28 @@ pub struct Kernel {
     pub tokens: Arc<TokenManager>,
     pub prompts: PromptStore,
     pub dbs: RefCell<HashMap<String, BrowserDb>>,
-    pub apps: RefCell<HashMap<String, WasmiApp>>,
+    /// Apps je SESSION: `session_id -> (app_name -> Instanz)`. Apps
+    /// verschiedener Logins sehen sich NIE; Logout entfernt den Eintrag.
+    pub apps: RefCell<HashMap<String, HashMap<String, WasmiApp>>>,
 }
 
 impl Kernel {
     pub fn new() -> Self {
-        let mut apps = HashMap::new();
-        // Dieselbe Echo-App wie nativ (unveraenderte .wasm, gleicher Vertrag).
-        let echo = WasmiApp::load("echo", "0.1.0", include_bytes!("../../../apps/echo/echo.wasm"));
-        if let Ok(app) = echo {
-            apps.insert("echo".to_string(), app);
+        let mut apps: HashMap<String, HashMap<String, WasmiApp>> = HashMap::new();
+        // TEST-ONLY: Echo-App fuer die Wasmi-Selbsttests. Im DEPLOY ist das
+        // Feature aus -> KEINE vorinstallierte App im Worker.
+        #[cfg(feature = "test-login")]
+        {
+            let echo = WasmiApp::load(
+                "echo",
+                "0.1.0",
+                include_bytes!("../../../apps/echo/echo.wasm"),
+            );
+            if let Ok(app) = echo {
+                let mut m = HashMap::new();
+                m.insert("echo".to_string(), app);
+                apps.insert("test".to_string(), m);
+            }
         }
         Self {
             sessions: SessionStore::new(),
@@ -108,6 +120,8 @@ impl Kernel {
 
     pub fn status(&self) -> Value {
         let dbs: Vec<String> = self.dbs.borrow().keys().cloned().collect();
+        let apps_gesamt: usize = self.apps.borrow().values().map(HashMap::len).sum();
+        let sessions_mit_apps = self.apps.borrow().values().filter(|m| !m.is_empty()).count();
         json!({
             "kern": "proxy-kern",
             "kern_version": env!("CARGO_PKG_VERSION"),
@@ -117,26 +131,70 @@ impl Kernel {
             "tokens": self.tokens.active_count(),
             "prompts": self.prompts.names().len(),
             "dbs": dbs,
-            "apps": self.app_infos(),
+            "apps": apps_gesamt,
+            "sessions_mit_apps": sessions_mit_apps,
         })
     }
 
-    pub fn app_names(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.apps.borrow().keys().cloned().collect();
+    /// App-Namen aller Sessions (nur Statusanzeige).
+    pub fn app_names_all(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .apps
+            .borrow()
+            .values()
+            .flat_map(|m| m.keys().cloned())
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// App-Namen GENAU dieser Session.
+    pub fn app_names(&self, session_id: &str) -> Vec<String> {
+        let apps = self.apps.borrow();
+        let Some(map) = apps.get(session_id) else {
+            return Vec::new();
+        };
+        let mut v: Vec<String> = map.keys().cloned().collect();
         v.sort();
         v
     }
 
-    pub fn app_infos(&self) -> Vec<proxy_kern::AppInfo> {
-        let mut v: Vec<proxy_kern::AppInfo> =
-            self.apps.borrow().values().map(WasmiApp::info).collect();
+    pub fn app_infos(&self, session_id: &str) -> Vec<proxy_kern::AppInfo> {
+        let apps = self.apps.borrow();
+        let Some(map) = apps.get(session_id) else {
+            return Vec::new();
+        };
+        let mut v: Vec<proxy_kern::AppInfo> = map.values().map(WasmiApp::info).collect();
         v.sort_by(|a, b| a.name.cmp(&b.name));
         v
     }
 
-    pub fn call_app(&self, name: &str, input: &Value) -> Result<Value, ProxyError> {
+    /// Registriert eine App NUR fuer eine Session (RAM-only).
+    pub fn register_app(&self, session_id: &str, app: WasmiApp) {
+        self.apps
+            .borrow_mut()
+            .entry(session_id.to_string())
+            .or_default()
+            .insert(app.name.clone(), app);
+    }
+
+    /// Logout/Expiry: Instanz+WASM-Speicher der Session fallen lassen.
+    pub fn drop_apps(&self, session_id: &str) {
+        self.apps.borrow_mut().remove(session_id);
+    }
+
+    pub fn call_app(
+        &self,
+        session_id: &str,
+        name: &str,
+        input: &Value,
+    ) -> Result<Value, ProxyError> {
         let apps = self.apps.borrow();
-        let app = apps
+        let map = apps
+            .get(session_id)
+            .ok_or_else(|| ProxyError::Unauthorized)?;
+        let app = map
             .get(name)
             .ok_or_else(|| ProxyError::NotFound(format!("app {name}")))?;
         Ok(app.call(input)?.payload)
@@ -150,6 +208,7 @@ impl Kernel {
         addr_user: String,
         bucket: String,
         dbs: Vec<String>,
+        engines: Value,
         now_ms: u64,
     ) -> TokenGrant {
         self.sessions.insert(SessionState::new(
@@ -157,7 +216,7 @@ impl Kernel {
             addr_space,
             addr_user,
             bucket,
-            Value::Null,
+            engines,
             dbs,
             master,
             now_ms,
